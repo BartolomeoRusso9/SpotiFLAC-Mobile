@@ -10,7 +10,7 @@ import 'package:spotiflac_android/utils/logger.dart';
 typedef BackupHistoryPageLoader =
     Future<List<Map<String, dynamic>>> Function(int limit, int offset);
 
-/// Parsed contents of a backup file. Version 2 keeps large history and cover
+/// Parsed contents of a backup file. ZIP backups keep large history and cover
 /// payloads on disk until restore consumes them.
 class BackupBundle {
   final int formatVersion;
@@ -21,6 +21,7 @@ class BackupBundle {
   final Map<String, dynamic> collections;
   final Map<String, dynamic> playlistCovers;
   final Map<String, dynamic> extensions;
+  final bool hasHistory;
   final String? _historyNdjsonPath;
   final int? _historyCount;
   final String? _temporaryDirectoryPath;
@@ -34,6 +35,7 @@ class BackupBundle {
     required this.collections,
     required this.playlistCovers,
     required this.extensions,
+    this.hasHistory = true,
     String? historyNdjsonPath,
     int? historyCount,
     String? temporaryDirectoryPath,
@@ -42,6 +44,7 @@ class BackupBundle {
        _temporaryDirectoryPath = temporaryDirectoryPath;
 
   bool get hasSettings => settings != null && settings!.isNotEmpty;
+  bool get hasCollections => collections.isNotEmpty;
   int get historyCount => _historyCount ?? history.length;
 
   Stream<Map<String, dynamic>> streamHistory() async* {
@@ -97,7 +100,9 @@ class BackupService {
   static final _log = AppLogger('BackupService');
 
   static const String magic = 'spotiflac-backup';
-  static const int formatVersion = 2;
+  // V3 permits omitted categories. Older readers reject it instead of treating
+  // an omitted history as an empty history and clearing existing downloads.
+  static const int formatVersion = 3;
   static const String fileExtension = 'sflb';
   static const int _historyPageSize = 500;
   static const int _maxMetadataBytes = 8 << 20;
@@ -141,6 +146,7 @@ class BackupService {
     required Map<String, dynamic> extensions,
     Directory? outputDirectory,
     Directory? temporaryDirectory,
+    bool includeHistory = true,
   }) async {
     final output = await _newBackupFile(outputDirectory);
     final tempRoot = temporaryDirectory ?? await getTemporaryDirectory();
@@ -160,7 +166,7 @@ class BackupService {
       var offset = 0;
       final historySink = historyFile.openWrite();
       try {
-        while (true) {
+        while (includeHistory) {
           final page = await loadHistoryPage(_historyPageSize, offset);
           for (final item in page) {
             historySink.writeln(jsonEncode(item));
@@ -194,10 +200,10 @@ class BackupService {
         'created_at': DateTime.now().toIso8601String(),
         'history_count': historyCount,
         'data': {
-          'settings': settings,
-          'collections': collections,
-          'playlist_covers': coverManifest,
-          'extensions': extensions,
+          'settings': ?settings,
+          if (collections.isNotEmpty) 'collections': collections,
+          if (coverManifest.isNotEmpty) 'playlist_covers': coverManifest,
+          if (extensions.isNotEmpty) 'extensions': extensions,
         },
       };
       await metadataFile.writeAsString(jsonEncode(metadata), flush: true);
@@ -205,7 +211,9 @@ class BackupService {
       if (await partFile.exists()) await partFile.delete();
       encoder = ZipFileEncoder()..create(partFile.path);
       await encoder.addFile(metadataFile, 'metadata.json');
-      await encoder.addFile(historyFile, 'history.ndjson');
+      if (includeHistory) {
+        await encoder.addFile(historyFile, 'history.ndjson');
+      }
       for (final entry in coverManifest.entries) {
         final sourcePath = playlistCoverFiles[entry.key]?['path'];
         if (sourcePath == null) continue;
@@ -289,14 +297,18 @@ class BackupService {
       final historyEntry = archive.find('history.ndjson');
       if (metadataEntry == null ||
           metadataEntry.size > _maxMetadataBytes ||
-          historyEntry == null ||
-          historyEntry.size > _maxHistoryBytes) {
+          (historyEntry != null && historyEntry.size > _maxHistoryBytes)) {
         return null;
       }
       final rootRaw = jsonDecode(utf8.decode(metadataEntry.content));
       if (rootRaw is! Map) return null;
       final root = Map<String, dynamic>.from(rootRaw);
-      if (root['magic'] != magic || root['format_version'] != formatVersion) {
+      final version = root['format_version'];
+      if (root['magic'] != magic ||
+          (version != 2 && version != formatVersion)) {
+        return null;
+      }
+      if (version == 2 && historyEntry == null) {
         return null;
       }
       final dataRaw = root['data'];
@@ -310,10 +322,13 @@ class BackupService {
           'spotiflac_restore_${DateTime.now().microsecondsSinceEpoch}',
         ),
       ).create(recursive: true);
-      final historyPath = p.join(extractionDir.path, 'history.ndjson');
-      final historyOutput = OutputFileStream(historyPath);
-      historyEntry.writeContent(historyOutput);
-      historyOutput.closeSync();
+      String? historyPath;
+      if (historyEntry != null) {
+        historyPath = p.join(extractionDir.path, 'history.ndjson');
+        final historyOutput = OutputFileStream(historyPath);
+        historyEntry.writeContent(historyOutput);
+        historyOutput.closeSync();
+      }
 
       final restoredCovers = <String, dynamic>{};
       final coverManifest = data['playlist_covers'];
@@ -350,11 +365,12 @@ class BackupService {
       }
 
       return BackupBundle(
-        formatVersion: formatVersion,
+        formatVersion: version as int,
         appVersion: root['app_version'] as String? ?? '',
         createdAt: DateTime.tryParse(root['created_at'] as String? ?? ''),
         settings: _mapOrNull(data['settings']),
         history: const [],
+        hasHistory: historyEntry != null,
         historyNdjsonPath: historyPath,
         historyCount: (root['history_count'] as num?)?.toInt() ?? 0,
         collections: _mapOrEmpty(data['collections']),
@@ -399,6 +415,7 @@ class BackupService {
       createdAt: DateTime.tryParse(root['created_at'] as String? ?? ''),
       settings: _mapOrNull(data['settings']),
       history: history,
+      hasHistory: data['history'] is List,
       collections: _mapOrEmpty(data['collections']),
       playlistCovers: _mapOrEmpty(data['playlist_covers']),
       extensions: _mapOrEmpty(data['extensions']),

@@ -4044,6 +4044,14 @@
   "@backupContentsTitle": {
     "description": "Header above the list summarizing what the backup contains"
   },
+  "backupSettingsOnly": "Settings only",
+  "backupSelectHistory": "Download history",
+  "backupSelectCollections": "Library collections",
+  "backupSelectCollectionsDescription": "Liked tracks, wishlist, favorite artists, playlists and playlist covers.",
+  "backupSelectExtensions": "Extensions and their settings",
+  "backupSelectedExportDescription": "Save the selected categories to a backup file. Audio files are not included.",
+  "backupSelectAtLeastOne": "Select at least one category to create a backup.",
+  "backupSelectedRestoreMessage": "Only the categories listed below will be restored. Categories not included in this backup will stay unchanged. Restoring can replace existing data and cannot be undone.",
   "backupContentsSettings": "App settings",
   "@backupContentsSettings": {
     "description": "Backup contents row label for settings"

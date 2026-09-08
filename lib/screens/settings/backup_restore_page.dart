@@ -28,25 +28,43 @@ class _BackupRestorePageState extends ConsumerState<BackupRestorePage> {
   bool _isExporting = false;
   bool _isImporting = false;
   bool _includeSecrets = false;
+  bool _includeSettings = true;
+  bool _includeHistory = true;
+  bool _includeCollections = true;
+  bool _includeExtensions = true;
 
   bool get _isBusy => _isExporting || _isImporting;
+  bool get _hasSelection =>
+      _includeSettings ||
+      _includeHistory ||
+      _includeCollections ||
+      _includeExtensions;
 
   Future<void> _createBackup() async {
-    if (_isBusy) return;
+    if (_isBusy || !_hasSelection) return;
     setState(() => _isExporting = true);
     final l10n = context.l10n;
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final settings = ref.read(settingsProvider).toJson();
-      final collectionsNotifier = ref.read(libraryCollectionsProvider.notifier);
-      final collections = await collectionsNotifier.exportCollections();
-      final covers = await collectionsNotifier.exportPlaylistCoverFiles();
-      final extensions = await ref
-          .read(extensionProvider.notifier)
-          .exportBackup(includeSecrets: _includeSecrets);
+      final settings = _includeSettings
+          ? ref.read(settingsProvider).toJson()
+          : null;
+      var collections = <String, dynamic>{};
+      var covers = <String, Map<String, String>>{};
+      if (_includeCollections) {
+        final notifier = ref.read(libraryCollectionsProvider.notifier);
+        collections = await notifier.exportCollections();
+        covers = await notifier.exportPlaylistCoverFiles();
+      }
+      final extensions = _includeExtensions
+          ? await ref
+                .read(extensionProvider.notifier)
+                .exportBackup(includeSecrets: _includeSecrets)
+          : <String, dynamic>{};
 
       final file = await BackupService.writeBackupArchive(
         settings: settings,
+        includeHistory: _includeHistory,
         loadHistoryPage: (limit, offset) =>
             HistoryDatabase.instance.getAll(limit: limit, offset: offset),
         collections: collections,
@@ -111,15 +129,19 @@ class _BackupRestorePageState extends ConsumerState<BackupRestorePage> {
             .read(settingsProvider.notifier)
             .restoreFromBackup(bundle.settings!);
       }
-      await ref
-          .read(downloadHistoryProvider.notifier)
-          .restoreFromBackupStream(bundle.streamHistory());
-      await ref
-          .read(libraryCollectionsProvider.notifier)
-          .restoreFromBackup(
-            bundle.collections,
-            coverImages: bundle.playlistCovers,
-          );
+      if (bundle.hasHistory) {
+        await ref
+            .read(downloadHistoryProvider.notifier)
+            .restoreFromBackupStream(bundle.streamHistory());
+      }
+      if (bundle.hasCollections) {
+        await ref
+            .read(libraryCollectionsProvider.notifier)
+            .restoreFromBackup(
+              bundle.collections,
+              coverImages: bundle.playlistCovers,
+            );
+      }
 
       ExtensionRestoreResult? extResult;
       if (bundle.hasExtensions) {
@@ -164,7 +186,7 @@ class _BackupRestorePageState extends ConsumerState<BackupRestorePage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(l10n.backupRestoreConfirmMessage),
+              Text(l10n.backupSelectedRestoreMessage),
               const SizedBox(height: 16),
               Text(
                 l10n.backupContentsTitle,
@@ -178,22 +200,26 @@ class _BackupRestorePageState extends ConsumerState<BackupRestorePage> {
                   icon: Icons.settings_outlined,
                   label: l10n.backupContentsSettings,
                 ),
-              _ContentRow(
-                icon: Icons.history,
-                label: l10n.backupContentsHistory(bundle.historyCount),
-              ),
-              _ContentRow(
-                icon: Icons.favorite_outline,
-                label: l10n.backupContentsLiked(bundle.likedCount),
-              ),
-              _ContentRow(
-                icon: Icons.bookmark_outline,
-                label: l10n.backupContentsWishlist(bundle.wishlistCount),
-              ),
-              _ContentRow(
-                icon: Icons.queue_music_outlined,
-                label: l10n.backupContentsPlaylists(bundle.playlistCount),
-              ),
+              if (bundle.hasHistory)
+                _ContentRow(
+                  icon: Icons.history,
+                  label: l10n.backupContentsHistory(bundle.historyCount),
+                ),
+              if (bundle.hasCollections)
+                _ContentRow(
+                  icon: Icons.favorite_outline,
+                  label: l10n.backupContentsLiked(bundle.likedCount),
+                ),
+              if (bundle.hasCollections)
+                _ContentRow(
+                  icon: Icons.bookmark_outline,
+                  label: l10n.backupContentsWishlist(bundle.wishlistCount),
+                ),
+              if (bundle.hasCollections)
+                _ContentRow(
+                  icon: Icons.queue_music_outlined,
+                  label: l10n.backupContentsPlaylists(bundle.playlistCount),
+                ),
               if (bundle.favoriteArtistCount > 0)
                 _ContentRow(
                   icon: Icons.person_outline,
@@ -235,20 +261,71 @@ class _BackupRestorePageState extends ConsumerState<BackupRestorePage> {
           SliverToBoxAdapter(
             child: SettingsGroup(
               children: [
+                SettingsItem(
+                  icon: Icons.settings_outlined,
+                  title: l10n.backupSettingsOnly,
+                  onTap: _isBusy
+                      ? null
+                      : () => setState(() {
+                          _includeSettings = true;
+                          _includeHistory = false;
+                          _includeCollections = false;
+                          _includeExtensions = false;
+                          _includeSecrets = false;
+                        }),
+                ),
+                SettingsSwitchItem(
+                  icon: Icons.settings_outlined,
+                  title: l10n.backupContentsSettings,
+                  value: _includeSettings,
+                  onChanged: _isBusy
+                      ? null
+                      : (value) => setState(() => _includeSettings = value),
+                ),
+                SettingsSwitchItem(
+                  icon: Icons.history,
+                  title: l10n.backupSelectHistory,
+                  value: _includeHistory,
+                  onChanged: _isBusy
+                      ? null
+                      : (value) => setState(() => _includeHistory = value),
+                ),
+                SettingsSwitchItem(
+                  icon: Icons.library_music_outlined,
+                  title: l10n.backupSelectCollections,
+                  subtitle: l10n.backupSelectCollectionsDescription,
+                  value: _includeCollections,
+                  onChanged: _isBusy
+                      ? null
+                      : (value) => setState(() => _includeCollections = value),
+                ),
+                SettingsSwitchItem(
+                  icon: Icons.extension_outlined,
+                  title: l10n.backupSelectExtensions,
+                  value: _includeExtensions,
+                  onChanged: _isBusy
+                      ? null
+                      : (value) => setState(() {
+                          _includeExtensions = value;
+                          if (!value) _includeSecrets = false;
+                        }),
+                ),
                 SettingsSwitchItem(
                   icon: Icons.vpn_key_outlined,
                   title: l10n.backupIncludeSecrets,
                   subtitle: l10n.backupIncludeSecretsDescription,
                   value: _includeSecrets,
-                  onChanged: _isBusy
+                  onChanged: _isBusy || !_includeExtensions
                       ? null
                       : (value) => setState(() => _includeSecrets = value),
                 ),
                 SettingsItem(
                   icon: Icons.ios_share,
                   title: l10n.backupExportButton,
-                  subtitle: l10n.backupExportSectionDescription,
-                  onTap: _isBusy ? null : _createBackup,
+                  subtitle: _hasSelection
+                      ? l10n.backupSelectedExportDescription
+                      : l10n.backupSelectAtLeastOne,
+                  onTap: _isBusy || !_hasSelection ? null : _createBackup,
                   trailing: _isExporting
                       ? const SizedBox(
                           width: 20,
