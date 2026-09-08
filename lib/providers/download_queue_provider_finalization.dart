@@ -198,7 +198,12 @@ extension _DownloadQueueFinalization on DownloadQueueNotifier {
           deleteOriginal: true,
         );
         if (convertedPath != null) {
-          publishedFileName = File(convertedPath).uri.pathSegments.last;
+          // Deferred SAF downloads are converted in the cache before being
+          // published. Keep their logical filename instead of the temporary
+          // FFmpeg output basename (native_saf_work_...).
+          if (storageMode != 'saf') {
+            publishedFileName = File(convertedPath).uri.pathSegments.last;
+          }
           await embedConvertedMetadata(convertedPath);
         }
       }
