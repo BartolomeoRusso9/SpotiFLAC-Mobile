@@ -727,6 +727,20 @@ class PlatformBridge {
     await _channel.invokeMethod('setDownloadDirectory', {'path': path});
   }
 
+  /// Holds backend access through download and finalization, including folder changes.
+  static Future<String> acquireDownloadDirectory(String path) async {
+    if (!supportsCoreBackend) return '';
+    return await _channel.invokeMethod<String>('acquireDownloadDirectory', {
+          'path': path,
+        }) ??
+        '';
+  }
+
+  static Future<void> releaseDownloadDirectory(String token) async {
+    if (!supportsCoreBackend || token.isEmpty) return;
+    await _channel.invokeMethod('releaseDownloadDirectory', {'token': token});
+  }
+
   static Future<void> setNetworkCompatibilityOptions({
     required bool allowHttp,
     required bool insecureTls,
@@ -739,6 +753,17 @@ class PlatformBridge {
 
   static Future<void> setAllowPrivateNetwork(bool allowed) async {
     await _channel.invokeMethod('setAllowPrivateNetwork', {'allowed': allowed});
+  }
+
+  /// Reports domain ownership during native backend migration.
+  static Future<Map<String, String>> getBackendImplementations({
+    String? filePath,
+  }) async {
+    final result = await _channel.invokeMapMethod<String, String>(
+      'getBackendImplementations',
+      filePath == null ? null : {'file_path': filePath},
+    );
+    return result ?? const {};
   }
 
   static Future<String> buildFilename(
@@ -1040,9 +1065,11 @@ class PlatformBridge {
     String audioPath,
     String outputPath,
   ) {
-    return _invokeMap('extractCoverToFile', {
-      'audio_path': audioPath,
-      'output_path': outputPath,
+    return _withMediaFileAccess([audioPath, outputPath], () {
+      return _invokeMap('extractCoverToFile', {
+        'audio_path': audioPath,
+        'output_path': outputPath,
+      });
     });
   }
 
@@ -1100,7 +1127,12 @@ class PlatformBridge {
   static Future<Map<String, dynamic>> reEnrichFile(
     Map<String, dynamic> request,
   ) {
-    return _invokeMap('reEnrichFile', {'request_json': jsonEncode(request)});
+    Future<Map<String, dynamic>> invoke() =>
+        _invokeMap('reEnrichFile', {'request_json': jsonEncode(request)});
+    if (request['preview_only'] == true) return invoke();
+    return _withMediaFileAccess([
+      request['file_path'] as String? ?? '',
+    ], invoke);
   }
 
   static Future<Map<String, dynamic>> readFileMetadata(
@@ -1136,10 +1168,39 @@ class PlatformBridge {
     String filePath,
     Map<String, String> metadata,
   ) {
-    return _invokeMap('editFileMetadata', {
-      'file_path': filePath,
-      'metadata_json': jsonEncode(metadata),
+    return _withMediaFileAccess([filePath, metadata['cover_path'] ?? ''], () {
+      return _invokeMap('editFileMetadata', {
+        'file_path': filePath,
+        'metadata_json': jsonEncode(metadata),
+      });
     });
+  }
+
+  static Future<T> _withMediaFileAccess<T>(
+    Iterable<String> paths,
+    Future<T> Function() operation,
+  ) async {
+    // A user-selected library file or cover can live outside the download
+    // folder. Hold only this operation's backend grants; SAF is staged natively.
+    final scopes = <String>[];
+    try {
+      final directories = <String>{
+        for (final path in paths)
+          if (path.startsWith('/')) File(path).parent.path,
+      };
+      for (final directory in directories) {
+        scopes.add(await acquireDownloadDirectory(directory));
+      }
+      return await operation();
+    } finally {
+      for (final scope in scopes.reversed) {
+        try {
+          await releaseDownloadDirectory(scope);
+        } catch (e) {
+          _log.w('Failed to release media file access: $e');
+        }
+      }
+    }
   }
 
   /// Writes ISRC and label into an M4A/MP4 file as iTunes freeform atoms.
@@ -1150,9 +1211,11 @@ class PlatformBridge {
     String filePath,
     Map<String, String> fields,
   ) {
-    return _invokeMap('writeM4AFreeformTags', {
-      'file_path': filePath,
-      'metadata_json': jsonEncode(fields),
+    return _withMediaFileAccess([filePath], () {
+      return _invokeMap('writeM4AFreeformTags', {
+        'file_path': filePath,
+        'metadata_json': jsonEncode(fields),
+      });
     });
   }
 
@@ -1164,9 +1227,11 @@ class PlatformBridge {
     String filePath,
     String sourcePath,
   ) {
-    return _invokeMap('ensureAC4Config', {
-      'file_path': filePath,
-      'source_path': sourcePath,
+    return _withMediaFileAccess([filePath, sourcePath], () {
+      return _invokeMap('ensureAC4Config', {
+        'file_path': filePath,
+        'source_path': sourcePath,
+      });
     });
   }
 
@@ -1179,24 +1244,28 @@ class PlatformBridge {
     Map<String, String> metadata,
     String coverPath,
   ) {
-    return _invokeMap('writeAC4Metadata', {
-      'file_path': filePath,
-      'metadata_json': jsonEncode(metadata),
-      'cover_path': coverPath,
+    return _withMediaFileAccess([filePath, coverPath], () {
+      return _invokeMap('writeAC4Metadata', {
+        'file_path': filePath,
+        'metadata_json': jsonEncode(metadata),
+        'cover_path': coverPath,
+      });
     });
   }
 
   /// Rewrites ARTIST/ALBUMARTIST Vorbis comments as multiple split entries
-  /// using the native Go FLAC writer, fixing FFmpeg's tag deduplication.
+  /// using the selected native FLAC writer, fixing FFmpeg's tag deduplication.
   static Future<Map<String, dynamic>> rewriteSplitArtistTags(
     String filePath,
     String artist,
     String albumArtist,
   ) {
-    return _invokeMap('rewriteSplitArtistTags', {
-      'file_path': filePath,
-      'artist': artist,
-      'album_artist': albumArtist,
+    return _withMediaFileAccess([filePath], () {
+      return _invokeMap('rewriteSplitArtistTags', {
+        'file_path': filePath,
+        'artist': artist,
+        'album_artist': albumArtist,
+      });
     });
   }
 
@@ -1493,7 +1562,7 @@ class PlatformBridge {
     await _channel.invokeMethod('clearLogs');
   }
 
-  /// Ask the Go backend to GC and return freed heap to the OS. Best-effort:
+  /// Ask the native backend to release unused memory. Best-effort:
   /// safe to call on memory pressure or when the app is backgrounded.
   static Future<void> releaseNativeMemory({bool underPressure = false}) async {
     try {
@@ -1524,12 +1593,18 @@ class PlatformBridge {
     String extensionsDir,
     String dataDir, {
     required String masterKey,
+    required List<String> lyricsProviders,
+    required Map<String, dynamic> lyricsFetchOptions,
+    List<String> allowedDirectories = const [],
   }) async {
     _log.d('initExtensionSystem: $extensionsDir, $dataDir');
     await _channel.invokeMethod('initExtensionSystem', {
       'extensions_dir': extensionsDir,
       'data_dir': dataDir,
       'master_key': masterKey,
+      'lyrics_providers_json': jsonEncode(lyricsProviders),
+      'lyrics_options_json': jsonEncode(lyricsFetchOptions),
+      'allowed_directories': allowedDirectories,
     });
   }
 
@@ -2513,17 +2588,34 @@ class PlatformBridge {
   static Future<Map<String, dynamic>> runPostProcessingV2(
     String filePath, {
     Map<String, dynamic>? metadata,
+    String? itemId,
   }) async {
     final input = <String, dynamic>{};
+    if (itemId != null && itemId.isNotEmpty) input['item_id'] = itemId;
     if (filePath.startsWith('content://')) {
       input['uri'] = filePath;
     } else {
       input['path'] = filePath;
     }
-    return _invokeMap('runPostProcessingV2', {
+    final result = await _invokeMap('runPostProcessingV2', {
       'input': jsonEncode(input),
       'metadata': metadata != null ? jsonEncode(metadata) : '',
     });
+    if (result['success'] != true) return result;
+
+    // The Go/Rust result uses new_file_path; the queue consumes file_path.
+    // SAF publishes back to its document URI after processing a temporary file.
+    final uri = result['new_file_uri'];
+    final path = result['new_file_path'];
+    final legacyPath = result['file_path'];
+    if (filePath.startsWith('content://') && uri is String && uri.isNotEmpty) {
+      result['file_path'] = uri;
+    } else if (path is String && path.isNotEmpty) {
+      result['file_path'] = path;
+    } else if (legacyPath is! String || legacyPath.isEmpty) {
+      result['file_path'] = filePath;
+    }
+    return result;
   }
 
   static Future<void> initExtensionRepo(String cacheDir) async {

@@ -6,7 +6,18 @@
 # Ignore missing javax.xml.stream (not used on Android)
 -dontwarn javax.xml.stream.**
 
-# The Go backend and FFmpeg plugin ship their JNI keep rules in their AARs.
+# The FFmpeg plugin ships its JNI keep rules in its AAR.
+
+# UniFFI/JNA resolves FFI methods and structure fields by their generated names.
+# Preserve the generated Rust bindings used by JNA.
+-keep class com.sun.jna.** { *; }
+-keep class com.spotiflac.backend.** { *; }
+# JNA's desktop AWT helpers are unavailable and unused on Android.
+# https://github.com/java-native-access/jna/blob/master/www/FrequentlyAskedQuestions.md#jna-on-android
+-dontwarn java.awt.Component
+-dontwarn java.awt.GraphicsEnvironment
+-dontwarn java.awt.HeadlessException
+-dontwarn java.awt.Window
 
 # Keep native methods
 -keepclasseswithmembernames class * {

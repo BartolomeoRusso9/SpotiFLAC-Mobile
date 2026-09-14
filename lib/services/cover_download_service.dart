@@ -31,16 +31,17 @@ class CoverDownloadService {
         ? 'cover'
         : safeBaseName.trim();
     final tempDir = await Directory.systemTemp.createTemp('save_cover_');
-    final tempPath = p.join(tempDir.path, 'cover.image');
+    var tempPath = p.join(tempDir.path, 'cover.image');
     IosSecurityScopedAccess? iosBookmarkAccess;
 
     try {
       final download = await PlatformBridge.downloadCoverToFile(
         normalizedUrl,
-        tempPath,
+        Platform.isAndroid || Platform.isIOS ? '' : tempPath,
       );
       final error = download['error']?.toString().trim() ?? '';
       if (error.isNotEmpty) throw StateError(error);
+      tempPath = download['file_path'] as String? ?? tempPath;
 
       final tempFile = File(tempPath);
       if (!await tempFile.exists() || await tempFile.length() <= 0) {
@@ -104,6 +105,8 @@ class CoverDownloadService {
         await PlatformBridge.stopAccessingIosBookmark(iosBookmarkAccess);
       }
       try {
+        final tempFile = File(tempPath);
+        if (await tempFile.exists()) await tempFile.delete();
         if (await tempDir.exists()) await tempDir.delete(recursive: true);
       } catch (_) {}
     }

@@ -24,12 +24,12 @@ import io.flutter.embedding.engine.FlutterShellArgs
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import com.ryanheise.audioservice.AudioServicePlugin
-import gobackend.Gobackend
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -44,6 +44,7 @@ import java.security.SecureRandom
 import java.util.LinkedHashMap
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
 
 class MainActivity: FlutterFragmentActivity() {
     // Mirrors audio_service's AudioServiceFragmentActivity: the shared engine
@@ -76,6 +77,73 @@ class MainActivity: FlutterFragmentActivity() {
     private val LARGE_JSON_RESULT_FILE_THRESHOLD_BYTES = 256 * 1024
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var backendChannel: MethodChannel? = null
+    internal val coreBackend: CoreBackend by lazy { createCoreBackend(applicationContext) }
+    private val nativeBackendMethods = setOf(
+        "getBackendImplementations",
+        "ensureInstallMarker",
+        "prepareRuntimeState",
+        "downloadByStrategy",
+        "runPostProcessingV2",
+        "readAudioMetadata",
+        "readFileMetadata",
+        "editFileMetadata",
+        "reEnrichFile",
+        "setLibraryCoverCacheDir",
+        "scanLibraryFolder",
+        "scanLibraryFolderToNDJSONFile",
+        "scanLibraryFolderIncremental",
+        "scanLibraryFolderIncrementalFromSnapshot",
+        "scanSafTree",
+        "scanSafTreeToNDJSONFile",
+        "scanSafTreeIncremental",
+        "scanSafTreeIncrementalFromSnapshot",
+        "getLibraryScanProgress",
+        "cancelLibraryScan",
+        "parseCueSheet",
+        "pickSafTree",
+        "safExists",
+        "safExistsBatch",
+        "isSafTreeAccessible",
+        "safDelete",
+        "safStat",
+        "resolveSafFile",
+        "inspectSafFiles",
+        "safCopyToTemp",
+        "safOpenPlaybackLease",
+        "safClosePlaybackLease",
+        "openContentUri",
+        "shareContentUri",
+        "shareMultipleContentUris",
+        "getSafFileModTimes",
+        "safCreateFromPath",
+        "safCreateIfAbsentFromPath",
+        "safCreateUniqueFromPath",
+        "safCreateCollisionAwareFromPath",
+        "writeTempToSaf",
+        "writeSafSidecarLrc",
+        "downloadCoverToFile",
+        "extractCoverToFile",
+        "rewriteSplitArtistTags",
+        "writeM4AFreeformTags",
+        "ensureAC4Config",
+        "writeAC4Metadata",
+        "releaseMemory",
+        "releaseMemoryUnderPressure",
+        "startDownloadService",
+        "stopDownloadService",
+        "updateDownloadServiceProgress",
+        "isDownloadServiceRunning",
+        "startNativeDownloadWorker",
+        "appendNativeDownloadWorkerRequests",
+        "finishNativeDownloadWorkerPreparation",
+        "acknowledgeNativeDownloadWorkerItems",
+        "pauseNativeDownloadWorker",
+        "resumeNativeDownloadWorker",
+        "cancelNativeDownloadWorker",
+        "getNativeDownloadWorkerSnapshot",
+        "consumeVerificationNotification",
+        "exitApp",
+    )
     private var libraryStorageReceiver: BroadcastReceiver? = null
     private val pendingSessionGrantEvents = mutableListOf<Map<String, Any>>()
     private var pendingVerificationNotification: String? = null
@@ -83,6 +151,7 @@ class MainActivity: FlutterFragmentActivity() {
     internal val safScanLock = Any()
     internal var safScanProgress = SafScanProgress()
     private var downloadProgressStreamJob: Job? = null
+    private var downloadProgressConnection: AtomicReference<CoreDownloadProgress?>? = null
     private var downloadProgressEventSink: EventChannel.EventSink? = null
     private var lastDownloadProgressPayload: String? = null
     private var lastDownloadProgressSeq = 0L
@@ -403,7 +472,7 @@ class MainActivity: FlutterFragmentActivity() {
         }
     }
 
-    private fun parseJsonPayload(payload: String): Any {
+    internal fun parseJsonPayload(payload: String): Any {
         return try {
             parseJsonValue(JSONTokener(payload).nextValue()) ?: payload
         } catch (_: Exception) {
@@ -467,8 +536,9 @@ class MainActivity: FlutterFragmentActivity() {
 
     private fun updateDownloadProgressSeq(payload: String) {
         try {
-            val seq = JSONObject(payload).optLong("seq", lastDownloadProgressSeq)
-            if (seq > lastDownloadProgressSeq) {
+            val objectValue = JSONObject(payload)
+            val seq = objectValue.optLong("seq", lastDownloadProgressSeq)
+            if (objectValue.optBoolean("reset", false) || seq > lastDownloadProgressSeq) {
                 lastDownloadProgressSeq = seq
             }
         } catch (_: Exception) {}
@@ -479,29 +549,38 @@ class MainActivity: FlutterFragmentActivity() {
         downloadProgressEventSink = sink
         lastDownloadProgressPayload = null
         lastDownloadProgressSeq = 0L
+        val connection = AtomicReference<CoreDownloadProgress?>(null)
+        downloadProgressConnection = connection
         downloadProgressStreamJob = scope.launch {
-            while (isActive && downloadProgressEventSink === sink) {
-                try {
-                    val payload = withContext(Dispatchers.IO) {
-                        Gobackend.waitForAllDownloadProgressDelta(
-                            lastDownloadProgressSeq,
-                            15_000L,
+            try {
+                while (isActive && downloadProgressConnection === connection) {
+                    try {
+                        val payload = withContext(Dispatchers.IO) {
+                            val reader = connection.get() ?: coreBackend.openDownloadProgress().also { connection.set(it) }
+                            ensureActive()
+                            reader.waitDelta(lastDownloadProgressSeq, 15_000L)
+                        }
+                        if (!isActive || downloadProgressConnection !== connection) break
+                        if (payload.isNotEmpty() && payload != lastDownloadProgressPayload) {
+                            updateDownloadProgressSeq(payload)
+                            lastDownloadProgressPayload = payload
+                            sink.success(parseJsonPayload(payload))
+                            delay(250L)
+                        }
+                    } catch (e: Exception) {
+                        connection.getAndSet(null)?.close()
+                        if (!isActive || downloadProgressConnection !== connection) break
+                        lastDownloadProgressSeq = 0L
+                        lastDownloadProgressPayload = null
+                        android.util.Log.w(
+                            "SpotiFLAC",
+                            "Download progress stream poll failed: ${e.message}",
                         )
-                    }
-                    if (!isActive || downloadProgressEventSink !== sink) break
-                    if (payload.isNotEmpty() && payload != lastDownloadProgressPayload) {
-                        updateDownloadProgressSeq(payload)
-                        lastDownloadProgressPayload = payload
-                        sink.success(parseJsonPayload(payload))
                         delay(250L)
                     }
-                } catch (e: Exception) {
-                    android.util.Log.w(
-                        "SpotiFLAC",
-                        "Download progress stream poll failed: ${e.message}",
-                    )
                 }
-                if (downloadProgressEventSink !== sink) break
+            } finally {
+                connection.getAndSet(null)?.close()
             }
         }
     }
@@ -509,6 +588,8 @@ class MainActivity: FlutterFragmentActivity() {
     private fun stopDownloadProgressStream() {
         downloadProgressStreamJob?.cancel()
         downloadProgressStreamJob = null
+        downloadProgressConnection?.getAndSet(null)?.close()
+        downloadProgressConnection = null
         downloadProgressEventSink = null
         lastDownloadProgressPayload = null
         lastDownloadProgressSeq = 0L
@@ -722,7 +803,7 @@ class MainActivity: FlutterFragmentActivity() {
     /**
      * Deliver Spotify (or other) OAuth authorization code to the extension runtime
      * and run its token exchange (e.g. completeSpotifyLogin). State is a one-time
-     * host nonce resolved to the owning extension by the Go backend.
+     * host nonce resolved to the owning extension by the backend.
      */
     private fun handleExtensionOAuthIntent(intent: Intent?) {
         val uri = intent?.data ?: return
@@ -759,26 +840,13 @@ class MainActivity: FlutterFragmentActivity() {
         var callbackExtensionId = ""
         scope.launch(Dispatchers.IO) {
             try {
-                val extId = if (isSessionGrant) {
-                    Gobackend.resolveExtensionCallbackState(callbackState)
-                } else {
-                    Gobackend.consumeExtensionCallbackState(callbackState)
-                }
-                callbackExtensionId = extId
-                val json = if (isSessionGrant) {
-                    Gobackend.setExtensionSessionGrantByID(extId, code)
-                    Gobackend.invokeExtensionActionJSON(extId, "completeGrant")
-                } else {
-                    Gobackend.setExtensionAuthCodeByID(extId, code)
-                    Gobackend.invokeExtensionActionJSON(extId, "completeSpotifyLogin")
-                }
-                if (isSessionGrant) {
-                    requireSuccessfulExtensionAction(extId, "completeGrant", json)
+                coreBackend.completeAuthCallback(callbackState, code, isSessionGrant) {
+                    callbackExtensionId = it
                 }
                 android.util.Log.i("SpotiFLAC", "Extension callback completed")
                 if (isSessionGrant) {
                     withContext(Dispatchers.Main) {
-                        notifySessionGrantCompleted(extId, true)
+                        notifySessionGrantCompleted(callbackExtensionId, true)
                     }
                 }
             } catch (e: Exception) {
@@ -790,23 +858,6 @@ class MainActivity: FlutterFragmentActivity() {
                 }
             }
         }
-    }
-
-    private fun requireSuccessfulExtensionAction(extensionId: String, actionName: String, response: String) {
-        val obj = try {
-            JSONObject(response)
-        } catch (e: Exception) {
-            throw IllegalStateException(
-                "Extension $actionName for $extensionId returned invalid JSON: ${response.take(240)}"
-            )
-        }
-        if (obj.optBoolean("success", false)) {
-            return
-        }
-        val error = obj.optString("error")
-            .ifBlank { obj.optString("message") }
-            .ifBlank { response.take(240) }
-        throw IllegalStateException("Extension $actionName failed for $extensionId: $error")
     }
 
     private fun notifySessionGrantCompleted(extensionId: String, success: Boolean) {
@@ -886,7 +937,7 @@ class MainActivity: FlutterFragmentActivity() {
         }
         libraryStorageReceiver = null
         try {
-            Gobackend.cleanupExtensions()
+            coreBackend.cleanupExtensions()
         } catch (e: Exception) {
             android.util.Log.w("SpotiFLAC", "Failed to cleanup extensions on destroy: ${e.message}")
         }
@@ -898,7 +949,8 @@ class MainActivity: FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        Gobackend.setAppVersion(BuildConfig.VERSION_NAME)
+        // Select and initialize the runtime before Flutter can dispatch a call.
+        val selectedBackend = coreBackend
         sweepStaleCacheFiles()
 
         // Always-enabled back callback to ensure back presses reach Flutter.
@@ -963,6 +1015,9 @@ class MainActivity: FlutterFragmentActivity() {
         channel.setMethodCallHandler { call, result ->
             scope.launch {
                 try {
+                    if (call.method !in nativeBackendMethods && dispatchBackendApplication(call, result)) {
+                        return@launch
+                    }
                     when (call.method) {
                         "consumeVerificationNotification" -> {
                             val payload = pendingVerificationNotification
@@ -982,7 +1037,7 @@ class MainActivity: FlutterFragmentActivity() {
                                     "Extension data directory is required"
                                 }
                                 val payload = prepareRuntimeState(dataDir)
-                                Gobackend.setRuntimeState(payload)
+                                selectedBackend.setRuntimeState(dataDir, payload)
                                 mapOf("ready" to true)
                             }
                             result.success(runtimeState)
@@ -999,95 +1054,41 @@ class MainActivity: FlutterFragmentActivity() {
                         "downloadByStrategy" -> {
                             val requestJson = call.arguments as String
                             val response = withContext(Dispatchers.IO) {
-                                SafDownloadHandler.handle(this@MainActivity, requestJson) { json ->
-                                    Gobackend.downloadByStrategy(json)
-                                }
+                                SafDownloadHandler.handle(this@MainActivity, requestJson, coreBackend)
                             }
                             result.success(response)
                         }
-                        "getAllDownloadProgress" -> {
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getAllDownloadProgress()
-                            }
-                            result.success(parseJsonPayload(response))
-                        }
-                        "clearItemProgress" -> {
-                            val itemId = call.argument<String>("item_id") ?: ""
-                            withContext(Dispatchers.IO) {
-                                Gobackend.clearItemProgress(itemId)
-                            }
-                            result.success(null)
-                        }
-                        "cancelDownload" -> {
-                            val itemId = call.argument<String>("item_id") ?: ""
-                            withContext(Dispatchers.IO) {
-                                Gobackend.cancelDownload(itemId)
-                            }
-                            result.success(null)
-                        }
-                        "resetDownloadCancel" -> {
-                            val itemId = call.argument<String>("item_id") ?: ""
-                            withContext(Dispatchers.IO) {
-                                Gobackend.resetDownloadCancel(itemId)
-                            }
-                            result.success(null)
-                        }
-                        "setDownloadDirectory" -> {
+                        "acquireDownloadDirectory" -> {
                             val path = call.argument<String>("path") ?: ""
                             withContext(Dispatchers.IO) {
-                                Gobackend.setDownloadDirectory(path)
+                                coreBackend.openDownloadDirectory(path).close()
                             }
-                            result.success(null)
+                            // Go grants have process lifetime; Rust owns scoped tokens in its dispatcher.
+                            result.success("")
                         }
-                        "setNetworkCompatibilityOptions", "setSongLinkNetworkOptions" -> {
-                            val allowHttp = call.argument<Boolean>("allow_http") ?: false
-                            val insecureTls = call.argument<Boolean>("insecure_tls") ?: false
-                            withContext(Dispatchers.IO) {
-                                Gobackend.setNetworkCompatibilityOptions(allowHttp, insecureTls)
-                            }
-                            result.success(null)
-                        }
-                        "setAllowPrivateNetwork" -> {
-                            val allowed = call.argument<Boolean>("allowed") ?: false
-                            withContext(Dispatchers.IO) {
-                                Gobackend.setAllowPrivateNetwork(allowed)
-                            }
-                            result.success(null)
-                        }
-                        "checkDuplicatesBatch" -> {
-                            val outputDir = call.argument<String>("output_dir") ?: ""
-                            val tracksJson = call.argument<String>("tracks") ?: "[]"
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.checkDuplicatesBatch(outputDir, tracksJson)
-                            }
-                            result.success(response)
-                        }
-                        "preBuildDuplicateIndex" -> {
-                            val outputDir = call.argument<String>("output_dir") ?: ""
-                            withContext(Dispatchers.IO) {
-                                Gobackend.preBuildDuplicateIndex(outputDir)
-                            }
-                            result.success(null)
-                        }
-                        "invalidateDuplicateIndex" -> {
-                            val outputDir = call.argument<String>("output_dir") ?: ""
-                            withContext(Dispatchers.IO) {
-                                Gobackend.invalidateDuplicateIndex(outputDir)
-                            }
-                            result.success(null)
+                        "releaseDownloadDirectory" -> result.success(null)
+                        "getBackendImplementations" -> {
+                            result.success(
+                                mapOf(
+                                    "filename" to coreBackend.implementation,
+                                    "file_metadata" to coreBackend.fileMetadataImplementation(call.argument<String>("file_path") ?: ""),
+                                    "extensions" to if (coreBackend.routesApplication) "rust" else "go",
+                                    "downloads" to coreBackend.implementation,
+                                )
+                            )
                         }
                         "buildFilename" -> {
                             val template = call.argument<String>("template") ?: ""
                             val metadata = call.argument<String>("metadata") ?: "{}"
                             val response = withContext(Dispatchers.IO) {
-                                Gobackend.buildFilename(template, metadata)
+                                coreBackend.buildFilename(template, metadata)
                             }
                             result.success(response)
                         }
                         "sanitizeFilename" -> {
                             val filename = call.argument<String>("filename") ?: ""
                             val response = withContext(Dispatchers.IO) {
-                                Gobackend.sanitizeFilename(filename)
+                                coreBackend.sanitizeFilename(filename)
                             }
                             result.success(response)
                         }
@@ -1385,92 +1386,6 @@ class MainActivity: FlutterFragmentActivity() {
                                 result.error("share_failed", e.message, null)
                             }
                         }
-                        "getLyricsLRC" -> {
-                            val spotifyId = call.argument<String>("spotify_id") ?: ""
-                            val trackName = call.argument<String>("track_name") ?: ""
-                            val artistName = call.argument<String>("artist_name") ?: ""
-                            val filePath = call.argument<String>("file_path") ?: ""
-                            val durationMs = call.argument<Int>("duration_ms")?.toLong() ?: 0L
-                            val response = withContext(Dispatchers.IO) {
-                                if (filePath.startsWith("content://")) {
-                                    val tempPath = copyUriToTemp(Uri.parse(filePath))
-                                    if (tempPath == null) {
-                                        ""
-                                    } else {
-                                        try {
-                                            Gobackend.getLyricsLRC(spotifyId, trackName, artistName, tempPath, durationMs)
-                                        } finally {
-                                            try {
-                                                File(tempPath).delete()
-                                            } catch (_: Exception) {}
-                                        }
-                                    }
-                                } else {
-                                    Gobackend.getLyricsLRC(spotifyId, trackName, artistName, filePath, durationMs)
-                                }
-                            }
-                            result.success(response)
-                        }
-                        "getLyricsLRCWithSource" -> {
-                            val spotifyId = call.argument<String>("spotify_id") ?: ""
-                            val trackName = call.argument<String>("track_name") ?: ""
-                            val artistName = call.argument<String>("artist_name") ?: ""
-                            val filePath = call.argument<String>("file_path") ?: ""
-                            val durationMs = call.argument<Int>("duration_ms")?.toLong() ?: 0L
-                            val response = withContext(Dispatchers.IO) {
-                                if (filePath.startsWith("content://")) {
-                                    val tempPath = copyUriToTemp(Uri.parse(filePath))
-                                    if (tempPath == null) {
-                                        """{"lyrics":"","source":"","sync_type":"","instrumental":false}"""
-                                    } else {
-                                        try {
-                                            Gobackend.getLyricsLRCWithSource(spotifyId, trackName, artistName, tempPath, durationMs)
-                                        } finally {
-                                            try {
-                                                File(tempPath).delete()
-                                            } catch (_: Exception) {}
-                                        }
-                                    }
-                                } else {
-                                    Gobackend.getLyricsLRCWithSource(spotifyId, trackName, artistName, filePath, durationMs)
-                                }
-                            }
-                            result.success(response)
-                        }
-                        "embedLyricsToFile" -> {
-                            val filePath = call.argument<String>("file_path") ?: ""
-                            val lyrics = call.argument<String>("lyrics") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                if (filePath.startsWith("content://")) {
-                                    val uri = Uri.parse(filePath)
-                                    val tempPath = copyUriToTemp(uri, ".flac")
-                                        ?: return@withContext errorJson("Failed to copy SAF file to temp")
-                                    try {
-                                        val raw = Gobackend.embedLyricsToFile(tempPath, lyrics)
-                                        val obj = JSONObject(raw)
-                                        if (!obj.optBoolean("success", false)) {
-                                            return@withContext raw
-                                        }
-
-                                        if (!writeUriFromPath(uri, tempPath)) {
-                                            return@withContext errorJson("Failed to write embedded lyrics back to SAF file")
-                                        }
-
-                                        obj.put("file_path", filePath)
-                                        obj.toString()
-                                    } catch (e: Exception) {
-                                        errorJson("Failed to embed lyrics to SAF file: ${e.message}")
-                                    } finally {
-                                        try {
-                                            File(tempPath).delete()
-                                        } catch (_: Exception) {}
-                                    }
-                                } else {
-                                    Gobackend.embedLyricsToFile(filePath, lyrics)
-                                }
-                            }
-                            result.success(response)
-                        }
                         "rewriteSplitArtistTags" -> {
                             val filePath = call.argument<String>("file_path") ?: ""
                             val artist = call.argument<String>("artist") ?: ""
@@ -1481,7 +1396,7 @@ class MainActivity: FlutterFragmentActivity() {
                                     val tempPath = copyUriToTemp(uri, ".flac")
                                         ?: return@withContext errorJson("Failed to copy SAF file to temp")
                                     try {
-                                        val raw = Gobackend.rewriteSplitArtistTagsExport(tempPath, artist, albumArtist)
+                                        val raw = coreBackend.rewriteSplitArtistTags(tempPath, artist, albumArtist)
                                         val obj = JSONObject(raw)
                                         if (!obj.optBoolean("success", false)) {
                                             return@withContext raw
@@ -1501,16 +1416,10 @@ class MainActivity: FlutterFragmentActivity() {
                                         } catch (_: Exception) {}
                                     }
                                 } else {
-                                    Gobackend.rewriteSplitArtistTagsExport(filePath, artist, albumArtist)
+                                    coreBackend.rewriteSplitArtistTags(filePath, artist, albumArtist)
                                 }
                             }
                             result.success(response)
-                        }
-                        "cleanupConnections" -> {
-                            withContext(Dispatchers.IO) {
-                                Gobackend.cleanupConnections()
-                            }
-                            result.success(null)
                         }
                         "readFileMetadata" -> {
                             val filePath = call.argument<String>("file_path") ?: ""
@@ -1521,7 +1430,7 @@ class MainActivity: FlutterFragmentActivity() {
                                         readCompleteMetadataFromUri(Uri.parse(filePath), displayName)
                                             ?.toString() ?: errorJson("Failed to read SAF metadata")
                                     } else {
-                                        Gobackend.readFileMetadataWithHint(filePath, displayName)
+                                        coreBackend.readFileMetadata(filePath, displayName)
                                     }
                                 } catch (e: Exception) {
                                     errorJson(e.message ?: "Failed to read metadata")
@@ -1539,7 +1448,7 @@ class MainActivity: FlutterFragmentActivity() {
                                         val tempPath = copyUriToTemp(uri)
                                             ?: return@withContext """{"error":"Failed to copy SAF file to temp"}"""
                                         try {
-                                            val raw = Gobackend.editFileMetadata(tempPath, metadataJson)
+                                            val raw = coreBackend.editFileMetadata(tempPath, metadataJson)
                                             val obj = JSONObject(raw)
                                             val method = obj.optString("method", "")
                                             if (method == "ffmpeg") {
@@ -1549,7 +1458,7 @@ class MainActivity: FlutterFragmentActivity() {
                                                 return@withContext obj.toString()
                                                 // Note: temp file NOT deleted here - Dart will clean up after FFmpeg + writeTempToSaf
                                             }
-                            // FLAC: Go wrote directly to temp, copy back now
+                            // FLAC: the backend wrote to temp, copy back now
                             if (!writeUriFromPath(uri, tempPath)) {
                                 try { File(tempPath).delete() } catch (_: Exception) {}
                                 return@withContext """{"error":"Failed to write metadata back to SAF file"}"""
@@ -1561,7 +1470,7 @@ class MainActivity: FlutterFragmentActivity() {
                                             throw e
                                         }
                                     } else {
-                                        Gobackend.editFileMetadata(filePath, metadataJson)
+                                        coreBackend.editFileMetadata(filePath, metadataJson)
                                     }
                                 } catch (e: Exception) {
                                     android.util.Log.e("SpotiFLAC", "editFileMetadata failed: ${e.message}", e)
@@ -1575,7 +1484,7 @@ class MainActivity: FlutterFragmentActivity() {
                             val metadataJson = call.argument<String>("metadata_json") ?: "{}"
                             val response = withContext(Dispatchers.IO) {
                                 try {
-                                    Gobackend.writeM4AFreeformTags(filePath, metadataJson)
+                                    coreBackend.writeM4aFreeformTags(filePath, metadataJson)
                                 } catch (e: Exception) {
                                     android.util.Log.e("SpotiFLAC", "writeM4AFreeformTags failed: ${e.message}", e)
                                     """{"error":${org.json.JSONObject.quote(e.message ?: "unknown")}}"""
@@ -1588,7 +1497,7 @@ class MainActivity: FlutterFragmentActivity() {
                             val sourcePath = call.argument<String>("source_path") ?: ""
                             val response = withContext(Dispatchers.IO) {
                                 try {
-                                    Gobackend.ensureAC4Config(filePath, sourcePath)
+                                    coreBackend.ensureAc4Config(filePath, sourcePath)
                                 } catch (e: Exception) {
                                     android.util.Log.e("SpotiFLAC", "ensureAC4Config failed: ${e.message}", e)
                                     """{"error":${org.json.JSONObject.quote(e.message ?: "unknown")}}"""
@@ -1602,7 +1511,7 @@ class MainActivity: FlutterFragmentActivity() {
                             val coverPath = call.argument<String>("cover_path") ?: ""
                             val response = withContext(Dispatchers.IO) {
                                 try {
-                                    Gobackend.writeAC4Metadata(filePath, metadataJson, coverPath)
+                                    coreBackend.writeAc4Metadata(filePath, metadataJson, coverPath)
                                 } catch (e: Exception) {
                                     android.util.Log.e("SpotiFLAC", "writeAC4Metadata failed: ${e.message}", e)
                                     """{"error":${org.json.JSONObject.quote(e.message ?: "unknown")}}"""
@@ -1652,14 +1561,28 @@ class MainActivity: FlutterFragmentActivity() {
                                 ?.coerceAtLeast(0L)
                                 ?: 0L
                             val response = withContext(Dispatchers.IO) {
+                                var temporaryCover: File? = null
                                 try {
-                                    Gobackend.downloadCoverToFileSized(
+                                    val destination = if (outputPath.isBlank()) {
+                                        coreBackend.createTemporaryMediaFile(
+                                            this@MainActivity,
+                                            "cover_",
+                                            ".jpg",
+                                        ).also { temporaryCover = it }.absolutePath
+                                    } else {
+                                        outputPath
+                                    }
+                                    coreBackend.downloadCoverToFileSized(
                                         coverUrl,
-                                        outputPath,
+                                        destination,
                                         maxDimension
                                     )
-                                    """{"success":true}"""
+                                    JSONObject()
+                                        .put("success", true)
+                                        .put("file_path", destination)
+                                        .toString()
                                 } catch (e: Exception) {
+                                    temporaryCover?.delete()
                                     """{"success":false,"error":"${e.message?.replace("\"", "'")}"}"""
                                 }
                             }
@@ -1675,102 +1598,17 @@ class MainActivity: FlutterFragmentActivity() {
                                         val tempPath = copyUriToTemp(uri)
                                             ?: return@withContext """{"success":false,"error":"Failed to copy SAF file to temp"}"""
                                         try {
-                                            Gobackend.extractCoverToFile(tempPath, outputPath)
+                                            coreBackend.extractCoverToFile(tempPath, outputPath)
                                             """{"success":true}"""
                                         } finally {
                                             try { File(tempPath).delete() } catch (_: Exception) {}
                                         }
                                     } else {
-                                        Gobackend.extractCoverToFile(audioPath, outputPath)
+                                        coreBackend.extractCoverToFile(audioPath, outputPath)
                                         """{"success":true}"""
                                     }
                                 } catch (e: Exception) {
                                     """{"success":false,"error":"${e.message?.replace("\"", "'")}"}"""
-                                }
-                            }
-                            result.success(response)
-                        }
-                        "fetchAndSaveLyrics" -> {
-                            val trackName = call.argument<String>("track_name") ?: ""
-                            val artistName = call.argument<String>("artist_name") ?: ""
-                            val spotifyId = call.argument<String>("spotify_id") ?: ""
-                            val durationMs = call.argument<Number>("duration_ms")?.toLong() ?: 0L
-                            val outputPath = call.argument<String>("output_path") ?: ""
-                            val rawAudioFilePath = call.argument<String>("audio_file_path") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                var safAudioTemp: String? = null
-                                try {
-                                    // Resolve SAF content:// URI to a temp file the Go backend can read
-                                    val audioFilePath = if (rawAudioFilePath.startsWith("content://")) {
-                                        val uri = Uri.parse(rawAudioFilePath)
-                                        val tempPath = copyUriToTemp(uri)
-                                        safAudioTemp = tempPath
-                                        tempPath ?: ""
-                                    } else {
-                                        rawAudioFilePath
-                                    }
-                                    Gobackend.fetchAndSaveLyrics(trackName, artistName, spotifyId, durationMs, outputPath, audioFilePath)
-                                    """{"success":true}"""
-                                } catch (e: Exception) {
-                                    """{"success":false,"error":"${e.message?.replace("\"", "'")}"}"""
-                                } finally {
-                                    if (safAudioTemp != null) {
-                                        try { File(safAudioTemp).delete() } catch (_: Exception) {}
-                                    }
-                                }
-                            }
-                            result.success(response)
-                        }
-                        "setLyricsProviders" -> {
-                            val providersJson = call.argument<String>("providers_json") ?: "[]"
-                            val response = withContext(Dispatchers.IO) {
-                                try {
-                                    Gobackend.setLyricsProvidersJSON(providersJson)
-                                    """{"success":true}"""
-                                } catch (e: Exception) {
-                                    """{"success":false,"error":"${e.message?.replace("\"", "'")}"}"""
-                                }
-                            }
-                            result.success(response)
-                        }
-                        "getLyricsProviders" -> {
-                            val response = withContext(Dispatchers.IO) {
-                                try {
-                                    Gobackend.getLyricsProvidersJSON()
-                                } catch (e: Exception) {
-                                    "[]"
-                                }
-                            }
-                            result.success(response)
-                        }
-                        "getAvailableLyricsProviders" -> {
-                            val response = withContext(Dispatchers.IO) {
-                                try {
-                                    Gobackend.getAvailableLyricsProvidersJSON()
-                                } catch (e: Exception) {
-                                    "[]"
-                                }
-                            }
-                            result.success(response)
-                        }
-                        "setLyricsFetchOptions" -> {
-                            val optionsJson = call.argument<String>("options_json") ?: "{}"
-                            val response = withContext(Dispatchers.IO) {
-                                try {
-                                    Gobackend.setLyricsFetchOptionsJSON(optionsJson)
-                                    """{"success":true}"""
-                                } catch (e: Exception) {
-                                    """{"success":false,"error":"${e.message?.replace("\"", "'")}"}"""
-                                }
-                            }
-                            result.success(response)
-                        }
-                        "getLyricsFetchOptions" -> {
-                            val response = withContext(Dispatchers.IO) {
-                                try {
-                                    Gobackend.getLyricsFetchOptionsJSON()
-                                } catch (e: Exception) {
-                                    "{}"
                                 }
                             }
                             result.success(response)
@@ -1788,9 +1626,10 @@ class MainActivity: FlutterFragmentActivity() {
                                         val uri = Uri.parse(filePath)
                                         val tempPath = copyUriToTemp(uri)
                                             ?: return@withContext """{"error":"Failed to copy SAF file to temp"}"""
+                                        var retainedForFfmpeg = false
                                         try {
                                             reqObj.put("file_path", tempPath)
-                                            val raw = Gobackend.reEnrichFile(reqObj.toString())
+                                            val raw = coreBackend.reEnrichFile(reqObj.toString())
                                             val obj = JSONObject(raw)
 
                                             if (obj.has("error")) {
@@ -1802,11 +1641,12 @@ class MainActivity: FlutterFragmentActivity() {
                                                 // MP3/Opus: Dart handles FFmpeg on temp file, then writes back
                                                 obj.put("temp_path", tempPath)
                                                 obj.put("saf_uri", filePath)
+                                                retainedForFfmpeg = true
                                                 return@withContext obj.toString()
-                                                // temp file NOT deleted - Dart cleans up after FFmpeg + writeTempToSaf
+                                                // Dart cleans up after FFmpeg + writeTempToSaf.
                                             }
 
-                                            // FLAC: Go wrote directly to temp, copy back now
+                                            // FLAC: the selected backend wrote to temp; copy back now.
                                             if (!writeUriFromPath(uri, tempPath)) {
                                                 return@withContext """{"error":"Failed to write enriched metadata back to SAF file"}"""
                                             }
@@ -1814,12 +1654,13 @@ class MainActivity: FlutterFragmentActivity() {
                                                 writeSafSidecarLrc(uri, obj.optString("lyrics", ""))
                                             }
                                             raw
-                                        } catch (e: Exception) {
-                                            try { File(tempPath).delete() } catch (_: Exception) {}
-                                            throw e
+                                        } finally {
+                                            if (!retainedForFfmpeg) {
+                                                try { File(tempPath).delete() } catch (_: Exception) {}
+                                            }
                                         }
                                     } else {
-                                        Gobackend.reEnrichFile(requestJson)
+                                        coreBackend.reEnrichFile(requestJson)
                                     }
                                 } catch (e: Exception) {
                                     """{"error":${org.json.JSONObject.quote(e.message ?: "unknown")}}"""
@@ -1928,430 +1769,18 @@ class MainActivity: FlutterFragmentActivity() {
                             }
                             result.success(payload)
                         }
-                        "getTrackCacheSize" -> {
-                            val size = withContext(Dispatchers.IO) {
-                                Gobackend.getTrackCacheSize()
-                            }
-                            result.success(size.toInt())
-                        }
-                        "clearTrackCache" -> {
-                            withContext(Dispatchers.IO) {
-                                Gobackend.clearTrackIDCache()
-                            }
-                            result.success(null)
-                        }
-                        "getProviderMetadata" -> {
-                            val providerId = call.argument<String>("provider_id") ?: ""
-                            val resourceType = call.argument<String>("resource_type") ?: ""
-                            val resourceId = call.argument<String>("resource_id") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getProviderMetadataJSON(providerId, resourceType, resourceId)
-                            }
-                            result.success(response)
-                        }
-                        "searchDeezerByISRC" -> {
-                            val isrc = call.argument<String>("isrc") ?: ""
-                            val itemId = call.argument<String>("item_id") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.searchDeezerByISRCForItemID(isrc, itemId)
-                            }
-                            result.success(response)
-                        }
-                        "getDeezerExtendedMetadata" -> {
-                            val trackId = call.argument<String>("track_id") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getDeezerExtendedMetadata(trackId)
-                            }
-                            result.success(response)
-                        }
-                        "convertSpotifyToDeezer" -> {
-                            val resourceType = call.argument<String>("resource_type") ?: ""
-                            val spotifyId = call.argument<String>("spotify_id") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.convertSpotifyToDeezer(resourceType, spotifyId)
-                            }
-                            result.success(response)
-                        }
-                        "getSpotifyIDFromDeezerTrack" -> {
-                            val deezerTrackId = call.argument<String>("deezer_track_id") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getSpotifyIDFromDeezerTrack(deezerTrackId)
-                            }
-                            result.success(response)
-                        }
-                        "getTidalURLFromDeezerTrack" -> {
-                            val deezerTrackId = call.argument<String>("deezer_track_id") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getTidalURLFromDeezerTrack(deezerTrackId)
-                            }
-                            result.success(response)
-                        }
-                        "getLogsSince" -> {
-                            val index = call.argument<Int>("index") ?: 0
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getLogsSince(index.toLong())
-                            }
-                            result.success(response)
-                        }
-                        "clearLogs" -> {
-                            withContext(Dispatchers.IO) {
-                                Gobackend.clearLogs()
-                            }
-                            result.success(null)
-                        }
                         "releaseMemory" -> {
                             withContext(Dispatchers.IO) {
-                                Gobackend.releaseMemory()
+                                coreBackend.releaseIdleResources()
                             }
                             result.success(null)
                         }
                         "releaseMemoryUnderPressure" -> {
                             withContext(Dispatchers.IO) {
-                                Gobackend.releaseMemoryUnderPressure()
+                                coreBackend.releaseMemoryUnderPressure()
                             }
+                            android.util.Log.d("SpotiFLAC", "Backend memory pressure release completed")
                             result.success(null)
-                        }
-                        "getGoRuntimeMetrics" -> {
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getRuntimeMetricsJSON()
-                            }
-                            result.success(response)
-                        }
-                        "setMetadataLanguage" -> {
-                            val tag = call.argument<String>("tag") ?: ""
-                            withContext(Dispatchers.IO) {
-                                Gobackend.setMetadataLanguage(tag)
-                            }
-                            result.success(null)
-                        }
-                        "setLoggingEnabled" -> {
-                            val enabled = call.argument<Boolean>("enabled") ?: false
-                            withContext(Dispatchers.IO) {
-                                Gobackend.setLoggingEnabled(enabled)
-                            }
-                            result.success(null)
-                        }
-                        "initExtensionSystem" -> {
-                            val extensionsDir = call.argument<String>("extensions_dir") ?: ""
-                            val dataDir = call.argument<String>("data_dir") ?: ""
-                            val masterKey = call.argument<String>("master_key") ?: ""
-                            withContext(Dispatchers.IO) {
-                                Gobackend.setExtensionStorageMasterKey(masterKey)
-                                Gobackend.initExtensionSystem(extensionsDir, dataDir)
-                            }
-                            result.success(null)
-                        }
-                        "loadExtensionsFromDir" -> {
-                            val dirPath = call.argument<String>("dir_path") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.loadExtensionsFromDir(dirPath)
-                            }
-                            result.success(response)
-                        }
-                        "loadExtensionFromPath" -> {
-                            val filePath = call.argument<String>("file_path") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.loadExtensionFromPath(filePath)
-                            }
-                            result.success(response)
-                        }
-                        "unloadExtension" -> {
-                            val extensionId = call.argument<String>("extension_id") ?: ""
-                            withContext(Dispatchers.IO) {
-                                Gobackend.unloadExtensionByID(extensionId)
-                            }
-                            result.success(null)
-                        }
-                        "removeExtension" -> {
-                            val extensionId = call.argument<String>("extension_id") ?: ""
-                            withContext(Dispatchers.IO) {
-                                Gobackend.removeExtensionByID(extensionId)
-                            }
-                            result.success(null)
-                        }
-                        "upgradeExtension" -> {
-                            val filePath = call.argument<String>("file_path") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.upgradeExtensionFromPath(filePath)
-                            }
-                            result.success(response)
-                        }
-                        "checkExtensionUpgrade" -> {
-                            val filePath = call.argument<String>("file_path") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.checkExtensionUpgradeFromPath(filePath)
-                            }
-                            result.success(response)
-                        }
-                        "getInstalledExtensions" -> {
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getInstalledExtensions()
-                            }
-                            result.success(response)
-                        }
-                        "setExtensionEnabled" -> {
-                            val extensionId = call.argument<String>("extension_id") ?: ""
-                            val enabled = call.argument<Boolean>("enabled") ?: false
-                            withContext(Dispatchers.IO) {
-                                Gobackend.setExtensionEnabledByID(extensionId, enabled)
-                            }
-                            result.success(null)
-                        }
-                        "setProviderPriority" -> {
-                            val priorityJson = call.argument<String>("priority") ?: "[]"
-                            withContext(Dispatchers.IO) {
-                                Gobackend.setProviderPriorityJSON(priorityJson)
-                            }
-                            result.success(null)
-                        }
-                        "getProviderPriority" -> {
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getProviderPriorityJSON()
-                            }
-                            result.success(response)
-                        }
-                        "setDownloadFallbackExtensionIds" -> {
-                            val extensionIdsJson = call.argument<String>("extension_ids") ?: ""
-                            withContext(Dispatchers.IO) {
-                                Gobackend.setExtensionFallbackProviderIDsJSON(extensionIdsJson)
-                            }
-                            result.success(null)
-                        }
-                        "setMetadataProviderPriority" -> {
-                            val priorityJson = call.argument<String>("priority") ?: "[]"
-                            withContext(Dispatchers.IO) {
-                                Gobackend.setMetadataProviderPriorityJSON(priorityJson)
-                            }
-                            result.success(null)
-                        }
-                        "getMetadataProviderPriority" -> {
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getMetadataProviderPriorityJSON()
-                            }
-                            result.success(response)
-                        }
-                        "getExtensionSettings" -> {
-                            val extensionId = call.argument<String>("extension_id") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getExtensionSettingsJSON(extensionId)
-                            }
-                            result.success(response)
-                        }
-                        "checkExtensionHealth" -> {
-                            val extensionId = call.argument<String>("extension_id") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.checkExtensionHealthJSON(extensionId)
-                            }
-                            result.success(response)
-                        }
-                        "setExtensionSettings" -> {
-                            val extensionId = call.argument<String>("extension_id") ?: ""
-                            val settingsJson = call.argument<String>("settings") ?: "{}"
-                            withContext(Dispatchers.IO) {
-                                Gobackend.setExtensionSettingsJSON(extensionId, settingsJson)
-                            }
-                            result.success(null)
-                        }
-                        "invokeExtensionAction" -> {
-                            val extensionId = call.argument<String>("extension_id") ?: ""
-                            val actionName = call.argument<String>("action") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.invokeExtensionActionJSON(extensionId, actionName)
-                            }
-                            result.success(response)
-                        }
-                        "searchTracksWithMetadataProviders" -> {
-                            val query = call.argument<String>("query") ?: ""
-                            val limit = call.argument<Int>("limit") ?: 20
-                            val includeExtensions = call.argument<Boolean>("include_extensions") ?: true
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.searchTracksWithMetadataProvidersJSON(query, limit.toLong(), includeExtensions)
-                            }
-                            result.success(response)
-                        }
-                        "searchTracksWithMetadataProvider" -> {
-                            val extensionId = call.argument<String>("extension_id") ?: ""
-                            val query = call.argument<String>("query") ?: ""
-                            val limit = call.argument<Int>("limit") ?: 20
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.searchTracksWithMetadataProviderJSON(
-                                    extensionId,
-                                    query,
-                                    limit.toLong()
-                                )
-                            }
-                            result.success(response)
-                        }
-                        "findCollectionAcrossExtensions" -> {
-                            val requestJson = call.arguments as? String ?: "{}"
-                            val response: String = withContext(Dispatchers.IO) {
-                                val method = Gobackend::class.java.getMethod(
-                                    "findCollectionAcrossExtensionsJSON",
-                                    String::class.java
-                                )
-                                method.invoke(null, requestJson) as? String ?: "[]"
-                            }
-                            result.success(response)
-                        }
-                        "enrichTrackWithExtension" -> {
-                            val extensionId = call.argument<String>("extension_id") ?: ""
-                            val trackJson = call.argument<String>("track") ?: "{}"
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.enrichTrackWithExtensionJSON(extensionId, trackJson)
-                            }
-                            result.success(response)
-                        }
-                        "cleanupExtensions" -> {
-                            withContext(Dispatchers.IO) {
-                                Gobackend.cleanupExtensions()
-                            }
-                            result.success(null)
-                        }
-                        "getExtensionPendingAuth" -> {
-                            val extensionId = call.argument<String>("extension_id") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getExtensionPendingAuthJSON(extensionId)
-                            }
-                            if (response.isNullOrEmpty()) {
-                                result.success(null)
-                            } else {
-                                result.success(response)
-                            }
-                        }
-                        "setExtensionAuthCode" -> {
-                            val extensionId = call.argument<String>("extension_id") ?: ""
-                            val authCode = call.argument<String>("auth_code") ?: ""
-                            withContext(Dispatchers.IO) {
-                                Gobackend.setExtensionAuthCodeByID(extensionId, authCode)
-                            }
-                            result.success(null)
-                        }
-                        "completeExtensionSessionGrant" -> {
-                            val extensionId = call.argument<String>("extension_id") ?: ""
-                            val grant = call.argument<String>("grant") ?: ""
-                            withContext(Dispatchers.IO) {
-                                Gobackend.setExtensionSessionGrantByID(extensionId, grant)
-                                val json = Gobackend.invokeExtensionActionJSON(extensionId, "completeGrant")
-                                requireSuccessfulExtensionAction(extensionId, "completeGrant", json)
-                            }
-                            result.success(true)
-                        }
-                        "setExtensionTokens" -> {
-                            val extensionId = call.argument<String>("extension_id") ?: ""
-                            val accessToken = call.argument<String>("access_token") ?: ""
-                            val refreshToken = call.argument<String>("refresh_token") ?: ""
-                            val expiresIn = call.argument<Int>("expires_in") ?: 0
-                            withContext(Dispatchers.IO) {
-                                Gobackend.setExtensionTokensByID(extensionId, accessToken, refreshToken, expiresIn.toLong())
-                            }
-                            result.success(null)
-                        }
-                        "clearExtensionPendingAuth" -> {
-                            val extensionId = call.argument<String>("extension_id") ?: ""
-                            withContext(Dispatchers.IO) {
-                                Gobackend.clearExtensionPendingAuthByID(extensionId)
-                            }
-                            result.success(null)
-                        }
-                        "isExtensionAuthenticated" -> {
-                            val extensionId = call.argument<String>("extension_id") ?: ""
-                            val isAuth = withContext(Dispatchers.IO) {
-                                Gobackend.isExtensionAuthenticatedByID(extensionId)
-                            }
-                            result.success(isAuth)
-                        }
-                        "getAllPendingAuthRequests" -> {
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getAllPendingAuthRequestsJSON()
-                            }
-                            result.success(response)
-                        }
-                        "getPendingFFmpegCommand" -> {
-                            val commandId = call.argument<String>("command_id") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getPendingFFmpegCommandJSON(commandId)
-                            }
-                            if (response.isNullOrEmpty()) {
-                                result.success(null)
-                            } else {
-                                result.success(response)
-                            }
-                        }
-                        "setFFmpegCommandResult" -> {
-                            val commandId = call.argument<String>("command_id") ?: ""
-                            val success = call.argument<Boolean>("success") ?: false
-                            val output = call.argument<String>("output") ?: ""
-                            val error = call.argument<String>("error") ?: ""
-                            withContext(Dispatchers.IO) {
-                                Gobackend.setFFmpegCommandResultByID(commandId, success, output, error)
-                            }
-                            result.success(null)
-                        }
-                        "getAllPendingFFmpegCommands" -> {
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getAllPendingFFmpegCommandsJSON()
-                            }
-                            result.success(response)
-                        }
-                        "customSearchWithExtension" -> {
-                            val extensionId = call.argument<String>("extension_id") ?: ""
-                            val query = call.argument<String>("query") ?: ""
-                            val optionsJson = call.argument<String>("options") ?: ""
-                            val requestId = call.argument<String>("request_id") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.customSearchWithExtensionJSONWithRequestID(extensionId, query, optionsJson, requestId)
-                            }
-                            result.success(response)
-                        }
-                        "cancelExtensionRequest" -> {
-                            val requestId = call.argument<String>("request_id") ?: ""
-                            withContext(Dispatchers.IO) {
-                                Gobackend.cancelExtensionRequestJSON(requestId)
-                            }
-                            result.success(null)
-                        }
-                        "handleURLWithExtension" -> {
-                            val url = call.argument<String>("url") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.handleURLWithExtensionJSON(url)
-                            }
-                            result.success(response)
-                        }
-                        "findURLHandler" -> {
-                            val url = call.argument<String>("url") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.findURLHandlerJSON(url)
-                            }
-                            result.success(response)
-                        }
-                        "getTrackPlatformLinks" -> {
-                            val spotifyId = call.argument<String>("spotify_id") ?: ""
-                            val isrc = call.argument<String>("isrc") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getTrackPlatformLinksJSON(spotifyId, isrc)
-                            }
-                            result.success(response)
-                        }
-                        "fetchMusicBrainzTags" -> {
-                            val isrc = call.argument<String>("isrc") ?: ""
-                            val albumName = call.argument<String>("album_name") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                val genre = try {
-                                    Gobackend.fetchMusicBrainzGenreByISRC(isrc)
-                                } catch (_: Exception) {
-                                    ""
-                                }
-                                val albumArtist = try {
-                                    Gobackend.fetchMusicBrainzAlbumArtistByISRC(isrc, albumName)
-                                } catch (_: Exception) {
-                                    ""
-                                }
-                                JSONObject()
-                                    .put("genre", genre)
-                                    .put("album_artist", albumArtist)
-                                    .toString()
-                            }
-                            result.success(response)
                         }
                         "runPostProcessingV2" -> {
                             val inputJson = call.argument<String>("input") ?: ""
@@ -2367,90 +1796,21 @@ class MainActivity: FlutterFragmentActivity() {
                                 }
 
                                 if (effectiveUri.isNotBlank()) {
-                                    runPostProcessingSafV2(effectiveUri, metadataJson)
+                                    runPostProcessingSafV2(effectiveUri, metadataJson, inputObj.optString("item_id", ""))
                                 } else {
                                     if (pathStr.isNotBlank()) {
                                         inputObj.put("name", File(pathStr).name)
                                         inputObj.put("is_saf", false)
                                     }
-                                    Gobackend.runPostProcessingV2JSON(inputObj.toString(), metadataJson)
+                                    coreBackend.runPostProcessing(inputObj.toString(), metadataJson)
                                 }
-                            }
-                            result.success(response)
-                        }
-                        "initExtensionRepo" -> {
-                            val cacheDir = call.argument<String>("cache_dir") ?: ""
-                            withContext(Dispatchers.IO) {
-                                Gobackend.initExtensionRepoJSON(cacheDir)
-                            }
-                            result.success(null)
-                        }
-                        "setRepoRegistryUrl" -> {
-                            val registryUrl = call.argument<String>("registry_url") ?: ""
-                            withContext(Dispatchers.IO) {
-                                Gobackend.setRepoRegistryURLJSON(registryUrl)
-                            }
-                            result.success(null)
-                        }
-                        "getRepoRegistryUrl" -> {
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getRepoRegistryURLJSON()
-                            }
-                            result.success(response)
-                        }
-                        "clearRepoRegistryUrl" -> {
-                            withContext(Dispatchers.IO) {
-                                Gobackend.clearRepoRegistryURLJSON()
-                            }
-                            result.success(null)
-                        }
-                        "getRepoExtensions" -> {
-                            val forceRefresh = call.argument<Boolean>("force_refresh") ?: false
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getRepoExtensionsJSON(forceRefresh)
-                            }
-                            result.success(response)
-                        }
-                        "searchRepoExtensions" -> {
-                            val query = call.argument<String>("query") ?: ""
-                            val category = call.argument<String>("category") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.searchRepoExtensionsJSON(query, category)
-                            }
-                            result.success(response)
-                        }
-                        "getRepoCategories" -> {
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getRepoCategoriesJSON()
-                            }
-                            result.success(response)
-                        }
-                        "downloadRepoExtension" -> {
-                            val extensionId = call.argument<String>("extension_id") ?: ""
-                            val destDir = call.argument<String>("dest_dir") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.downloadRepoExtensionJSON(extensionId, destDir)
-                            }
-                            result.success(response)
-                        }
-                        "clearRepoCache" -> {
-                            withContext(Dispatchers.IO) {
-                                Gobackend.clearRepoCacheJSON()
-                            }
-                            result.success(null)
-                        }
-                        "getExtensionHomeFeed" -> {
-                            val extensionId = call.argument<String>("extension_id") ?: ""
-                            val requestId = call.argument<String>("request_id") ?: ""
-                            val response = withContext(Dispatchers.IO) {
-                                Gobackend.getExtensionHomeFeedJSONWithRequestID(extensionId, requestId)
                             }
                             result.success(response)
                         }
                         "setLibraryCoverCacheDir" -> {
                             val cacheDir = call.argument<String>("cache_dir") ?: ""
                             withContext(Dispatchers.IO) {
-                                Gobackend.setLibraryCoverCacheDirJSON(cacheDir)
+                                coreBackend.setLibraryCoverCacheDirectory(cacheDir)
                             }
                             result.success(null)
                         }
@@ -2458,7 +1818,7 @@ class MainActivity: FlutterFragmentActivity() {
                             val folderPath = call.argument<String>("folder_path") ?: ""
                             val response = withContext(Dispatchers.IO) {
                                 safScanActive = false
-                                bridgeJsonResult(Gobackend.scanLibraryFolderJSON(folderPath))
+                                bridgeJsonResult(coreBackend.scanLibraryFolder(folderPath))
                             }
                             result.success(response)
                         }
@@ -2467,7 +1827,7 @@ class MainActivity: FlutterFragmentActivity() {
                             val outputPath = call.argument<String>("output_path") ?: ""
                             val count = withContext(Dispatchers.IO) {
                                 safScanActive = false
-                                Gobackend.scanLibraryFolderToNDJSONFileJSON(
+                                coreBackend.scanLibraryFolderToNdjsonFile(
                                     folderPath,
                                     outputPath,
                                 )
@@ -2485,7 +1845,7 @@ class MainActivity: FlutterFragmentActivity() {
                             val response = withContext(Dispatchers.IO) {
                                 safScanActive = false
                                 bridgeJsonResult(
-                                    Gobackend.scanLibraryFolderIncrementalJSON(folderPath, existingFiles)
+                                    coreBackend.scanLibraryFolderIncremental(folderPath, existingFiles)
                                 )
                             }
                             result.success(response)
@@ -2496,7 +1856,7 @@ class MainActivity: FlutterFragmentActivity() {
                             val response = withContext(Dispatchers.IO) {
                                 safScanActive = false
                                 bridgeJsonResult(
-                                    Gobackend.scanLibraryFolderIncrementalFromSnapshotJSON(
+                                    coreBackend.scanLibraryFolderIncrementalFromSnapshot(
                                         folderPath,
                                         snapshotPath,
                                     )
@@ -2549,7 +1909,7 @@ class MainActivity: FlutterFragmentActivity() {
                                 if (safScanActive) {
                                     safProgressToJson()
                                 } else {
-                                    Gobackend.getLibraryScanProgressJSON()
+                                    coreBackend.getLibraryScanProgress()
                                 }
                             }
                             result.success(parseJsonPayload(response))
@@ -2557,7 +1917,7 @@ class MainActivity: FlutterFragmentActivity() {
                         "cancelLibraryScan" -> {
                             withContext(Dispatchers.IO) {
                                 safScanCancel = true
-                                Gobackend.cancelLibraryScanJSON()
+                                coreBackend.cancelLibraryScan()
                             }
                             result.success(null)
                         }
@@ -2572,7 +1932,7 @@ class MainActivity: FlutterFragmentActivity() {
                                         metadata.put("filePath", filePath)
                                         metadata.toString()
                                     } else {
-                                        Gobackend.readAudioMetadataJSON(filePath)
+                                        coreBackend.readAudioMetadata(filePath, "", "")
                                     }
                                 } catch (e: Exception) {
                                     """{"error":${org.json.JSONObject.quote(e.message ?: "unknown")}}"""
@@ -2631,7 +1991,7 @@ class MainActivity: FlutterFragmentActivity() {
                                                 }
                                             }
 
-                                            val resultJson = Gobackend.parseCueSheet(tempCuePath, tempDir)
+                                            val resultJson = coreBackend.parseCueSheet(tempCuePath, tempDir)
 
                                             if (audioDoc != null) {
                                                 val resultObj = JSONObject(resultJson)
@@ -2646,7 +2006,7 @@ class MainActivity: FlutterFragmentActivity() {
                                             try { tempAudioPath?.let { File(it).delete() } } catch (_: Exception) {}
                                         }
                                     } else {
-                                        Gobackend.parseCueSheet(cuePath, audioDir)
+                                        coreBackend.parseCueSheet(cuePath, audioDir)
                                     }
                                 } catch (e: Exception) {
                                     """{"error":${org.json.JSONObject.quote(e.message ?: "unknown")}}"""

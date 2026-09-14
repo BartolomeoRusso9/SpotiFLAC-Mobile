@@ -20,7 +20,6 @@ import com.zarz.spotiflac.NativeFinalizationPolicy.displayAudioQuality
 import com.zarz.spotiflac.NativeFinalizationPolicy.formatIndexTag
 import com.zarz.spotiflac.NativeFinalizationPolicy.normalizeAudioCodec
 import com.zarz.spotiflac.NativeFinalizationPolicy.resolvePreferredDecryptionExtension
-import gobackend.Gobackend
 import org.json.JSONObject
 import java.io.File
 import java.io.RandomAccessFile
@@ -289,6 +288,14 @@ object NativeDownloadFinalizer {
                     promoteStagedSafOutputIfNeeded(context, effectiveInput, state)
                 }
                 outputPublished = true
+            } else {
+                // Match the Dart queue: an existing download still runs enabled
+                // extension hooks. It may be the input left by an interrupted
+                // finalizer, so file existence does not prove the hook finished.
+                // outputPublished keeps this pre-existing input out of cleanup.
+                checkCancelled(shouldCancel)
+                runPostProcessing(context, effectiveInput, state, shouldCancel)
+                checkCancelled(shouldCancel)
             }
             if (!qualityMetadataRefreshed) {
                 try {
@@ -917,14 +924,14 @@ object NativeDownloadFinalizer {
 
     private fun writeReplayGainFields(context: Context, path: String, fields: JSONObject) {
         if (!path.startsWith("content://")) {
-            writeLocalReplayGainFields(path, fields)
+            writeLocalReplayGainFields(context, path, fields)
             return
         }
 
         val tempPath = SafDownloadHandler.copyContentUriToTemp(context, path)
             ?: throw IllegalStateException("failed to copy SAF file for ReplayGain write")
         try {
-            writeLocalReplayGainFields(tempPath, fields)
+            writeLocalReplayGainFields(context, tempPath, fields)
             val uri = Uri.parse(path)
             context.contentResolver.openOutputStream(uri, "wt")?.use { output ->
                 File(tempPath).inputStream().use { input -> input.copyTo(output) }
@@ -935,8 +942,9 @@ object NativeDownloadFinalizer {
         }
     }
 
-    private fun writeLocalReplayGainFields(path: String, fields: JSONObject) {
-        val result = parseObject(Gobackend.editFileMetadata(path, fields.toString()))
+    private fun writeLocalReplayGainFields(context: Context, path: String, fields: JSONObject) {
+        val backend = createCoreBackend(context)
+        val result = parseObject(backend.editFileMetadata(path, fields.toString()))
         val method = result.optString("method", "")
         check(
             result.optBoolean("success", false) &&
@@ -944,7 +952,7 @@ object NativeDownloadFinalizer {
                 (method == "native" || method.startsWith("native_")),
         ) { "ReplayGain native write did not complete: $result" }
 
-        val metadata = parseObject(Gobackend.readFileMetadata(path))
+        val metadata = parseObject(backend.readFileMetadata(path, ""))
         check(!metadata.has("error")) { "ReplayGain verification failed: $metadata" }
         val isOpus = metadata.optString("audio_codec", "") == "opus"
         for (key in fields.keys()) {
@@ -970,7 +978,7 @@ object NativeDownloadFinalizer {
         val deleteProbePath = probePath != state.filePath
 
         try {
-            val metadata = parseObject(Gobackend.readFileMetadata(probePath))
+            val metadata = parseObject(createCoreBackend(context).readFileMetadata(probePath, state.fileName))
             if (metadata.has("error")) return
 
             if (metadata.has("lyrics") || metadata.has("hasLyrics")) {
@@ -1080,18 +1088,15 @@ object NativeDownloadFinalizer {
                 ?: throw IllegalStateException("failed to copy SAF file for post-processing")
             try {
                 val inputObj = JSONObject()
+                    .put("item_id", input.itemId)
                     .put("path", tempInput)
                     .put("uri", uri)
                     .put("name", state.fileName)
                     .put("mime_type", mimeTypeForExt(state.fileName.substringAfterLast('.', "")))
                     .put("size", File(tempInput).length())
                     .put("is_saf", true)
-                val response = JSONObject(
-                    withFFmpegCommandPump(shouldCancel) {
-                        checkCancelled(shouldCancel)
-                        Gobackend.runPostProcessingV2JSON(inputObj.toString(), metadata.toString())
-                    }
-                )
+                checkCancelled(shouldCancel)
+                val response = JSONObject(createCoreBackend(context).runPostProcessing(inputObj.toString(), metadata.toString()))
                 checkCancelled(shouldCancel)
                 if (!response.optBoolean("success", false)) return
                 val newPath = response.optString("new_file_path", "")
@@ -1118,19 +1123,25 @@ object NativeDownloadFinalizer {
         }
 
         val inputObj = JSONObject()
+            .put("item_id", input.itemId)
             .put("path", state.filePath)
             .put("name", state.fileName)
             .put("is_saf", false)
-        val response = JSONObject(
-            withFFmpegCommandPump(shouldCancel) {
-                checkCancelled(shouldCancel)
-                Gobackend.runPostProcessingV2JSON(inputObj.toString(), metadata.toString())
-            }
-        )
+        checkCancelled(shouldCancel)
+        val response = JSONObject(createCoreBackend(context).runPostProcessing(inputObj.toString(), metadata.toString()))
         checkCancelled(shouldCancel)
         if (response.optBoolean("success", false)) {
             val newPath = response.optString("new_file_path", "")
             if (newPath.isNotBlank() && newPath != state.filePath) {
+                if (isDeferredSafPublish(input)) {
+                    val output = File(newPath)
+                    check(output.isFile && output.length() > 0L) {
+                        "post-processing output missing or empty"
+                    }
+                    // This input is an owned staging file; publication later
+                    // removes the replacement, so retire the old stage now.
+                    File(state.filePath).delete()
+                }
                 state.filePath = newPath
                 state.fileName = File(newPath).name
             }

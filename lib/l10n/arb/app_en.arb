@@ -4215,6 +4215,10 @@
   "@downloadLocationSubtitle": {
     "description": "Subtitle shown in the download location picker sheet"
   },
+  "storageAutomaticFolder": "Automatic folder",
+  "storageAutomaticDownloadFolder": "Uses Download/SpotiFLAC when writable, otherwise app storage",
+  "storageSafRecommended": "Choose folder (Recommended)",
+  "storageDownloadFolderHint": "In the Android folder picker, open Download and select SpotiFLAC. If it does not exist, create it using New folder, then tap Use this folder to grant access.",
   "storageModeAppFolder": "App Folder (Recommended)",
   "@storageModeAppFolder": {
     "description": "Storage mode option - app-managed folder"

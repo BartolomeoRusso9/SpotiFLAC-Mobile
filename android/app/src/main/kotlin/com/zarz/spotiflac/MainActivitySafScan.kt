@@ -22,7 +22,6 @@ import io.flutter.embedding.engine.FlutterShellArgs
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import com.ryanheise.audioservice.AudioServicePlugin
-import gobackend.Gobackend
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -81,7 +80,7 @@ internal fun MainActivity.readLibraryScanProgressJsonForStream(): String {
         return if (safScanActive) {
             safProgressToJson()
         } else {
-            Gobackend.getLibraryScanProgressJSON()
+            coreBackend.getLibraryScanProgress()
         }
     }
 
@@ -533,11 +532,8 @@ internal fun MainActivity.extractCueAudioFileName(cueTempPath: String): String? 
         ".flac", ".wav", ".ape", ".mp3", ".ogg", ".wv", ".m4a", ".mp4", ".aac"
     )
 
-    // Audio file extensions that the local library scanner accepts. Must stay in
-    // sync with supportedAudioFormats in go_backend/library_scan.go so that every
-    // format the Go engine can read (FLAC, M4A/MP4/AAC, MP3, Opus/OGG, APE/WV/MPC,
-    // WAV, AIFF) is also enumerated here during the SAF folder walk. (.cue is
-    // handled separately.)
+    // Keep the SAF folder walk aligned with the backend's supported audio formats.
+    // CUE files are handled separately.
     private val libraryScanAudioExtensions = setOf(
         ".flac", ".m4a", ".mp4", ".aac", ".mp3", ".opus", ".ogg",
         ".ape", ".wv", ".mpc", ".wav", ".aiff", ".aif"
@@ -972,7 +968,7 @@ internal fun MainActivity.scanSafTree(
 
                 val cueLastModified = cue.lastModified
 
-                val cueResultsJson = Gobackend.scanCueSheetForLibraryWithCoverCacheKey(
+                val cueResultsJson = coreBackend.scanCueForLibrary(
                     tempCuePath,
                     tempDir,
                     cueDoc.uri.toString(),
@@ -1404,7 +1400,7 @@ internal fun MainActivity.scanSafTreeIncremental(
                     tempAudioPath = renamedAudio.absolutePath
                 }
 
-                val cueResultsJson = Gobackend.scanCueSheetForLibraryWithCoverCacheKey(
+                val cueResultsJson = coreBackend.scanCueForLibrary(
                     tempCuePath,
                     tempDir,
                     cueDoc.uri.toString(),

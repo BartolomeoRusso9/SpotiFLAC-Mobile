@@ -49,10 +49,12 @@ Future<bool> applyFfmpegReEnrichResult({
 
   try {
     if (!_hasValue(effectiveCoverPath)) {
+      Directory? extractionDirectory;
       try {
         final tempDir = await Directory.systemTemp.createTemp(
           'reenrich_cover_',
         );
+        extractionDirectory = tempDir;
         final coverOutput = '${tempDir.path}${Platform.pathSeparator}cover.jpg';
         final extracted = await PlatformBridge.extractCoverToFile(
           ffmpegTarget,
@@ -61,12 +63,15 @@ Future<bool> applyFfmpegReEnrichResult({
         if (extracted['error'] == null) {
           effectiveCoverPath = coverOutput;
           extractedCoverPath = coverOutput;
-        } else {
+        }
+      } catch (_) {
+      } finally {
+        if (extractedCoverPath == null && extractionDirectory != null) {
           try {
-            await tempDir.delete(recursive: true);
+            await extractionDirectory.delete(recursive: true);
           } catch (_) {}
         }
-      } catch (_) {}
+      }
     }
 
     final metadata = (result['metadata'] as Map<String, dynamic>?)?.map(

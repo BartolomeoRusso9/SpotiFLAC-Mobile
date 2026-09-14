@@ -139,7 +139,7 @@ class _FilesSettingsPageState extends ConsumerState<FilesSettingsPage> {
                     subtitle: settings.downloadDirectory.isEmpty
                         ? (Platform.isIOS
                               ? context.l10n.setupAppDocumentsFolder
-                              : 'Music/SpotiFLAC')
+                              : 'Download/SpotiFLAC')
                         : settings.downloadDirectory,
                     onTap: () => _pickDirectory(context, ref),
                     showDivider: false,
@@ -455,20 +455,24 @@ class _FilesSettingsPageState extends ConsumerState<FilesSettingsPage> {
   }
 
   Future<String> _getDefaultAndroidDirectory() async {
-    const directMusicPath = '/storage/emulated/0/Music/SpotiFLAC';
+    const directDownloadPath = '/storage/emulated/0/Download/SpotiFLAC';
     try {
-      final musicDir = Directory(directMusicPath);
-      if (!await musicDir.exists()) await musicDir.create(recursive: true);
-      return musicDir.path;
+      final downloadDir = Directory(directDownloadPath);
+      if (!await downloadDir.exists()) {
+        await downloadDir.create(recursive: true);
+      }
+      return downloadDir.path;
     } catch (_) {}
     try {
       final externalDir = await getExternalStorageDirectory();
       if (externalDir != null) {
-        final musicDir = Directory(
-          '${externalDir.parent.parent.parent.parent.path}/Music/SpotiFLAC',
+        final downloadDir = Directory(
+          '${externalDir.parent.parent.parent.parent.path}/Download/SpotiFLAC',
         );
-        if (!await musicDir.exists()) await musicDir.create(recursive: true);
-        return musicDir.path;
+        if (!await downloadDir.exists()) {
+          await downloadDir.create(recursive: true);
+        }
+        return downloadDir.path;
       }
     } catch (_) {}
     final appDir = await getApplicationDocumentsDirectory();
@@ -511,8 +515,8 @@ class _FilesSettingsPageState extends ConsumerState<FilesSettingsPage> {
             ),
             ListTile(
               leading: Icon(Icons.folder_special, color: colorScheme.primary),
-              title: Text(context.l10n.storageModeAppFolder),
-              subtitle: Text(context.l10n.storageModeAppFolderSubtitle),
+              title: Text(context.l10n.storageAutomaticFolder),
+              subtitle: Text(context.l10n.storageAutomaticDownloadFolder),
               trailing: !isSafMode ? const Icon(Icons.check) : null,
               onTap: () async {
                 Navigator.pop(ctx);
@@ -525,8 +529,8 @@ class _FilesSettingsPageState extends ConsumerState<FilesSettingsPage> {
             ),
             ListTile(
               leading: Icon(Icons.folder_open, color: colorScheme.primary),
-              title: Text(context.l10n.storageModeSaf),
-              subtitle: Text(context.l10n.storageModeSafSubtitle),
+              title: Text(context.l10n.storageSafRecommended),
+              subtitle: Text(context.l10n.storageDownloadFolderHint),
               trailing: isSafMode ? const Icon(Icons.check) : null,
               onTap: () async {
                 Navigator.pop(ctx);

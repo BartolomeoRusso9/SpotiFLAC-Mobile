@@ -17,7 +17,6 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.util.AtomicFile
 import androidx.core.app.NotificationCompat
-import gobackend.Gobackend
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

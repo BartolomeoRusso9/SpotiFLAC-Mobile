@@ -18,7 +18,6 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.util.AtomicFile
 import androidx.core.app.NotificationCompat
-import gobackend.Gobackend
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -39,6 +38,7 @@ import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Foreground service to keep downloads running when app is in background.
@@ -48,6 +48,7 @@ import java.util.concurrent.atomic.AtomicLong
  * The service will be stopped automatically after 6 hours of cumulative runtime in 24 hours.
  */
 class DownloadService : Service() {
+    internal val coreBackend: CoreBackend by lazy { createCoreBackend(applicationContext) }
     
     companion object {
         private const val CHANNEL_ID = "download_channel"
@@ -368,11 +369,14 @@ class DownloadService : Service() {
     internal var nativeWorkerProgressSeq = 0L
     internal val nativeWorkerProgressEpoch = AtomicLong(0L)
     @Volatile internal var nativeWorkerProgressJob: Job? = null
+    @Volatile internal var nativeWorkerProgressConnection: AtomicReference<CoreDownloadProgress?>? = null
     internal val snapshotWriteLock = Any()
     internal val snapshotWriteSerial = AtomicLong(0L)
     internal var latestCommittedStateSnapshotSerial = 0L
     internal var latestCommittedProgressSnapshotSerial = 0L
     @Volatile private var nativeWorkerPaused = false
+    private val nativeWorkerPausePendingIds = mutableSetOf<String>()
+    private var nativeWorkerResumePending = false
     @Volatile internal var nativeWorkerNetworkPaused = false
     @Volatile internal var nativeWorkerVerificationPaused = false
     @Volatile private var nativeWorkerCancelRequested = false
@@ -383,7 +387,7 @@ class DownloadService : Service() {
     // Bumped every time a new native queue replaces the current one. A worker
     // coroutine that observes a different generation than its own must stop
     // without touching the snapshot or the service lifecycle: cancel() alone
-    // cannot interrupt the blocking gomobile call it may be sitting in, and
+    // cannot interrupt the blocking native call it may be sitting in, and
     // the shared pause/cancel flags get reset for the new run.
     @Volatile private var nativeWorkerGeneration = 0L
     
@@ -458,7 +462,10 @@ class DownloadService : Service() {
                 )
             }
             ACTION_PAUSE_NATIVE_QUEUE -> {
-                nativeWorkerPaused = true
+                synchronized(nativeWorkerItems) {
+                    nativeWorkerResumePending = false
+                    nativeWorkerPaused = true
+                }
                 cancelActiveNativeItemForPause()
                 writeNativeWorkerSnapshotAsync(
                     isRunning = nativeWorkerJob?.isActive == true,
@@ -469,7 +476,10 @@ class DownloadService : Service() {
                 )
             }
             ACTION_RESUME_NATIVE_QUEUE -> {
-                nativeWorkerPaused = false
+                synchronized(nativeWorkerItems) {
+                    nativeWorkerResumePending = nativeWorkerPausePendingIds.isNotEmpty()
+                    nativeWorkerPaused = nativeWorkerResumePending
+                }
                 val stillPaused = isNativeWorkerPaused()
                 writeNativeWorkerSnapshotAsync(
                     isRunning = nativeWorkerJob?.isActive == true,
@@ -481,6 +491,10 @@ class DownloadService : Service() {
             }
             ACTION_CANCEL_NATIVE_QUEUE -> {
                 nativeWorkerCancelRequested = true
+                synchronized(nativeWorkerItems) {
+                    nativeWorkerResumePending = false
+                    nativeWorkerPausePendingIds.clear()
+                }
                 nativeWorkerVerificationPaused = false
                 nativeWorkerPreparationComplete = true
                 nativeWorkerRequestChannel?.close()
@@ -494,7 +508,7 @@ class DownloadService : Service() {
                         ) {
                             item.status = "skipped"
                             try {
-                                Gobackend.cancelDownload(item.itemId)
+                                coreBackend.cancelDownload(item.itemId)
                             } catch (_: Exception) {
                             }
                         }
@@ -589,7 +603,7 @@ class DownloadService : Service() {
         }
         for (itemId in activeItemIds) {
             try {
-                Gobackend.cancelDownload(itemId)
+                coreBackend.cancelDownload(itemId)
             } catch (_: Exception) {
             }
         }
@@ -689,7 +703,7 @@ class DownloadService : Service() {
         cancelNativeVerificationNotification()
         // Abort the previous run's in-flight work before the shared flags are
         // reset for the new run: the coroutine cancel below cannot interrupt a
-        // blocking gomobile download by itself.
+        // blocking native download by itself.
         synchronized(nativeWorkerItems) {
             for (item in nativeWorkerItems) {
                 if (item.status == "preparing" ||
@@ -697,7 +711,7 @@ class DownloadService : Service() {
                     item.status == "finalizing"
                 ) {
                     try {
-                        Gobackend.cancelDownload(item.itemId)
+                        coreBackend.cancelDownload(item.itemId)
                     } catch (_: Exception) {
                     }
                 }
@@ -710,7 +724,11 @@ class DownloadService : Service() {
         nativeWorkerGeneration++
         val generation = nativeWorkerGeneration
         nativeWorkerJob?.cancel(CancellationException("Native queue replaced"))
-        nativeWorkerPaused = false
+        synchronized(nativeWorkerItems) {
+            nativeWorkerPaused = false
+            nativeWorkerResumePending = false
+            nativeWorkerPausePendingIds.clear()
+        }
         nativeWorkerNetworkPaused = false
         nativeWorkerVerificationPaused = false
         nativeWorkerCancelRequested = false
@@ -1016,10 +1034,13 @@ class DownloadService : Service() {
             nativeWorkerItems
                 .filter {
                     it.itemId != excludeItemId &&
-                        (it.status == "downloading" ||
+                        it.itemId !in nativeWorkerPausePendingIds &&
+                        (it.status == "preparing" ||
+                            it.status == "downloading" ||
                             it.status == "finalizing")
                 }
                 .map { item ->
+                    nativeWorkerPausePendingIds.add(item.itemId)
                     item.status = "queued"
                     item.progress = 0.0
                     item.bytesReceived = 0L
@@ -1030,12 +1051,25 @@ class DownloadService : Service() {
         }
         for (itemId in ids) {
             try {
-                Gobackend.cancelDownload(itemId)
+                coreBackend.cancelDownload(itemId)
             } catch (_: Exception) {
             }
         }
         if (ids.isNotEmpty()) {
             NativeDownloadFinalizer.cancelActiveWork()
+        }
+    }
+
+    private fun finishNativePauseCancellation(itemId: String, generation: Long) {
+        synchronized(nativeWorkerItems) {
+            if (generation != nativeWorkerGeneration) return
+            nativeWorkerPausePendingIds.remove(itemId)
+            // Resume may arrive before the blocking download unwinds. Keep the
+            // pause reason until every cancelled attempt has decided to retry.
+            if (nativeWorkerResumePending && nativeWorkerPausePendingIds.isEmpty()) {
+                nativeWorkerResumePending = false
+                nativeWorkerPaused = false
+            }
         }
     }
 
@@ -1059,7 +1093,9 @@ class DownloadService : Service() {
 
             var progressInitialized = false
             var retryCurrentRequest = false
+            var directoryScope: AutoCloseable? = null
             try {
+                directoryScope = coreBackend.openDownloadDirectoryForRequest(request.requestJson)
                 // Acquire the provider permit first. If several requests from
                 // one provider are queued, they must not occupy every global
                 // network slot while waiting for that provider's lower limit.
@@ -1094,20 +1130,18 @@ class DownloadService : Service() {
                             settingsJson = settingsJson,
                             includeItems = true,
                         )
-                        Gobackend.initItemProgress(request.itemId)
+                        coreBackend.initItemProgress(request.itemId)
                         progressInitialized = true
                         currentStatus = "downloading"
                         updateNativeWorkerItem(request.itemId) {
                             it.status = "downloading"
                         }
                         try {
-                            SafDownloadHandler.handle(this, request.requestJson) { json ->
-                                Gobackend.downloadByStrategy(json)
-                            }
+                            SafDownloadHandler.handle(this, request.requestJson, coreBackend)
                         } finally {
                             updateNativeWorkerItemProgress(request.itemId)
                             try {
-                                Gobackend.clearItemProgress(request.itemId)
+                                coreBackend.clearItemProgress(request.itemId)
                             } catch (_: Exception) {
                             }
                             progressInitialized = false
@@ -1169,22 +1203,6 @@ class DownloadService : Service() {
                 } else {
                     val errorType = result.optString("error_type")
                     val errorMessage = result.optString("error")
-                    if (errorType == "cancelled" &&
-                        !isNativeWorkerPaused() &&
-                        !nativeWorkerCancelRequested &&
-                        generation == nativeWorkerGeneration
-                    ) {
-                        var waitedMs = 0L
-                        while (waitedMs < 1500 &&
-                            !isNativeWorkerPaused() &&
-                            !nativeWorkerCancelRequested &&
-                            generation == nativeWorkerGeneration
-                        ) {
-                            delay(100)
-                            waitedMs += 100
-                        }
-                    }
-
                     if (errorType == "cancelled" &&
                         isNativeWorkerPaused() &&
                         !nativeWorkerCancelRequested
@@ -1315,10 +1333,12 @@ class DownloadService : Service() {
                     includeItems = true,
                 )
             } finally {
+                directoryScope?.close()
+                finishNativePauseCancellation(request.itemId, generation)
                 if (progressInitialized) {
                     updateNativeWorkerItemProgress(request.itemId)
                     try {
-                        Gobackend.clearItemProgress(request.itemId)
+                        coreBackend.clearItemProgress(request.itemId)
                     } catch (_: Exception) {
                     }
                 }
@@ -1466,11 +1486,11 @@ class DownloadService : Service() {
                     includeItems = true
                 )
 
+                var directoryScope: AutoCloseable? = null
                 try {
-                    Gobackend.initItemProgress(request.itemId)
-                    val response = SafDownloadHandler.handle(this, request.requestJson) { json ->
-                        Gobackend.downloadByStrategy(json)
-                    }
+                    directoryScope = coreBackend.openDownloadDirectoryForRequest(request.requestJson)
+                    coreBackend.initItemProgress(request.itemId)
+                    val response = SafDownloadHandler.handle(this, request.requestJson, coreBackend)
                     if (generation != nativeWorkerGeneration) {
                         // Superseded while blocked in the download call; the
                         // new run owns the shared state now.
@@ -1521,27 +1541,6 @@ class DownloadService : Service() {
                     } else {
                         val errorType = result.optString("error_type")
                         val errorMessage = result.optString("error")
-                        if (errorType == "cancelled" &&
-                            !isNativeWorkerPaused() &&
-                            !nativeWorkerCancelRequested &&
-                            generation == nativeWorkerGeneration
-                        ) {
-                            // A pause from Dart cancels the in-flight Go
-                            // download directly but delivers the pause flag
-                            // via a startService intent through the main
-                            // looper; the download can unwind first. Give the
-                            // flag a moment to settle before classifying this
-                            // cancellation as a permanent skip.
-                            var waitedMs = 0L
-                            while (waitedMs < 1500 &&
-                                !isNativeWorkerPaused() &&
-                                !nativeWorkerCancelRequested &&
-                                generation == nativeWorkerGeneration
-                            ) {
-                                delay(100)
-                                waitedMs += 100
-                            }
-                        }
                         if (errorType == "cancelled" &&
                             isNativeWorkerPaused() &&
                             !nativeWorkerCancelRequested
@@ -1675,9 +1674,11 @@ class DownloadService : Service() {
                         includeItems = true
                     )
                 } finally {
+                    directoryScope?.close()
+                    finishNativePauseCancellation(request.itemId, generation)
                     updateNativeWorkerItemProgress(request.itemId)
                     try {
-                        Gobackend.clearItemProgress(request.itemId)
+                        coreBackend.clearItemProgress(request.itemId)
                     } catch (_: Exception) {
                     }
                 }
@@ -1722,9 +1723,9 @@ class DownloadService : Service() {
 
     private fun releaseIdleDownloadMemory() {
         try {
-            // All workers and album tagging have finished. Return unused Go
-            // heap without forcing a collection between individual tracks.
-            Gobackend.releaseMemory()
+            // All workers and album tagging have finished. Release idle backend
+            // resources once for the batch, preserving caches between tracks.
+            coreBackend.releaseIdleResources()
         } catch (e: Exception) {
             android.util.Log.w("SpotiFLAC", "Failed to release idle download memory: ${e.message}")
         }

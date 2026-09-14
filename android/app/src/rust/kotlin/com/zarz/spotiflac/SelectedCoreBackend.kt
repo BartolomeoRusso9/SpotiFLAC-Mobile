@@ -1,0 +1,813 @@
+package com.zarz.spotiflac
+
+import android.content.Context
+import android.net.Uri
+import com.spotiflac.backend.CancellationDomain
+import com.spotiflac.backend.CancellationRegistry
+import com.spotiflac.backend.ExtensionManager
+import com.spotiflac.backend.ExtensionRepository
+import com.spotiflac.backend.LyricsRequest
+import com.spotiflac.backend.RequestLease
+import io.flutter.plugin.common.MethodCall
+import io.flutter.plugin.common.MethodChannel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.security.MessageDigest
+import java.util.UUID
+import org.json.JSONArray
+import org.json.JSONObject
+
+internal fun createCoreBackend(context: Context): CoreBackend = RustCoreBackend.initialize(context)
+
+internal suspend fun MainActivity.dispatchBackendApplication(call: MethodCall, result: MethodChannel.Result): Boolean {
+    val response = withContext(Dispatchers.IO) {
+        when (call.method) {
+            "getLyricsLRC", "getLyricsLRCWithSource" -> {
+                val arguments = call.arguments as? Map<*, *> ?: emptyMap<Any, Any>()
+                val path = arguments["file_path"] as? String ?: ""
+                readLyricsWithSafCopy(
+                    path,
+                    copyToTemp = { copyUriToTemp(Uri.parse(it))?.let(::File) },
+                    read = { localPath ->
+                        coreBackend.invokeApplication(call.method, arguments + ("file_path" to localPath))
+                    },
+                ) ?: if (call.method == "getLyricsLRC") "" else {
+                    """{"lyrics":"","source":"","sync_type":"","instrumental":false}"""
+                }
+            }
+            else -> coreBackend.invokeApplication(call.method, call.arguments)
+        }
+    }
+    result.success(response)
+    return true
+}
+
+internal object RustCoreBackend : CoreBackend {
+    override val implementation = "rust"
+    override val routesApplication = true
+    private lateinit var root: File
+    private var manager: ExtensionManager? = null
+    private var repository: ExtensionRepository? = null
+    private var requests: CancellationRegistry? = null
+    private var identity: Triple<String, String, List<Byte>>? = null
+    private var loggingEnabled = false
+    private var allowPrivateNetwork = false
+    private var allowHttpFallback = false
+    private var fallbackProviders: List<String>? = null
+    private var runtimeState: Pair<String, String>? = null
+    private val directoryScopes = mutableMapOf<String, AutoCloseable>()
+    private var libraryCoverScope: AutoCloseable? = null
+
+    @Synchronized
+    fun initialize(context: Context): RustCoreBackend {
+        if (!::root.isInitialized) root = File(context.applicationContext.cacheDir, "rust-core-pilot")
+        return this
+    }
+
+    @Synchronized
+    private fun owner(): ExtensionManager {
+        return checkNotNull(manager) { "Rust backend is not initialized" }
+    }
+
+    private fun directoryAliases(value: String, sources: String, data: String): List<String> {
+        require(File(value).isAbsolute) { "Output directories must be absolute" }
+        val path = File(value).canonicalPath
+        require(path != "/" && listOf(sources, data).none {
+            path == it || path.startsWith("$it/") || it.startsWith("$path/")
+        }) { "Output directory overlaps extension storage" }
+        return listOf(path, File(value).absolutePath).distinct()
+    }
+
+    @Synchronized
+    override fun openDownloadDirectory(path: String): AutoCloseable {
+        val current = owner()
+        val storage = checkNotNull(identity)
+        val scope = current.environment().use {
+            it.grantDownloadDirectories(directoryAliases(path, storage.first, storage.second))
+        }
+        return object : AutoCloseable {
+            private var released = false
+
+            @Synchronized
+            override fun close() {
+                if (released) return
+                released = true
+                try { scope.release() } finally { scope.close() }
+            }
+        }
+    }
+
+    @Synchronized
+    private fun setDownloadDirectory(path: String) {
+        val current = owner()
+        val storage = checkNotNull(identity)
+        val files = File(root, "files")
+        val allowed = listOf(files.canonicalPath, files.absolutePath) +
+            if (path.isEmpty()) emptyList() else directoryAliases(path, storage.first, storage.second)
+        current.environment().use { it.setAllowedDownloadDirectories(allowed.distinct()) }
+    }
+
+    @Synchronized
+    private fun requestRegistry(): CancellationRegistry = requests ?: CancellationRegistry(
+        CancellationDomain.EXTENSION_REQUEST,
+    ).also { requests = it }
+
+    @Synchronized
+    private fun acquireRequest(id: String): Pair<ExtensionManager, RequestLease> =
+        owner() to requestRegistry().acquire(id)
+
+    @Synchronized
+    private fun repositoryOwner(): ExtensionRepository =
+        checkNotNull(repository) { "Extension repository is not initialized" }
+
+    @Synchronized
+    private fun initializeRepository(cachePath: String) {
+        val current = owner()
+        if (repository != null) return
+        val cache = File(cachePath)
+        require(cache.isAbsolute) { "Repository cache directory must be absolute" }
+        repository = ExtensionRepository(current, cache.canonicalPath)
+    }
+
+    @Synchronized
+    private fun initializeOwner(arguments: Map<*, *>) {
+        val sourcePath = File(arguments["extensions_dir"] as String)
+        val dataPath = File(arguments["data_dir"] as String)
+        require(sourcePath.isAbsolute && dataPath.isAbsolute) { "Extension storage directories must be absolute" }
+        val sources = sourcePath.canonicalPath
+        val data = dataPath.canonicalPath
+        val key = arguments["master_key"] as String
+        val requested = Triple(
+            sources,
+            data,
+            MessageDigest.getInstance("SHA-256").digest(key.toByteArray()).toList(),
+        )
+        val files = File(root, "files")
+        check(files.mkdirs() || files.isDirectory)
+        val rawDirectories = arguments["allowed_directories"]
+        require(rawDirectories == null || rawDirectories is List<*>) { "Invalid output directories" }
+        val allowedDirectories = listOf(files.canonicalPath, files.absolutePath) +
+            (rawDirectories as? List<*>).orEmpty().flatMap { value ->
+                require(value is String) { "Output directories must be strings" }
+                directoryAliases(value, sources, data)
+            }
+        if (manager != null) {
+            check(identity == requested) { "Rust backend is already initialized with different storage" }
+            manager!!.environment().use { it.setAllowedDownloadDirectories(allowedDirectories.distinct()) }
+            return
+        }
+        val preparedRuntime = runtimeState
+        require(preparedRuntime == null || preparedRuntime.first == data) {
+            "Runtime state directory does not match the initialized owner"
+        }
+        val created = ExtensionManager.withLyricsSettings(
+            sources,
+            data,
+            key,
+            BuildConfig.VERSION_NAME,
+            30_000uL,
+            arguments["lyrics_providers_json"] as? String ?: "[]",
+            arguments["lyrics_options_json"] as? String ?: "{}",
+        )
+        try {
+            created.environment().use { environment ->
+                environment.setAllowedDownloadDirectories(allowedDirectories.distinct())
+                environment.setAllowPrivateNetwork(allowPrivateNetwork)
+                environment.setNetworkCompatibilityOptions(allowHttpFallback, false)
+                environment.logBuffer().use { it.setEnabled(loggingEnabled) }
+                preparedRuntime?.let { environment.setRuntimeState(it.second) }
+            }
+            created.setFallbackProviders(fallbackProviders)
+        } catch (error: Exception) {
+            created.shutdown()
+            created.close()
+            throw error
+        }
+        identity = requested
+        manager = created
+    }
+
+    @Synchronized
+    private fun shutdownOwner() {
+        requests?.let {
+            it.shutdown()
+            it.close()
+        }
+        requests = null
+        repository?.let {
+            it.shutdown()
+            it.close()
+        }
+        repository = null
+        manager?.let {
+            it.shutdown()
+            it.close()
+        }
+        manager = null
+        directoryScopes.values.forEach { it.close() }
+        directoryScopes.clear()
+        libraryCoverScope?.close()
+        libraryCoverScope = null
+        identity = null
+        runtimeState = null
+    }
+
+    override fun fileMetadataImplementation(path: String): String = "rust"
+
+    override fun readFileMetadata(path: String, hint: String): String =
+        com.spotiflac.backend.readFileMetadata(path, hint, null)
+
+    override fun readAudioMetadata(path: String, hint: String, cacheKey: String): String =
+        owner().readAudioMetadata(File(path).canonicalPath, hint, cacheKey, null)
+
+    private fun <T> withLibraryDirectories(paths: List<String>, block: (ExtensionManager) -> T): T {
+        val (current, scope) = synchronized(this) {
+            val current = owner()
+            val storage = checkNotNull(identity)
+            val aliases = paths.flatMap { directoryAliases(it, storage.first, storage.second) }.distinct()
+            current to current.environment().use { it.grantDownloadDirectories(aliases) }
+        }
+        return scope.use {
+            try { block(current) } finally { it.release() }
+        }
+    }
+
+    @Synchronized
+    override fun setLibraryCoverCacheDirectory(path: String) {
+        val current = owner()
+        require(path.isEmpty() || File(path).isAbsolute) { "Library cover directory must be absolute" }
+        val directory = if (path.isEmpty()) null else File(path).canonicalFile
+        if (directory != null) check(directory.mkdirs() || directory.isDirectory)
+        val next = directory?.let { openDownloadDirectory(it.path) }
+        try { current.setLibraryCoverCacheDirectory(directory?.path.orEmpty()) }
+        catch (error: Exception) { next?.close(); throw error }
+        libraryCoverScope?.close()
+        libraryCoverScope = next
+    }
+
+    override fun scanLibraryFolder(folder: String): String = withLibraryDirectories(listOf(folder)) {
+        it.scanLibraryFolder(File(folder).canonicalPath, null)
+    }
+
+    override fun scanLibraryFolderToNdjsonFile(folder: String, output: String): Long =
+        withLibraryDirectories(listOf(folder)) { current ->
+            require(File(output).isAbsolute && File(output).extension.equals("ndjson", ignoreCase = true)) {
+                "Library scan output must be an absolute NDJSON path"
+            }
+            // The support directory also contains extension storage. Keep the
+            // Rust write inside its existing private staging root, then publish
+            // the completed result through the native app's file access.
+            val staged = File.createTempFile("library_scan_", ".ndjson", File(root, "files"))
+            try {
+                val count = current.scanLibraryFolderToNdjsonFile(File(folder).canonicalPath, staged.canonicalPath, null)
+                check(staged.renameTo(File(output))) { "Failed to publish library scan output" }
+                count.toLong()
+            } finally { staged.delete() }
+        }
+
+    override fun scanLibraryFolderIncremental(folder: String, existing: String): String =
+        withLibraryDirectories(listOf(folder)) {
+            it.scanLibraryFolderIncremental(File(folder).canonicalPath, existing, null)
+        }
+
+    override fun scanLibraryFolderIncrementalFromSnapshot(folder: String, snapshot: String): String =
+        withLibraryDirectories(listOf(folder)) { current ->
+            if (snapshot.isEmpty()) current.scanLibraryFolderIncremental(File(folder).canonicalPath, "{}", null)
+            else {
+                val staged = File.createTempFile("library_snapshot_", ".ndjson", File(root, "files"))
+                try {
+                    File(snapshot).copyTo(staged, overwrite = true)
+                    current.scanLibraryFolderIncrementalFromSnapshot(File(folder).canonicalPath, staged.canonicalPath, null)
+                } finally { staged.delete() }
+            }
+        }
+
+    override fun getLibraryScanProgress(): String =
+        synchronized(this) { manager }?.getLibraryScanProgress() ?: "{}"
+
+    override fun cancelLibraryScan() { synchronized(this) { manager }?.cancelLibraryScan() }
+
+    override fun parseCueSheet(path: String, audioDirectory: String): String {
+        val cue = File(path).canonicalFile
+        val audio = if (audioDirectory.isEmpty()) cue.parentFile!! else File(audioDirectory).canonicalFile
+        return withLibraryDirectories(listOf(cue.parent, audio.path)) {
+            it.parseCueFileJson(cue.path, audio.path, null)
+        }
+    }
+
+    override fun scanCueForLibrary(path: String, audioDirectory: String, virtualPrefix: String, modTime: Long, cacheKey: String): String {
+        val cue = File(path).canonicalFile
+        val audio = if (audioDirectory.isEmpty()) cue.parentFile!! else File(audioDirectory).canonicalFile
+        return withLibraryDirectories(listOf(cue.parent, audio.path)) {
+            it.scanCueFileForLibrary(cue.path, audio.path, virtualPrefix, modTime, cacheKey, java.time.Instant.now().toString(), null)
+        }
+    }
+
+    override fun editFileMetadata(path: String, metadataJson: String): String =
+        owner().editFileMetadata(File(path).canonicalPath, metadataJson, null)
+
+    private fun mediaPath(path: String): String = if (path.isEmpty()) "" else File(path).canonicalPath
+
+    override fun reEnrichFile(requestJson: String): String {
+        val request = JSONObject(requestJson)
+        val path = request.opt("file_path") as? String
+        if (!request.optBoolean("preview_only", false) && path?.startsWith("/") == true) {
+            request.put("file_path", mediaPath(path))
+        }
+        return owner().reenrichFile(request.toString(), null)
+    }
+
+    override fun rewriteSplitArtistTags(path: String, artist: String, albumArtist: String): String =
+        owner().rewriteSplitArtistTags(mediaPath(path), artist, albumArtist, null)
+
+    override fun extractCoverToFile(audioPath: String, outputPath: String) {
+        owner().extractCoverToFile(mediaPath(audioPath), mediaPath(outputPath), null)
+    }
+
+    override fun writeM4aFreeformTags(path: String, metadataJson: String): String =
+        owner().writeM4aFreeformTags(mediaPath(path), metadataJson, null)
+
+    override fun ensureAc4Config(path: String, reference: String): String =
+        owner().ensureAc4Config(mediaPath(path), mediaPath(reference), null)
+
+    override fun writeAc4Metadata(path: String, metadataJson: String, coverPath: String): String =
+        owner().writeAc4Metadata(mediaPath(path), metadataJson, mediaPath(coverPath), null)
+
+    override fun getLyricsLrc(
+        spotifyId: String,
+        trackName: String,
+        artistName: String,
+        filePath: String,
+        durationMs: Long,
+    ): String = owner().getLyricsLrc(
+        LyricsRequest(spotifyId, trackName, artistName, filePath, durationMs),
+        null,
+    )
+
+    override fun downloadCoverToFileSized(
+        url: String,
+        outputPath: String,
+        maxDimension: Long,
+    ) = owner().downloadCoverToFileSized(
+        url,
+        File(outputPath).canonicalPath,
+        maxDimension,
+        null,
+    )
+
+    override fun releaseIdleResources() {
+        owner().releaseMemory(false)
+    }
+
+    override fun releaseMemoryUnderPressure() {
+        owner().releaseMemory(true)
+    }
+
+    override fun createTemporaryMediaFile(
+        context: Context,
+        prefix: String,
+        suffix: String,
+    ): File {
+        owner()
+        return File.createTempFile(prefix, suffix, File(root, "files"))
+    }
+
+    override fun openExtensionExecution(): CoreExtensionExecution {
+        val current = owner()
+        val commands = current.environment().use { it.ffmpegCommands() }
+        return object : CoreExtensionExecution {
+            override fun download(requestJson: String): String = current.downloadByStrategy(requestJson)
+            override fun postProcess(inputJson: String, metadataJson: String): String =
+                current.runPostProcessing(inputJson, metadataJson, 120_000uL)
+            override fun waitPending(timeoutMs: Long): List<CoreFFmpegCommand> =
+                parseCoreFFmpegCommands(commands.waitPending(timeoutMs))
+            override fun commandIsActive(commandId: String): Boolean = commands.getCommand(commandId).isNotEmpty()
+            override fun complete(commandId: String, success: Boolean, output: String, error: String) {
+                commands.complete(commandId, success, output, error)
+            }
+            override fun close() { commands.close() }
+        }
+    }
+
+    override fun waitForDownloadProgressDelta(since: Long, timeoutMs: Long): String {
+        val current = owner()
+        return current.environment().use { environment ->
+            environment.downloadState().use { state ->
+                state.waitProgressDelta(since, timeoutMs)
+            }
+        }
+    }
+
+    override fun openDownloadProgress(): CoreDownloadProgress {
+        val current = owner()
+        val subscription = current.environment().use { environment ->
+            environment.downloadState().use { it.subscribeProgress() }
+        }
+        return object : CoreDownloadProgress {
+            override fun waitDelta(since: Long, timeoutMs: Long): String = subscription.waitDelta(since, timeoutMs)
+            override fun close() {
+                subscription.stop()
+                subscription.close()
+            }
+        }
+    }
+
+    override fun initItemProgress(itemId: String) {
+        val current = owner()
+        current.environment().use { environment ->
+            environment.downloadState().use { state ->
+                state.initItemProgress(itemId)
+            }
+        }
+    }
+
+    override fun clearItemProgress(itemId: String) {
+        val current = owner()
+        current.environment().use { environment ->
+            environment.downloadState().use { state ->
+                state.clearItemProgress(itemId)
+            }
+        }
+    }
+
+    override fun cancelDownload(itemId: String) {
+        val current = owner()
+        current.environment().use { environment ->
+            environment.downloadState().use { state ->
+                state.cancelDownload(itemId)
+            }
+        }
+    }
+
+    override fun resetDownloadCancel(itemId: String) {
+        val current = owner()
+        current.environment().use { environment ->
+            environment.downloadState().use { state ->
+                state.resetDownloadCancel(itemId)
+            }
+        }
+    }
+
+    override fun completeAuthCallback(state: String, code: String, sessionGrant: Boolean, onResolved: (String) -> Unit) {
+        val current = owner()
+        current.environment().use { environment ->
+            val id = if (sessionGrant) environment.resolveCallbackState(state) else environment.consumeCallbackState(state)
+            onResolved(id)
+            if (sessionGrant) {
+                completeSessionGrant(current, id, code)
+            } else {
+                environment.setAuthCode(id, code)
+                current.invokeAction(id, "completeSpotifyLogin")
+            }
+        }
+    }
+
+    private fun completeSessionGrant(current: ExtensionManager, id: String, grant: String) {
+        current.environment().use { it.setSessionGrant(id, grant) }
+        requireSuccessfulExtensionAction(id, "completeGrant", current.invokeAction(id, "completeGrant"))
+    }
+
+    override fun invokeApplication(method: String, arguments: Any?): Any? {
+        val args = arguments as? Map<*, *> ?: emptyMap<Any, Any>()
+        fun string(key: String, default: String = "") = args[key] as? String ?: default
+        fun lyricsRequest(fileKey: String) = LyricsRequest(
+            string("spotify_id"),
+            string("track_name"),
+            string("artist_name"),
+            string(fileKey),
+            (args["duration_ms"] as? Number)?.toLong() ?: 0L,
+        )
+        fun ids(raw: String): List<String> {
+            val values = JSONArray(raw)
+            return (0 until values.length()).map { values.getString(it) }
+        }
+        when (method) {
+            "cancelExtensionRequest" -> synchronized(this) {
+                requestRegistry().cancel(string("request_id"))
+                return null
+            }
+            "customSearchWithExtension", "getExtensionHomeFeed" -> {
+                val (current, lease) = acquireRequest(string("request_id"))
+                return lease.use {
+                    try {
+                        if (method == "customSearchWithExtension") {
+                            current.customSearchJson(string("extension_id"), string("query"), string("options"), it)
+                        } else {
+                            current.getExtensionHomeFeedJson(string("extension_id"), it)
+                        }
+                    } finally {
+                        it.release()
+                    }
+                }
+            }
+            "prepareRuntimeState" -> synchronized(this) {
+                val directory = File(string("data_dir"))
+                require(directory.isAbsolute) { "Extension data directory must be absolute" }
+                val data = directory.canonicalPath
+                check(manager == null || identity?.second == data) {
+                    "Runtime state directory does not match the initialized owner"
+                }
+                val raw = string("runtime_state")
+                manager?.environment()?.use { it.setRuntimeState(raw) }
+                runtimeState = data to raw
+                return null
+            }
+            "initExtensionSystem" -> {
+                initializeOwner(args)
+                return null
+            }
+            "setDownloadDirectory" -> {
+                setDownloadDirectory(string("path"))
+                return null
+            }
+            "acquireDownloadDirectory" -> synchronized(this) {
+                val scope = openDownloadDirectory(string("path"))
+                val token = UUID.randomUUID().toString()
+                directoryScopes[token] = scope
+                return token
+            }
+            "releaseDownloadDirectory" -> synchronized(this) {
+                directoryScopes.remove(string("token"))?.close()
+                return null
+            }
+            "cleanupExtensions" -> {
+                shutdownOwner()
+                return null
+            }
+            "buildFilename" -> return buildFilename(string("template"), string("metadata", "{}"))
+            "sanitizeFilename" -> return sanitizeFilename(string("filename"))
+            "readFileMetadata", "editFileMetadata" -> return try {
+                if (method == "readFileMetadata") {
+                    readFileMetadata(string("file_path"), string("display_name"))
+                } else {
+                    editFileMetadata(string("file_path"), string("metadata_json", "{}"))
+                }
+            } catch (error: Exception) {
+                JSONObject().put("error", error.message ?: "File metadata operation failed").toString()
+            }
+            "getLogsSince" -> return synchronized(this) {
+                manager?.environment()?.use { environment ->
+                    environment.logBuffer().use { it.since((args["index"] as? Number)?.toLong() ?: 0L) }
+                } ?: """{"logs":[],"next_index":0}"""
+            }
+            "clearLogs" -> return synchronized(this) {
+                manager?.environment()?.use { environment -> environment.logBuffer().use { it.clear() } }
+                null
+            }
+            "setLoggingEnabled", "setAllowPrivateNetwork", "setDownloadFallbackExtensionIds",
+            "setNetworkCompatibilityOptions", "setSongLinkNetworkOptions",
+            "setLyricsProviders", "setLyricsFetchOptions" -> synchronized(this) {
+                when (method) {
+                    "setLoggingEnabled" -> {
+                        val enabled = args["enabled"] as? Boolean ?: false
+                        manager?.environment()?.use { environment ->
+                            environment.logBuffer().use { it.setEnabled(enabled) }
+                        }
+                        loggingEnabled = enabled
+                    }
+                    "setAllowPrivateNetwork" -> {
+                        val allowed = args["allowed"] as? Boolean ?: false
+                        manager?.environment()?.use { it.setAllowPrivateNetwork(allowed) }
+                        allowPrivateNetwork = allowed
+                    }
+                    "setNetworkCompatibilityOptions", "setSongLinkNetworkOptions" -> {
+                        val allowed = args["allow_http"] as? Boolean ?: false
+                        val insecureTls = args["insecure_tls"] as? Boolean ?: false
+                        manager?.environment()?.use { it.setNetworkCompatibilityOptions(allowed, insecureTls) }
+                        allowHttpFallback = allowed
+                    }
+                    "setDownloadFallbackExtensionIds" -> {
+                        val raw = string("extension_ids")
+                        val value = if (raw.isBlank() || raw.trim() == "null") null else ids(raw)
+                        manager?.setFallbackProviders(value)
+                        fallbackProviders = value
+                    }
+                    "setLyricsProviders" -> {
+                        val raw = string("providers_json", "[]")
+                        if (manager != null) manager!!.setLyricsProvidersJson(raw) else ids(raw)
+                        return """{"success":true}"""
+                    }
+                    "setLyricsFetchOptions" -> {
+                        val raw = string("options_json", "{}")
+                        if (manager != null) manager!!.setLyricsFetchOptionsJson(raw) else JSONObject(raw)
+                        return """{"success":true}"""
+                    }
+                }
+                return null
+            }
+            "initExtensionRepo" -> {
+                initializeRepository(string("cache_dir"))
+                return null
+            }
+            "setRepoRegistryUrl" -> {
+                repositoryOwner().setRegistryUrl(string("registry_url"))
+                return null
+            }
+            "getRepoRegistryUrl" -> return repositoryOwner().registryUrl()
+            "clearRepoRegistryUrl" -> {
+                repositoryOwner().clearRegistryUrl()
+                return null
+            }
+            "getRepoExtensions" -> return repositoryOwner().extensions(
+                args["force_refresh"] as? Boolean ?: false,
+            )
+            "searchRepoExtensions" -> return repositoryOwner().search(
+                string("query"),
+                string("category"),
+            )
+            "getRepoCategories" -> return JSONArray(repositoryOwner().categories()).toString()
+            "downloadRepoExtension" -> return repositoryOwner().download(
+                string("extension_id"),
+                string("dest_dir"),
+            )
+            "clearRepoCache" -> {
+                repositoryOwner().clearCache()
+                return null
+            }
+        }
+        val current = owner()
+        return when (method) {
+            "loadExtensionsFromDir" -> {
+                synchronized(this) {
+                    check(File(string("dir_path")).canonicalPath == identity?.first) { "Extension source directory does not match the initialized owner" }
+                }
+                current.loadAll()
+            }
+            "loadExtensionFromPath" -> current.install(string("file_path"))
+            "upgradeExtension" -> current.upgrade(string("file_path"))
+            "checkExtensionUpgrade" -> current.checkUpgrade(string("file_path"))
+            "getInstalledExtensions" -> current.installed()
+            "setExtensionEnabled" -> {
+                current.setEnabled(string("extension_id"), args["enabled"] as? Boolean ?: false)
+                null
+            }
+            "unloadExtension" -> {
+                current.unload(string("extension_id"))
+                null
+            }
+            "removeExtension" -> {
+                current.remove(string("extension_id"))
+                null
+            }
+            "getExtensionSettings" -> current.environment().use { it.settings(string("extension_id")) }
+            "setExtensionSettings" -> {
+                current.updateSettings(string("extension_id"), string("settings", "{}"))
+                null
+            }
+            "invokeExtensionAction" -> current.invokeAction(string("extension_id"), string("action"))
+            "checkExtensionHealth" -> current.checkExtensionHealthJson(string("extension_id"))
+            "setProviderPriority", "setMetadataProviderPriority" -> {
+                current.setProviderPriority(if (method == "setProviderPriority") "download" else "metadata", ids(string("priority", "[]")))
+                null
+            }
+            "getProviderPriority", "getMetadataProviderPriority" -> {
+                JSONObject(current.providerPriorities()).optJSONArray(if (method == "getProviderPriority") "download" else "metadata")?.toString() ?: "[]"
+            }
+            "getLyricsProviders" -> current.getLyricsProvidersJson()
+            "getLyricsFetchOptions" -> current.getLyricsFetchOptionsJson()
+            "getAvailableLyricsProviders" -> current.getAvailableLyricsProvidersJson()
+            "searchTracksWithMetadataProviders" -> current.searchMetadataProviders(
+                string("query"),
+                (args["limit"] as? Number)?.toLong() ?: 20L,
+                args["include_extensions"] as? Boolean ?: true,
+                "",
+                30_000uL,
+            )
+            "searchTracksWithMetadataProvider" -> current.searchMetadataProvider(
+                string("extension_id"),
+                string("query"),
+                (args["limit"] as? Number)?.toLong() ?: 20L,
+                30_000uL,
+            )
+            "getProviderMetadata" -> current.getProviderMetadataJson(
+                string("provider_id"),
+                string("resource_type"),
+                string("resource_id"),
+                null,
+            )
+            "searchDeezerByISRC" -> current.searchDeezerByIsrcForItemId(
+                string("isrc"),
+                string("item_id"),
+                null,
+            )
+            "getDeezerExtendedMetadata" -> current.getDeezerExtendedMetadata(
+                string("track_id"),
+                null,
+            )
+            "convertSpotifyToDeezer" -> current.convertSpotifyToDeezer(
+                string("resource_type"),
+                string("spotify_id"),
+                null,
+            )
+            "getSpotifyIDFromDeezerTrack" -> current.getSpotifyIdFromDeezerTrack(
+                string("deezer_track_id"),
+                null,
+            )
+            "getTidalURLFromDeezerTrack" -> current.getTidalUrlFromDeezerTrack(
+                string("deezer_track_id"),
+                null,
+            )
+            "getTrackPlatformLinks" -> current.getTrackPlatformLinksJson(
+                string("spotify_id"),
+                string("isrc"),
+                null,
+            )
+            "fetchMusicBrainzTags" -> {
+                val genre = try {
+                    current.fetchMusicBrainzGenreByIsrc(string("isrc"), null)
+                } catch (_: Exception) {
+                    ""
+                }
+                val albumArtist = try {
+                    current.fetchMusicBrainzAlbumArtistByIsrc(
+                        string("isrc"),
+                        string("album_name"),
+                        null,
+                    )
+                } catch (_: Exception) {
+                    ""
+                }
+                JSONObject()
+                    .put("genre", genre)
+                    .put("album_artist", albumArtist)
+                    .toString()
+            }
+            "getTrackCacheSize" -> current.getTrackCacheSize().toInt()
+            "clearTrackCache" -> {
+                current.clearTrackIdCache()
+                null
+            }
+            "setMetadataLanguage" -> {
+                current.setMetadataLanguage(string("tag"))
+                null
+            }
+            "findURLHandler" -> current.findUrlHandler(string("url")) ?: ""
+            "handleURLWithExtension" -> current.handleUrlJson(string("url"))
+            "enrichTrackWithExtension" -> current.enrichTrackJson(string("extension_id"), string("track", "{}"))
+            "getExtensionPendingAuth" -> current.getExtensionPendingAuthJson(string("extension_id")).ifEmpty { null }
+            "setExtensionAuthCode" -> current.environment().use { it.setAuthCode(string("extension_id"), string("auth_code")); null }
+            "completeExtensionSessionGrant" -> {
+                completeSessionGrant(current, string("extension_id"), string("grant"))
+                true
+            }
+            "setExtensionTokens" -> current.environment().use {
+                it.setAuthTokens(string("extension_id"), string("access_token"), string("refresh_token"), (args["expires_in"] as? Int)?.toLong() ?: 0L)
+                null
+            }
+            "clearExtensionPendingAuth" -> current.environment().use { it.clearPendingAuth(string("extension_id")); null }
+            "isExtensionAuthenticated" -> current.environment().use { it.isAuthenticated(string("extension_id")) }
+            "getAllPendingAuthRequests" -> current.environment().use { it.allPendingAuth() }
+            "getAllDownloadProgress" -> current.environment().use { environment ->
+                environment.downloadState().use { state -> state.allProgress() }
+            }
+            "cleanupConnections" -> current.environment().use { it.cleanupConnections(); null }
+            "getPendingFFmpegCommand", "getAllPendingFFmpegCommands", "setFFmpegCommandResult" -> current.environment().use { environment ->
+                environment.ffmpegCommands().use { commands ->
+                    when (method) {
+                        "getPendingFFmpegCommand" -> commands.getCommand(string("command_id"))
+                        "getAllPendingFFmpegCommands" -> commands.pending()
+                        else -> {
+                            commands.complete(string("command_id"), args["success"] as? Boolean ?: false, string("output"), string("error"))
+                            null
+                        }
+                    }
+                }
+            }
+            "clearItemProgress", "cancelDownload", "resetDownloadCancel" -> current.environment().use { environment ->
+                environment.downloadState().use { state ->
+                    when (method) {
+                        "clearItemProgress" -> state.clearItemProgress(string("item_id"))
+                        "cancelDownload" -> state.cancelDownload(string("item_id"))
+                        else -> state.resetDownloadCancel(string("item_id"))
+                    }
+                    null
+                }
+            }
+            "getLyricsLRC" -> current.getLyricsLrc(lyricsRequest("file_path"), null)
+            "getLyricsLRCWithSource" -> current.getLyricsLrcWithSource(lyricsRequest("file_path"), null)
+            "embedLyricsToFile" -> current.embedLyricsToFile(
+                string("file_path"),
+                string("lyrics"),
+                null,
+            )
+            "fetchAndSaveLyrics" -> try {
+                current.fetchAndSaveLyrics(lyricsRequest("audio_file_path"), string("output_path"), null)
+                """{"success":true}"""
+            } catch (error: Exception) {
+                JSONObject().put("success", false).put("error", error.message ?: "Lyrics operation failed").toString()
+            }
+            "findCollectionAcrossExtensions" -> current.findCollectionAcrossExtensionsJson(
+                arguments as? String ?: "{}",
+                null,
+            )
+            else -> error("Rust application method is not connected yet: $method")
+        }
+    }
+
+    override fun buildFilename(template: String, metadataJson: String): String =
+        com.spotiflac.backend.buildFilename(template, metadataJson)
+
+    override fun sanitizeFilename(filename: String): String =
+        com.spotiflac.backend.sanitizeFilename(filename)
+}

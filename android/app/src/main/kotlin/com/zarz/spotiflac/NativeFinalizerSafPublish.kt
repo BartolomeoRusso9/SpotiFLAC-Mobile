@@ -23,7 +23,6 @@ import com.zarz.spotiflac.NativeFinalizationPolicy.isLossyAudioCodec
 import com.zarz.spotiflac.NativeFinalizationPolicy.normalizeAudioCodec
 import com.zarz.spotiflac.NativeFinalizationPolicy.removeQualityVariantStagingLabel
 import com.zarz.spotiflac.NativeFinalizationPolicy.resolvePreferredDecryptionExtension
-import gobackend.Gobackend
 import org.json.JSONObject
 import java.io.File
 import java.io.RandomAccessFile

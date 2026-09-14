@@ -50,6 +50,7 @@ Future<Database> openAppDatabase(
   required Future<void> Function(Database db, int version) onCreate,
   required Future<void> Function(Database db, int oldVersion, int newVersion)
   onUpgrade,
+  Future<void> Function(Database db)? onOpen,
   bool foreignKeys = false,
   bool incrementalAutoVacuum = true,
 }) async {
@@ -94,6 +95,7 @@ Future<Database> openAppDatabase(
     },
     onCreate: onCreate,
     onUpgrade: onUpgrade,
+    onOpen: onOpen,
   );
 }
 

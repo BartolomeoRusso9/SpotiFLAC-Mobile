@@ -2,7 +2,6 @@ import AuthenticationServices
 import Flutter
 import UIKit
 import UniformTypeIdentifiers
-import Gobackend
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
@@ -12,18 +11,20 @@ import Gobackend
     private let LARGE_JSON_RESULT_FILE_KEY = "__json_file"
     private let LARGE_JSON_RESULT_FILE_THRESHOLD_BYTES = 256 * 1024
     private let streamQueue = DispatchQueue(label: "com.zarz.spotiflac.progress_stream", qos: .utility)
-    private let downloadProgressSubscription = DownloadProgressSubscription { sequence, timeout in
-        GobackendWaitForAllDownloadProgressDelta(sequence, timeout) as String? ?? ""
-    }
+    private lazy var downloadProgressSubscription = DownloadProgressSubscription(connect: { [weak self] in
+        guard let self else { throw NSError(domain: "CoreBackend", code: 1) }
+        return try self.coreBackend.openDownloadProgress()
+    })
     private var libraryScanProgressTimer: DispatchSourceTimer?
     private var libraryScanProgressEventSink: FlutterEventSink?
     private var lastLibraryScanProgressPayload: String?
     private var libraryScanProgressGeneration: UInt64 = 0
     private var backendChannel: FlutterMethodChannel?
+    private let coreBackend: CoreBackend = createCoreBackend()
     private var pendingSessionGrantEvents: [[String: Any]] = []
     
     private let securityScopedAccessLock = NSLock()
-    private var securityScopedAccesses: [String: URL] = [:]
+    private var securityScopedAccesses: [String: (URL, CoreDirectoryScope)] = [:]
 
     /// Pending Flutter result for the native folder picker
     private var pendingDirectoryPickerResult: FlutterResult?
@@ -42,9 +43,6 @@ import Gobackend
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
-            GobackendSetAppVersion(version)
-        }
         
         let controller = window?.rootViewController as! FlutterViewController
         let channel = FlutterMethodChannel(
@@ -110,95 +108,25 @@ import Gobackend
     private func handleExtensionOAuthRedirect(url: URL) -> Bool {
         guard let route = ExtensionCallbackParser.parse(url) else { return false }
         streamQueue.async {
-            var err: NSError?
-            var response: String?
-            let extensionId: String
-            if route.isSessionGrant {
-                extensionId = GobackendResolveExtensionCallbackState(
-                    route.state,
-                    &err
-                )
-            } else {
-                extensionId = GobackendConsumeExtensionCallbackState(
-                    route.state,
-                    &err
-                )
-            }
-            guard err == nil, !extensionId.isEmpty else {
-                NSLog("SpotiFLAC Mobile: Rejected invalid or expired extension callback")
-                return
-            }
-            if route.isSessionGrant {
-                GobackendSetExtensionSessionGrantByID(extensionId, route.code)
-                response = GobackendInvokeExtensionActionJSON(
-                    extensionId,
-                    "completeGrant",
-                    &err
-                )
-            } else {
-                GobackendSetExtensionAuthCodeByID(extensionId, route.code)
-                response = GobackendInvokeExtensionActionJSON(
-                    extensionId,
-                    "completeSpotifyLogin",
-                    &err
-                )
-            }
-            if err == nil && route.isSessionGrant {
-                do {
-                    try self.requireSuccessfulExtensionAction(
-                        extensionId: extensionId,
-                        actionName: "completeGrant",
-                        response: response
-                    )
-                } catch {
-                    err = error as NSError
+            var extensionId = ""
+            do {
+                try self.coreBackend.completeAuthCallback(state: route.state, code: route.code, sessionGrant: route.isSessionGrant) {
+                    extensionId = $0
                 }
-            }
-            if let err = err {
-                NSLog(
-                    "SpotiFLAC Mobile: Extension callback failed (code \(err.code))")
-            } else if route.isSessionGrant {
-                DispatchQueue.main.async { [weak self] in
-                    self?.notifySessionGrantCompleted(
-                        extensionId: extensionId
-                    )
+                if route.isSessionGrant {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.notifySessionGrantCompleted(extensionId: extensionId)
+                    }
+                }
+            } catch {
+                if extensionId.isEmpty {
+                    NSLog("SpotiFLAC Mobile: Rejected invalid or expired extension callback")
+                } else {
+                    NSLog("SpotiFLAC Mobile: Extension callback failed (code \((error as NSError).code))")
                 }
             }
         }
         return true
-    }
-
-    private func requireSuccessfulExtensionAction(
-        extensionId: String,
-        actionName: String,
-        response: String?
-    ) throws {
-        let text = response ?? ""
-        guard let data = text.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw NSError(
-                domain: "SpotiFLAC",
-                code: 1,
-                userInfo: [
-                    NSLocalizedDescriptionKey:
-                        "Extension \(actionName) for \(extensionId) returned invalid JSON: \(String(text.prefix(240)))"
-                ]
-            )
-        }
-        if (obj["success"] as? Bool) == true {
-            return
-        }
-        let error =
-            (obj["error"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ??
-            (obj["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ??
-            String(text.prefix(240))
-        throw NSError(
-            domain: "SpotiFLAC",
-            code: 2,
-            userInfo: [
-                NSLocalizedDescriptionKey: "Extension \(actionName) failed for \(extensionId): \(error)"
-            ]
-        )
     }
 
     private func notifySessionGrantCompleted(extensionId: String) {
@@ -248,7 +176,7 @@ import Gobackend
         timer.schedule(deadline: .now(), repeating: .milliseconds(800))
         timer.setEventHandler { [weak self] in
             guard let self, self.libraryScanProgressGeneration == generation else { return }
-            let payload = GobackendGetLibraryScanProgressJSON() as String? ?? "{}"
+            let payload = (try? self.coreBackend.getLibraryScanProgress()) ?? "{}"
             if payload == self.lastLibraryScanProgressPayload {
                 return
             }
@@ -299,6 +227,22 @@ import Gobackend
     }
     
     private func handleMethodCall(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        let osMethods: Set<String> = ["getBackendImplementations", "startWebAuthSession", "beginBackgroundDownloadTask", "endBackgroundDownloadTask",
+            "pickIosDirectory", "createIosBookmarkFromPath", "resolveIosBookmark", "startAccessingIosBookmark", "stopAccessingIosBookmark", "downloadCoverToFile", "releaseMemory", "releaseMemoryUnderPressure",
+            "setLibraryCoverCacheDir", "scanLibraryFolder", "scanLibraryFolderToNDJSONFile", "scanLibraryFolderIncremental",
+            "getLibraryScanProgress", "cancelLibraryScan", "parseCueSheet", "extractCoverToFile",
+            "rewriteSplitArtistTags", "writeM4AFreeformTags", "ensureAC4Config", "writeAC4Metadata", "reEnrichFile"]
+        if coreBackend.routesApplication && !osMethods.contains(call.method) {
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let response = try self.coreBackend.invokeApplication(method: call.method, arguments: call.arguments)
+                    DispatchQueue.main.async { result(response) }
+                } catch {
+                    DispatchQueue.main.async { result(FlutterError(code: "ERROR", message: error.localizedDescription, details: nil)) }
+                }
+            }
+            return
+        }
         switch call.method {
         case "beginBackgroundDownloadTask":
             downloadsActive = true
@@ -408,10 +352,11 @@ import Gobackend
             withName: "SpotiFLACDownloads"
         ) { [weak self] in
             if self?.downloadsActive == true {
+                NSLog("SpotiFLAC: download background task expired")
                 // Flutter channel delivery is asynchronous and iOS may suspend
-                // us immediately after this callback. Cancel live Go requests
+                // us immediately after this callback. Cancel live requests
                 // synchronously first; Dart then persists/requeues the items.
-                let cancelledItemIDs = GobackendCancelAllActiveDownloads()
+                let cancelledItemIDs = (try? self?.coreBackend.cancelActiveDownloads()) ?? "[]"
                 self?.backendChannel?.invokeMethod(
                     "iosBackgroundDownloadExpired",
                     arguments: cancelledItemIDs
@@ -429,652 +374,131 @@ import Gobackend
     }
     
     private func invokeGoMethod(call: FlutterMethodCall) throws -> Any? {
-        var error: NSError?
         
         switch call.method {
         case "downloadByStrategy":
             let requestJson = call.arguments as! String
-            let response = GobackendDownloadByStrategy(requestJson, &error)
-            if let error = error { throw error }
-            return response
+            return try coreBackend.downloadByStrategy(requestJson: requestJson)
 
-        case "getAllDownloadProgress":
-            let response = GobackendGetAllDownloadProgress()
-            return parseJsonPayload(response as String? ?? "{}")
-            
-        case "clearItemProgress":
-            let args = call.arguments as! [String: Any]
-            let itemId = args["item_id"] as! String
-            GobackendClearItemProgress(itemId)
-            return nil
 
-        case "cancelDownload":
+        case "acquireDownloadDirectory":
             let args = call.arguments as! [String: Any]
-            let itemId = args["item_id"] as! String
-            GobackendCancelDownload(itemId)
-            return nil
+            try coreBackend.openDownloadDirectory(path: args["path"] as! String).close()
+            return ""
 
-        case "resetDownloadCancel":
-            let args = call.arguments as! [String: Any]
-            let itemId = args["item_id"] as! String
-            GobackendResetDownloadCancel(itemId)
-            return nil
+        case "releaseDownloadDirectory": return nil
 
-        case "setDownloadDirectory":
-            let args = call.arguments as! [String: Any]
-            let path = args["path"] as! String
-            GobackendSetDownloadDirectory(path, &error)
-            if let error = error { throw error }
-            return nil
 
-        case "setNetworkCompatibilityOptions", "setSongLinkNetworkOptions":
-            let args = call.arguments as! [String: Any]
-            let allowHTTP = args["allow_http"] as? Bool ?? false
-            let insecureTLS = args["insecure_tls"] as? Bool ?? false
-            GobackendSetNetworkCompatibilityOptions(allowHTTP, insecureTLS)
-            return nil
+        case "getBackendImplementations":
+            return [
+                "filename": coreBackend.implementation,
+                "file_metadata": coreBackend.fileMetadataImplementation(path: (call.arguments as? [String: Any])?["file_path"] as? String ?? ""),
+                "extensions": coreBackend.routesApplication ? "rust" : "go",
+                "downloads": coreBackend.implementation,
+            ]
 
-        case "setAllowPrivateNetwork":
-            let args = call.arguments as! [String: Any]
-            let allowed = args["allowed"] as? Bool ?? false
-            GobackendSetAllowPrivateNetwork(allowed)
-            return nil
-            
-        case "checkDuplicatesBatch":
-            let args = call.arguments as! [String: Any]
-            let outputDir = args["output_dir"] as! String
-            let tracksJson = args["tracks"] as? String ?? "[]"
-            let response = GobackendCheckDuplicatesBatch(outputDir, tracksJson, &error)
-            if let error = error { throw error }
-            return response
-            
-        case "preBuildDuplicateIndex":
-            let args = call.arguments as! [String: Any]
-            let outputDir = args["output_dir"] as! String
-            GobackendPreBuildDuplicateIndex(outputDir, &error)
-            if let error = error { throw error }
-            return nil
-            
-        case "invalidateDuplicateIndex":
-            let args = call.arguments as! [String: Any]
-            let outputDir = args["output_dir"] as! String
-            GobackendInvalidateDuplicateIndex(outputDir)
-            return nil
-            
         case "buildFilename":
             let args = call.arguments as! [String: Any]
             let template = args["template"] as! String
             let metadata = args["metadata"] as! String
-            let response = GobackendBuildFilename(template, metadata, &error)
-            if let error = error { throw error }
-            return response
+            return try coreBackend.buildFilename(template: template, metadataJson: metadata)
             
         case "sanitizeFilename":
             let args = call.arguments as! [String: Any]
             let filename = args["filename"] as! String
-            let response = GobackendSanitizeFilename(filename)
-            return response
-            
-        case "getLyricsLRC":
-            let args = call.arguments as! [String: Any]
-            let spotifyId = args["spotify_id"] as! String
-            let trackName = args["track_name"] as! String
-            let artistName = args["artist_name"] as! String
-            let filePath = args["file_path"] as? String ?? ""
-            let durationMs = args["duration_ms"] as? Int64 ?? 0
-            let response = GobackendGetLyricsLRC(spotifyId, trackName, artistName, filePath, durationMs, &error)
-            if let error = error { throw error }
-            return response
+            return coreBackend.sanitizeFilename(filename: filename)
 
-        case "getLyricsLRCWithSource":
-            let args = call.arguments as! [String: Any]
-            let spotifyId = args["spotify_id"] as! String
-            let trackName = args["track_name"] as! String
-            let artistName = args["artist_name"] as! String
-            let filePath = args["file_path"] as? String ?? ""
-            let durationMs = args["duration_ms"] as? Int64 ?? 0
-            let response = GobackendGetLyricsLRCWithSource(spotifyId, trackName, artistName, filePath, durationMs, &error)
-            if let error = error { throw error }
-            return response
-            
-        case "embedLyricsToFile":
-            let args = call.arguments as! [String: Any]
-            let filePath = args["file_path"] as! String
-            let lyrics = args["lyrics"] as! String
-            let response = GobackendEmbedLyricsToFile(filePath, lyrics, &error)
-            if let error = error { throw error }
-            return response
-            
+
         case "rewriteSplitArtistTags":
             let args = call.arguments as! [String: Any]
             let filePath = args["file_path"] as! String
             let artist = args["artist"] as! String
             let albumArtist = args["album_artist"] as! String
-            let response = GobackendRewriteSplitArtistTagsExport(filePath, artist, albumArtist, &error)
-            if let error = error { throw error }
-            return response
-            
-        case "cleanupConnections":
-            GobackendCleanupConnections()
-            return nil
+            return try coreBackend.rewriteSplitArtistTags(path: filePath, artist: artist, albumArtist: albumArtist)
+
+        case "writeM4AFreeformTags":
+            let args = call.arguments as! [String: Any]
+            return try coreBackend.writeM4aFreeformTags(path: args["file_path"] as! String, metadataJson: args["metadata_json"] as? String ?? "{}")
+
+        case "ensureAC4Config":
+            let args = call.arguments as! [String: Any]
+            return try coreBackend.ensureAc4Config(path: args["file_path"] as! String, reference: args["source_path"] as? String ?? "")
+
+        case "writeAC4Metadata":
+            let args = call.arguments as! [String: Any]
+            return try coreBackend.writeAc4Metadata(path: args["file_path"] as! String, metadataJson: args["metadata_json"] as? String ?? "{}", coverPath: args["cover_path"] as? String ?? "")
+
 
         case "downloadCoverToFile":
             let args = call.arguments as! [String: Any]
             let coverURL = args["cover_url"] as! String
             let outputPath = args["output_path"] as! String
-            let maxDimension = max(0, (args["max_dimension"] as? NSNumber)?.intValue ?? 0)
-            GobackendDownloadCoverToFileSized(coverURL, outputPath, maxDimension, &error)
-            if let error = error { throw error }
+            let maxDimension = max(0, (args["max_dimension"] as? NSNumber)?.int64Value ?? 0)
+            let temporary = outputPath.isEmpty ? try coreBackend.createTemporaryMediaFile(prefix: "cover_", suffix: ".jpg") : nil
+            do {
+                try coreBackend.downloadCoverToFileSized(url: coverURL, outputPath: temporary?.path ?? outputPath, maxDimension: maxDimension)
+            } catch {
+                if let temporary = temporary { try? FileManager.default.removeItem(at: temporary) }
+                throw error
+            }
+            if let temporary = temporary {
+                return String(decoding: try JSONSerialization.data(withJSONObject: ["success": true, "file_path": temporary.path]), as: UTF8.self)
+            }
             return "{\"success\":true}"
 
         case "extractCoverToFile":
             let args = call.arguments as! [String: Any]
             let audioPath = args["audio_path"] as! String
             let outputPath = args["output_path"] as! String
-            GobackendExtractCoverToFile(audioPath, outputPath, &error)
-            if let error = error { throw error }
+            try coreBackend.extractCoverToFile(audioPath: audioPath, outputPath: outputPath)
             return "{\"success\":true}"
 
-        case "fetchAndSaveLyrics":
-            let args = call.arguments as! [String: Any]
-            let trackName = args["track_name"] as! String
-            let artistName = args["artist_name"] as! String
-            let spotifyId = args["spotify_id"] as! String
-            let durationMs = args["duration_ms"] as? Int64 ?? 0
-            let outputPath = args["output_path"] as! String
-            let audioFilePath = args["audio_file_path"] as? String ?? ""
-            GobackendFetchAndSaveLyrics(trackName, artistName, spotifyId, durationMs, outputPath, audioFilePath, &error)
-            if let error = error { throw error }
-            return "{\"success\":true}"
 
         case "reEnrichFile":
             let args = call.arguments as! [String: Any]
             let requestJson = args["request_json"] as? String ?? "{}"
-            let response = GobackendReEnrichFile(requestJson, &error)
-            if let error = error { throw error }
-            return response
+            return try coreBackend.reEnrichFile(requestJson: requestJson)
             
         case "readFileMetadata":
             let args = call.arguments as! [String: Any]
             let filePath = args["file_path"] as! String
-            let response = GobackendReadFileMetadataWithHint(filePath, args["display_name"] as? String ?? "", &error)
-            if let error = error { throw error }
-            return response
+            return try coreBackend.readFileMetadata(path: filePath, hint: args["display_name"] as? String ?? "")
             
         case "editFileMetadata":
             let args = call.arguments as! [String: Any]
             let filePath = args["file_path"] as! String
             let metadataJson = args["metadata_json"] as? String ?? "{}"
-            let response = GobackendEditFileMetadata(filePath, metadataJson, &error)
-            if let error = error { throw error }
-            return response
-            
-        case "getProviderMetadata":
-            let args = call.arguments as! [String: Any]
-            let providerId = args["provider_id"] as! String
-            let resourceType = args["resource_type"] as! String
-            let resourceId = args["resource_id"] as! String
-            let response = GobackendGetProviderMetadataJSON(providerId, resourceType, resourceId, &error)
-            if let error = error { throw error }
-            return response
+            return try coreBackend.editFileMetadata(path: filePath, metadataJson: metadataJson)
 
-        case "searchDeezerByISRC":
-            let args = call.arguments as! [String: Any]
-            let isrc = args["isrc"] as! String
-            let itemId = args["item_id"] as? String ?? ""
-            let response = GobackendSearchDeezerByISRCForItemID(isrc, itemId, &error)
-            if let error = error { throw error }
-            return response
-
-        case "getDeezerExtendedMetadata":
-            let args = call.arguments as! [String: Any]
-            let trackId = args["track_id"] as! String
-            let response = GobackendGetDeezerExtendedMetadata(trackId, &error)
-            if let error = error { throw error }
-            return response
-
-        case "convertSpotifyToDeezer":
-            let args = call.arguments as! [String: Any]
-            let resourceType = args["resource_type"] as! String
-            let spotifyId = args["spotify_id"] as! String
-            let response = GobackendConvertSpotifyToDeezer(resourceType, spotifyId, &error)
-            if let error = error { throw error }
-            return response
-
-        case "getSpotifyIDFromDeezerTrack":
-            let args = call.arguments as! [String: Any]
-            let deezerTrackId = args["deezer_track_id"] as! String
-            let response = GobackendGetSpotifyIDFromDeezerTrack(deezerTrackId, &error)
-            if let error = error { throw error }
-            return response
-            
-        case "getTidalURLFromDeezerTrack":
-            let args = call.arguments as! [String: Any]
-            let deezerTrackId = args["deezer_track_id"] as! String
-            let response = GobackendGetTidalURLFromDeezerTrack(deezerTrackId, &error)
-            if let error = error { throw error }
-            return response
-            
-        case "getTrackCacheSize":
-            let response = GobackendGetTrackCacheSize()
-            return response
-            
-        case "clearTrackCache":
-            GobackendClearTrackIDCache()
-            return nil
-            
-        case "getLogsSince":
-            let args = call.arguments as! [String: Any]
-            let index = args["index"] as? Int ?? 0
-            let response = GobackendGetLogsSince(Int(index))
-            return response
-            
-        case "clearLogs":
-            GobackendClearLogs()
-            return nil
 
         case "releaseMemory":
-            GobackendReleaseMemory()
+            try coreBackend.releaseIdleResources()
             return nil
 
         case "releaseMemoryUnderPressure":
-            GobackendReleaseMemoryUnderPressure()
+            try coreBackend.releaseMemoryUnderPressure()
+            NSLog("SpotiFLAC: Backend memory pressure release completed")
             return nil
 
-        case "getGoRuntimeMetrics":
-            return GobackendGetRuntimeMetricsJSON()
-            
-        case "setLoggingEnabled":
-            let args = call.arguments as! [String: Any]
-            let enabled = args["enabled"] as? Bool ?? false
-            GobackendSetLoggingEnabled(enabled)
-            return nil
-            
-        case "initExtensionSystem":
-            let args = call.arguments as! [String: Any]
-            let extensionsDir = args["extensions_dir"] as! String
-            let dataDir = args["data_dir"] as! String
-            let masterKey = args["master_key"] as! String
-            GobackendSetExtensionStorageMasterKey(masterKey, &error)
-            if let error = error { throw error }
-            GobackendInitExtensionSystem(extensionsDir, dataDir, &error)
-            if let error = error { throw error }
-            return nil
-            
-        case "loadExtensionsFromDir":
-            let args = call.arguments as! [String: Any]
-            let dirPath = args["dir_path"] as! String
-            let response = GobackendLoadExtensionsFromDir(dirPath, &error)
-            if let error = error { throw error }
-            return response
-            
-        case "loadExtensionFromPath":
-            let args = call.arguments as! [String: Any]
-            let filePath = args["file_path"] as! String
-            let response = GobackendLoadExtensionFromPath(filePath, &error)
-            if let error = error { throw error }
-            return response
-            
-        case "unloadExtension":
-            let args = call.arguments as! [String: Any]
-            let extensionId = args["extension_id"] as! String
-            GobackendUnloadExtensionByID(extensionId, &error)
-            if let error = error { throw error }
-            return nil
-            
-        case "getInstalledExtensions":
-            let response = GobackendGetInstalledExtensions(&error)
-            if let error = error { throw error }
-            return response
-            
-        case "setExtensionEnabled":
-            let args = call.arguments as! [String: Any]
-            let extensionId = args["extension_id"] as! String
-            let enabled = args["enabled"] as? Bool ?? false
-            GobackendSetExtensionEnabledByID(extensionId, enabled, &error)
-            if let error = error { throw error }
-            return nil
-            
-        case "setProviderPriority":
-            let args = call.arguments as! [String: Any]
-            let priorityJson = args["priority"] as! String
-            GobackendSetProviderPriorityJSON(priorityJson, &error)
-            if let error = error { throw error }
-            return nil
-            
-        case "getProviderPriority":
-            let response = GobackendGetProviderPriorityJSON(&error)
-            if let error = error { throw error }
-            return response
 
-        case "setDownloadFallbackExtensionIds":
-            let args = call.arguments as! [String: Any]
-            let extensionIdsJson = args["extension_ids"] as? String ?? ""
-            GobackendSetExtensionFallbackProviderIDsJSON(extensionIdsJson, &error)
-            if let error = error { throw error }
-            return nil
-            
-        case "setMetadataProviderPriority":
-            let args = call.arguments as! [String: Any]
-            let priorityJson = args["priority"] as! String
-            GobackendSetMetadataProviderPriorityJSON(priorityJson, &error)
-            if let error = error { throw error }
-            return nil
-            
-        case "getMetadataProviderPriority":
-            let response = GobackendGetMetadataProviderPriorityJSON(&error)
-            if let error = error { throw error }
-            return response
-            
-        case "getExtensionSettings":
-            let args = call.arguments as! [String: Any]
-            let extensionId = args["extension_id"] as! String
-            let response = GobackendGetExtensionSettingsJSON(extensionId, &error)
-            if let error = error { throw error }
-            return response
 
-        case "checkExtensionHealth":
-            let args = call.arguments as! [String: Any]
-            let extensionId = args["extension_id"] as! String
-            let response = GobackendCheckExtensionHealthJSON(extensionId, &error)
-            if let error = error { throw error }
-            return response
-            
-        case "setExtensionSettings":
-            let args = call.arguments as! [String: Any]
-            let extensionId = args["extension_id"] as! String
-            let settingsJson = args["settings"] as! String
-            GobackendSetExtensionSettingsJSON(extensionId, settingsJson, &error)
-            if let error = error { throw error }
-            return nil
-            
-        case "invokeExtensionAction":
-            let args = call.arguments as! [String: Any]
-            let extensionId = args["extension_id"] as! String
-            let actionName = args["action"] as! String
-            let response = GobackendInvokeExtensionActionJSON(extensionId, actionName, &error)
-            if let error = error { throw error }
-            return response
-            
-        case "searchTracksWithMetadataProviders":
-            let args = call.arguments as! [String: Any]
-            let query = args["query"] as! String
-            let limit = args["limit"] as? Int ?? 20
-            let includeExtensions = args["include_extensions"] as? Bool ?? true
-            let response = GobackendSearchTracksWithMetadataProvidersJSON(
-                query,
-                Int(limit),
-                includeExtensions,
-                &error
-            )
-            if let error = error { throw error }
-            return response
-
-        case "searchTracksWithMetadataProvider":
-            let args = call.arguments as! [String: Any]
-            let extensionId = args["extension_id"] as? String ?? ""
-            let query = args["query"] as? String ?? ""
-            let limit = args["limit"] as? Int ?? 20
-            let response = GobackendSearchTracksWithMetadataProviderJSON(
-                extensionId,
-                query,
-                Int(limit),
-                &error
-            )
-            if let error = error { throw error }
-            return response
-            
-        case "enrichTrackWithExtension":
-            let args = call.arguments as! [String: Any]
-            let extensionId = args["extension_id"] as! String
-            let trackJson = args["track"] as? String ?? "{}"
-            let response = GobackendEnrichTrackWithExtensionJSON(extensionId, trackJson, &error)
-            if let error = error { throw error }
-            return response
-
-        case "downloadWithExtensions":
-            let requestJson = call.arguments as! String
-            let response = GobackendDownloadWithExtensionsJSON(requestJson, &error)
-            if let error = error { throw error }
-            return response
-            
-        case "removeExtension":
-            let args = call.arguments as! [String: Any]
-            let extensionId = args["extension_id"] as! String
-            GobackendRemoveExtensionByID(extensionId, &error)
-            if let error = error { throw error }
-            return nil
-            
-        case "upgradeExtension":
-            let args = call.arguments as! [String: Any]
-            let filePath = args["file_path"] as! String
-            let response = GobackendUpgradeExtensionFromPath(filePath, &error)
-            if let error = error { throw error }
-            return response
-            
-        case "checkExtensionUpgrade":
-            let args = call.arguments as! [String: Any]
-            let filePath = args["file_path"] as! String
-            let response = GobackendCheckExtensionUpgradeFromPath(filePath, &error)
-            if let error = error { throw error }
-            return response
-            
-        case "cleanupExtensions":
-            GobackendCleanupExtensions()
-            return nil
-            
-        case "getExtensionPendingAuth":
-            let args = call.arguments as! [String: Any]
-            let extensionId = args["extension_id"] as! String
-            let response = GobackendGetExtensionPendingAuthJSON(extensionId, &error)
-            if let error = error { throw error }
-            return response
-            
-        case "setExtensionAuthCode":
-            let args = call.arguments as! [String: Any]
-            let extensionId = args["extension_id"] as! String
-            let authCode = args["auth_code"] as! String
-            GobackendSetExtensionAuthCodeByID(extensionId, authCode)
-            return nil
-
-        case "completeExtensionSessionGrant":
-            let args = call.arguments as! [String: Any]
-            let extensionId = args["extension_id"] as! String
-            let grant = args["grant"] as! String
-            GobackendSetExtensionSessionGrantByID(extensionId, grant)
-            let response = GobackendInvokeExtensionActionJSON(extensionId, "completeGrant", &error)
-            if let error = error { throw error }
-            try requireSuccessfulExtensionAction(
-                extensionId: extensionId,
-                actionName: "completeGrant",
-                response: response
-            )
-            return true
-            
-        case "setExtensionTokens":
-            let args = call.arguments as! [String: Any]
-            let extensionId = args["extension_id"] as! String
-            let accessToken = args["access_token"] as! String
-            let refreshToken = args["refresh_token"] as? String ?? ""
-            let expiresIn = args["expires_in"] as? Int ?? 0
-            GobackendSetExtensionTokensByID(extensionId, accessToken, refreshToken, Int(expiresIn))
-            return nil
-            
-        case "clearExtensionPendingAuth":
-            let args = call.arguments as! [String: Any]
-            let extensionId = args["extension_id"] as! String
-            GobackendClearExtensionPendingAuthByID(extensionId)
-            return nil
-            
-        case "isExtensionAuthenticated":
-            let args = call.arguments as! [String: Any]
-            let extensionId = args["extension_id"] as! String
-            let response = GobackendIsExtensionAuthenticatedByID(extensionId)
-            return response
-            
-        case "getAllPendingAuthRequests":
-            let response = GobackendGetAllPendingAuthRequestsJSON(&error)
-            if let error = error { throw error }
-            return response
-            
-        case "getPendingFFmpegCommand":
-            let args = call.arguments as! [String: Any]
-            let commandId = args["command_id"] as! String
-            let response = GobackendGetPendingFFmpegCommandJSON(commandId, &error)
-            if let error = error { throw error }
-            return response
-            
-        case "setFFmpegCommandResult":
-            let args = call.arguments as! [String: Any]
-            let commandId = args["command_id"] as! String
-            let success = args["success"] as? Bool ?? false
-            let output = args["output"] as? String ?? ""
-            let errorMsg = args["error"] as? String ?? ""
-            GobackendSetFFmpegCommandResult(commandId, success, output, errorMsg)
-            return nil
-            
-        case "getAllPendingFFmpegCommands":
-            let response = GobackendGetAllPendingFFmpegCommandsJSON(&error)
-            if let error = error { throw error }
-            return response
-            
-        case "customSearchWithExtension":
-            let args = call.arguments as! [String: Any]
-            let extensionId = args["extension_id"] as! String
-            let query = args["query"] as! String
-            let optionsJson = args["options"] as? String ?? ""
-            let requestId = args["request_id"] as? String ?? ""
-            let response = GobackendCustomSearchWithExtensionJSONWithRequestID(extensionId, query, optionsJson, requestId, &error)
-            if let error = error { throw error }
-            return response
-
-        case "cancelExtensionRequest":
-            let args = call.arguments as! [String: Any]
-            let requestId = args["request_id"] as? String ?? ""
-            GobackendCancelExtensionRequestJSON(requestId)
-            return nil
-
-        case "handleURLWithExtension":
-            let args = call.arguments as! [String: Any]
-            let url = args["url"] as! String
-            let response = GobackendHandleURLWithExtensionJSON(url, &error)
-            if let error = error { throw error }
-            return response
-            
-        case "findURLHandler":
-            let args = call.arguments as! [String: Any]
-            let url = args["url"] as! String
-            let response = GobackendFindURLHandlerJSON(url)
-            return response
-            
-        case "getTrackPlatformLinks":
-            let args = call.arguments as! [String: Any]
-            let spotifyId = args["spotify_id"] as? String ?? ""
-            let isrc = args["isrc"] as? String ?? ""
-            let response = GobackendGetTrackPlatformLinksJSON(spotifyId, isrc, &error)
-            if let error = error { throw error }
-            return response
-
-        case "fetchMusicBrainzTags":
-            let args = call.arguments as! [String: Any]
-            let isrc = args["isrc"] as? String ?? ""
-            let albumName = args["album_name"] as? String ?? ""
-            var genreError: NSError?
-            let genre = GobackendFetchMusicBrainzGenreByISRC(isrc, &genreError)
-            var artistError: NSError?
-            let albumArtist = GobackendFetchMusicBrainzAlbumArtistByISRC(isrc, albumName, &artistError)
-            let payload: [String: Any] = [
-                "genre": genreError == nil ? genre : "",
-                "album_artist": artistError == nil ? albumArtist : "",
-            ]
-            let data = try JSONSerialization.data(withJSONObject: payload)
-            return String(data: data, encoding: .utf8) ?? "{}"
-            
         case "runPostProcessingV2":
             let args = call.arguments as! [String: Any]
             let inputJson = args["input"] as? String ?? ""
             let metadataJson = args["metadata"] as? String ?? ""
-            let response = GobackendRunPostProcessingV2JSON(inputJson, metadataJson, &error)
-            if let error = error { throw error }
-            return response
-            
-        case "initExtensionRepo":
-            let args = call.arguments as! [String: Any]
-            let cacheDir = args["cache_dir"] as! String
-            GobackendInitExtensionRepoJSON(cacheDir, &error)
-            if let error = error { throw error }
-            return nil
-            
-        case "setRepoRegistryUrl":
-            let args = call.arguments as! [String: Any]
-            let registryUrl = args["registry_url"] as? String ?? ""
-            GobackendSetRepoRegistryURLJSON(registryUrl, &error)
-            if let error = error { throw error }
-            return nil
-            
-        case "getRepoRegistryUrl":
-            let response = GobackendGetRepoRegistryURLJSON(&error)
-            if let error = error { throw error }
-            return response
-            
-        case "clearRepoRegistryUrl":
-            GobackendClearRepoRegistryURLJSON(&error)
-            if let error = error { throw error }
-            return nil
-            
-        case "getRepoExtensions":
-            let args = call.arguments as! [String: Any]
-            let forceRefresh = args["force_refresh"] as? Bool ?? false
-            let response = GobackendGetRepoExtensionsJSON(forceRefresh, &error)
-            if let error = error { throw error }
-            return response
-            
-        case "searchRepoExtensions":
-            let args = call.arguments as! [String: Any]
-            let query = args["query"] as? String ?? ""
-            let category = args["category"] as? String ?? ""
-            let response = GobackendSearchRepoExtensionsJSON(query, category, &error)
-            if let error = error { throw error }
-            return response
-            
-        case "getRepoCategories":
-            let response = GobackendGetRepoCategoriesJSON(&error)
-            if let error = error { throw error }
-            return response
-            
-        case "downloadRepoExtension":
-            let args = call.arguments as! [String: Any]
-            let extensionId = args["extension_id"] as! String
-            let destDir = args["dest_dir"] as! String
-            let response = GobackendDownloadRepoExtensionJSON(extensionId, destDir, &error)
-            if let error = error { throw error }
-            return response
-            
-        case "clearRepoCache":
-            GobackendClearRepoCacheJSON(&error)
-            if let error = error { throw error }
-            return nil
-            
-        case "getExtensionHomeFeed":
-            let args = call.arguments as! [String: Any]
-            let extensionId = args["extension_id"] as! String
-            let requestId = args["request_id"] as? String ?? ""
-            let response = GobackendGetExtensionHomeFeedJSONWithRequestID(extensionId, requestId, &error)
-            if let error = error { throw error }
-            return response
-            
+            return try coreBackend.runPostProcessing(inputJson: inputJson, metadataJson: metadataJson)
+
+
         case "setLibraryCoverCacheDir":
             let args = call.arguments as! [String: Any]
             let cacheDir = args["cache_dir"] as! String
-            GobackendSetLibraryCoverCacheDirJSON(cacheDir)
+            try coreBackend.setLibraryCoverCacheDirectory(path: cacheDir)
             return nil
             
         case "scanLibraryFolder":
             let args = call.arguments as! [String: Any]
             let folderPath = args["folder_path"] as! String
-            let response = GobackendScanLibraryFolderJSON(folderPath, &error)
-            if let error = error { throw error }
-            return bridgeJsonResult(response as String? ?? "[]")
+            return bridgeJsonResult(try coreBackend.scanLibraryFolder(folder: folderPath))
 
         case "scanLibraryFolderToNDJSONFile":
             guard
@@ -1086,46 +510,23 @@ import Gobackend
             else {
                 throw invalidArgumentsError(call.method)
             }
-            var count = 0
-            let succeeded = GobackendScanLibraryFolderToNDJSONFileJSON(
-                folderPath,
-                outputPath,
-                &count,
-                &error
-            )
-            if let error = error { throw error }
-            if !succeeded {
-                throw NSError(
-                    domain: "SpotiFLAC",
-                    code: -1,
-                    userInfo: [NSLocalizedDescriptionKey: "Library scan failed"]
-                )
-            }
+            let count = try coreBackend.scanLibraryFolderToNdjsonFile(folder: folderPath, output: outputPath)
             return ["path": outputPath, "count": count]
             
         case "scanLibraryFolderIncremental":
             let args = call.arguments as! [String: Any]
             let folderPath = args["folder_path"] as! String
             let existingFiles = args["existing_files"] as? String ?? "{}"
-            let response = GobackendScanLibraryFolderIncrementalJSON(folderPath, existingFiles, &error)
-            if let error = error { throw error }
-            return bridgeJsonResult(response as String? ?? "{}")
+            return bridgeJsonResult(try coreBackend.scanLibraryFolderIncremental(folder: folderPath, existing: existingFiles))
             
         case "getLibraryScanProgress":
-            let response = GobackendGetLibraryScanProgressJSON()
-            return parseJsonPayload(response as String? ?? "{}")
+            return parseJsonPayload(try coreBackend.getLibraryScanProgress())
             
         case "cancelLibraryScan":
-            GobackendCancelLibraryScanJSON()
+            try coreBackend.cancelLibraryScan()
             return nil
-            
-        case "readAudioMetadata":
-            let args = call.arguments as! [String: Any]
-            let filePath = args["file_path"] as! String
-            let response = GobackendReadAudioMetadataJSON(filePath, &error)
-            if let error = error { throw error }
-            return response
-        
+
+
         case "resolveIosBookmark":
             let args = call.arguments as! [String: Any]
             let bookmarkBase64 = args["bookmark"] as! String
@@ -1156,43 +557,13 @@ import Gobackend
             let args = call.arguments as! [String: Any]
             let path = args["path"] as! String
             return try createIosBookmarkFromPath(path)
-            
-        case "setLyricsProviders":
-            let args = call.arguments as! [String: Any]
-            let providersJson = args["providers_json"] as? String ?? "[]"
-            GobackendSetLyricsProvidersJSON(providersJson, &error)
-            if let error = error { throw error }
-            return "{\"success\":true}"
-            
-        case "getLyricsProviders":
-            let response = GobackendGetLyricsProvidersJSON(&error)
-            if let error = error { throw error }
-            return response
-            
-        case "getAvailableLyricsProviders":
-            let response = GobackendGetAvailableLyricsProvidersJSON(&error)
-            if let error = error { throw error }
-            return response
-            
-        case "setLyricsFetchOptions":
-            let args = call.arguments as! [String: Any]
-            let optionsJson = args["options_json"] as? String ?? "{}"
-            GobackendSetLyricsFetchOptionsJSON(optionsJson, &error)
-            if let error = error { throw error }
-            return "{\"success\":true}"
-            
-        case "getLyricsFetchOptions":
-            let response = GobackendGetLyricsFetchOptionsJSON(&error)
-            if let error = error { throw error }
-            return response
-            
+
+
         case "parseCueSheet":
             let args = call.arguments as! [String: Any]
             let cuePath = args["cue_path"] as! String
             let audioDir = args["audio_dir"] as? String ?? ""
-            let response = GobackendParseCueSheet(cuePath, audioDir, &error)
-            if let error = error { throw error }
-            return response
+            return try coreBackend.parseCueSheet(path: cuePath, audioDirectory: audioDir)
             
         default:
             throw NSError(
@@ -1347,9 +718,16 @@ import Gobackend
             )
         }
         
+        let scope: CoreDirectoryScope
+        do {
+            scope = try coreBackend.openDownloadDirectory(path: url.path)
+        } catch {
+            url.stopAccessingSecurityScopedResource()
+            throw error
+        }
         let token = UUID().uuidString
         securityScopedAccessLock.lock()
-        securityScopedAccesses[token] = url
+        securityScopedAccesses[token] = (url, scope)
         securityScopedAccessLock.unlock()
         return ["path": url.path, "token": token]
     }
@@ -1357,9 +735,10 @@ import Gobackend
     /// Releases only the lease identified by the caller's token.
     private func stopAccessingIosBookmark(token: String) {
         securityScopedAccessLock.lock()
-        let url = securityScopedAccesses.removeValue(forKey: token)
+        let lease = securityScopedAccesses.removeValue(forKey: token)
         securityScopedAccessLock.unlock()
-        url?.stopAccessingSecurityScopedResource()
+        lease?.1.close()
+        lease?.0.stopAccessingSecurityScopedResource()
     }
 }
 

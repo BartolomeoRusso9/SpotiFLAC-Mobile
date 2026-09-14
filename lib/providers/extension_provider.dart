@@ -5,7 +5,9 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:spotiflac_android/models/settings.dart';
 import 'package:spotiflac_android/services/platform_bridge.dart';
+import 'package:spotiflac_android/services/extension_storage_service.dart';
 import 'package:spotiflac_android/utils/logger.dart';
 import 'package:spotiflac_android/providers/settings_provider.dart';
 
@@ -26,12 +28,23 @@ class ExtensionNotifier extends Notifier<ExtensionState> {
   AppLifecycleListener? _appLifecycleListener;
   bool _cleanupInFlight = false;
   Completer<void>? _initializationCompleter;
+  Future<void>? _ensureInitializationFuture;
+  Future<void> _downloadDirectorySync = Future<void>.value();
   final Map<String, DateTime> _healthExpiresAt = {};
   final Map<String, Future<ExtensionHealthStatus?>> _healthInFlight = {};
   final Map<String, int> _healthRequestSerial = {};
 
   @override
   ExtensionState build() {
+    ref.listen<AppSettings>(settingsProvider, (previous, next) {
+      if (state.isInitialized &&
+          (previous?.downloadDirectory != next.downloadDirectory ||
+              previous?.downloadDirectoryBookmark !=
+                  next.downloadDirectoryBookmark ||
+              previous?.storageMode != next.storageMode)) {
+        unawaited(_syncDownloadDirectory(next));
+      }
+    });
     _appLifecycleListener ??= AppLifecycleListener(
       onDetach: _scheduleLifecycleCleanup,
     );
@@ -43,6 +56,32 @@ class ExtensionNotifier extends Notifier<ExtensionState> {
       _healthRequestSerial.clear();
     });
     return const ExtensionState();
+  }
+
+  Future<void> _syncDownloadDirectory(AppSettings settings) {
+    _downloadDirectorySync = _downloadDirectorySync
+        .then((_) async {
+          if (!PlatformBridge.supportsCoreBackend) return;
+          final candidate = settings.downloadDirectory.trim();
+          final path =
+              settings.storageMode == 'app' &&
+                  settings.downloadDirectoryBookmark.isEmpty &&
+                  candidate.startsWith('/') &&
+                  await Directory(candidate).exists()
+              ? candidate
+              : '';
+          try {
+            await PlatformBridge.setDownloadDirectory(path);
+          } catch (_) {
+            // An invalid new selection must not leave the old permanent grant.
+            await PlatformBridge.setDownloadDirectory('');
+            rethrow;
+          }
+        })
+        .catchError((Object error) {
+          _log.w('Failed to sync output directory access: $error');
+        });
+    return _downloadDirectorySync;
   }
 
   void _scheduleLifecycleCleanup() {
@@ -64,6 +103,34 @@ class ExtensionNotifier extends Notifier<ExtensionState> {
       _log.w('Extension cleanup failed ($reason): $e');
     } finally {
       _cleanupInFlight = false;
+    }
+  }
+
+  /// Startup and install/update actions share initialization, including the
+  /// private storage preparation that happens before the native call.
+  Future<void> ensureInitialized() {
+    if (state.isInitialized) return Future<void>.value();
+    return _ensureInitializationFuture ??= _initializeFromStorage()
+        .whenComplete(() {
+          _ensureInitializationFuture = null;
+        });
+  }
+
+  Future<void> _initializeFromStorage() async {
+    final pending = _initializationCompleter?.future;
+    if (pending != null) {
+      await pending;
+    } else {
+      await ref.read(settingsProvider.notifier).ensureLoaded();
+      final storage = await ExtensionStorageService.prepare();
+      await initialize(
+        storage.extensionsDir,
+        storage.dataDir,
+        masterKey: storage.masterKey,
+      );
+    }
+    if (!state.isInitialized) {
+      throw StateError(state.error ?? 'Extension system initialization failed');
     }
   }
 
@@ -97,6 +164,21 @@ class ExtensionNotifier extends Notifier<ExtensionState> {
     }
 
     try {
+      final settings = ref.read(settingsProvider.notifier);
+      await settings.ensureLoaded();
+      final snapshot = ref.read(settingsProvider);
+      final outputDirectory = snapshot.downloadDirectory.trim();
+      final allowedDirectories = <String>[];
+      // External scopes are acquired by the file/download operation. Missing
+      // output folders are resolved by the queue and must not prevent startup.
+      if (snapshot.storageMode == 'app' &&
+          snapshot.downloadDirectoryBookmark.isEmpty &&
+          outputDirectory.startsWith('/')) {
+        final directory = Directory(outputDirectory);
+        if (await directory.exists()) {
+          allowedDirectories.add(directory.path);
+        }
+      }
       if (Platform.isAndroid) {
         try {
           await PlatformBridge.prepareRuntimeState(dataDir);
@@ -108,11 +190,17 @@ class ExtensionNotifier extends Notifier<ExtensionState> {
         extensionsDir,
         dataDir,
         masterKey: masterKey,
+        lyricsProviders: snapshot.lyricsProviders,
+        lyricsFetchOptions: snapshot.lyricsFetchOptions,
+        allowedDirectories: allowedDirectories,
       );
       await loadExtensions(extensionsDir);
+      final loadError = state.error;
+      if (loadError != null) throw StateError(loadError);
       await loadProviderPriority();
       await loadMetadataProviderPriority();
       state = state.copyWith(isInitialized: true, isLoading: false);
+      await _syncDownloadDirectory(ref.read(settingsProvider));
       _log.i('Extension system initialized');
     } catch (e) {
       _log.e('Failed to initialize extension system: $e');
@@ -153,7 +241,7 @@ class ExtensionNotifier extends Notifier<ExtensionState> {
       final result = await PlatformBridge.loadExtensionsFromDir(dirPath);
       _log.d('Load extensions result: $result');
       await refreshExtensions();
-      state = state.copyWith(isLoading: false);
+      state = state.copyWith(isLoading: false, error: state.error);
     } catch (e) {
       _log.e('Failed to load extensions: $e');
       state = state.copyWith(isLoading: false, error: e.toString());
@@ -306,6 +394,7 @@ class ExtensionNotifier extends Notifier<ExtensionState> {
     state = state.copyWith(isLoading: true, error: null);
 
     try {
+      await ensureInitialized();
       final result = await PlatformBridge.loadExtensionFromPath(filePath);
       _log.i('Installed extension: ${result['name']}');
       await refreshExtensions();
@@ -337,6 +426,17 @@ class ExtensionNotifier extends Notifier<ExtensionState> {
     var installed = 0;
     final failures = <String, String>{};
 
+    try {
+      await ensureInitialized();
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+      return ExtensionInstallBatchResult(
+        attempted: uniquePaths.length,
+        installed: 0,
+        failures: {for (final path in uniquePaths) path: e.toString()},
+      );
+    }
+
     for (final path in uniquePaths) {
       try {
         final result = await PlatformBridge.loadExtensionFromPath(path);
@@ -364,6 +464,7 @@ class ExtensionNotifier extends Notifier<ExtensionState> {
 
   Future<Map<String, dynamic>> checkExtensionUpgrade(String filePath) async {
     try {
+      await ensureInitialized();
       return await PlatformBridge.checkExtensionUpgrade(filePath);
     } catch (e) {
       _log.e('Failed to check extension upgrade: $e');
@@ -375,6 +476,7 @@ class ExtensionNotifier extends Notifier<ExtensionState> {
     state = state.copyWith(isLoading: true, error: null);
 
     try {
+      await ensureInitialized();
       final result = await PlatformBridge.upgradeExtension(filePath);
       _log.i(
         'Upgraded extension: ${result['display_name']} to v${result['version']}',
@@ -565,6 +667,8 @@ class ExtensionNotifier extends Notifier<ExtensionState> {
     if (!PlatformBridge.supportsExtensionSystem) {
       return const ExtensionRestoreResult();
     }
+
+    await ensureInitialized();
 
     final registryUrl = (data['registry_url'] as String?)?.trim() ?? '';
     final itemsRaw = data['items'];

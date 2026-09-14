@@ -197,6 +197,15 @@ class AppSettings {
     this.playerMode = 'external',
   });
 
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  Map<String, dynamic> get lyricsFetchOptions => {
+    'include_translation_netease': lyricsIncludeTranslationNetease,
+    'include_romanization_netease': lyricsIncludeRomanizationNetease,
+    'multi_person_word_by_word': lyricsMultiPersonWordByWord,
+    'apple_elrc_word_sync': lyricsAppleElrcWordSync,
+    'musixmatch_language': musixmatchLanguage,
+  };
+
   AppSettings copyWith({
     String? defaultService,
     String? audioQuality,

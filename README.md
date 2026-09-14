@@ -51,19 +51,18 @@ Extensions let the community add new music sources and features without waiting 
 ### Developing Extensions
 
 > [!NOTE]
-> Want to build your own extension? Start with the
-> [Extension Development Guide](docs/EXTENSION_DEVELOPMENT.md). The
-> [documentation site](https://spotiflac.zarz.moe/docs) contains the expanded
-> API reference.
+> Want to build your own extension? The
+> [documentation site](https://spotiflac.zarz.moe/docs) contains the API reference.
 
 ---
 
 ## Development
 
-SpotiFLAC Mobile combines a Flutter/Dart UI, a Go backend compiled with
-`gomobile`, and thin Android/iOS platform bridges. Toolchain versions are
-pinned in [`.fvmrc`](.fvmrc), [`go_backend/go.mod`](go_backend/go.mod), and the
-GitHub Actions workflows.
+SpotiFLAC Mobile combines a Flutter/Dart UI, a Rust backend from
+[`rust_backend/`](rust_backend/), and thin Android/iOS platform bridges. Android
+Gradle builds the Rust native artifacts automatically. Tool versions are pinned in
+[`rust_backend/rust-toolchain.toml`](rust_backend/rust-toolchain.toml) and
+[`rust_backend/Cargo.lock`](rust_backend/Cargo.lock).
 
 Start with the [Contributing Guide](CONTRIBUTING.md) for the development setup,
 project boundaries, validation commands, and pull request checklist.

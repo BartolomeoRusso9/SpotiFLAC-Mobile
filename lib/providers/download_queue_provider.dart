@@ -295,7 +295,7 @@ final _multiUnderscoreRegex = RegExp(r'_+');
 double _log10(num x) => log(x) / ln10;
 final _yearRegex = RegExp(r'^(\d{4})');
 const _defaultOutputFolderName = 'SpotiFLAC';
-const _defaultAndroidMusicSubpath = 'Music/$_defaultOutputFolderName';
+const _defaultAndroidDownloadSubpath = 'Download/$_defaultOutputFolderName';
 const _maxSafFilenameUtf8Bytes = 180;
 const _maxSafDirSegmentUtf8Bytes = 120;
 final _batchUniqueFilenameTokenPattern = RegExp(
@@ -554,7 +554,10 @@ class DownloadQueueNotifier extends Notifier<DownloadQueueState> {
     );
     _iosBackgroundExecutionExpired = true;
     if (state.isProcessing && !state.isPaused) {
-      pauseQueue(persistAcrossRestarts: false);
+      pauseQueue(
+        persistAcrossRestarts: false,
+        nativeCancelledItemIds: cancelledItemIds,
+      );
     }
 
     if (requeueItemIds.isNotEmpty) {
@@ -1275,9 +1278,13 @@ class DownloadQueueNotifier extends Notifier<DownloadQueueState> {
     _pausePendingItemIds.clear();
   }
 
-  void pauseQueue({bool persistAcrossRestarts = true}) {
+  void pauseQueue({
+    bool persistAcrossRestarts = true,
+    Set<String> nativeCancelledItemIds = const {},
+  }) {
     if (state.isProcessing && !state.isPaused) {
-      if (_hasActiveAndroidNativeWorker) {
+      final nativeWorkerActive = _hasActiveAndroidNativeWorker;
+      if (nativeWorkerActive) {
         PlatformBridge.pauseNativeDownloadWorker().catchError((_) {});
       }
       final activeIds = state.items
@@ -1292,7 +1299,14 @@ class DownloadQueueNotifier extends Notifier<DownloadQueueState> {
       if (activeIds.isNotEmpty) {
         _pausePendingItemIds.addAll(activeIds);
         for (final id in activeIds) {
-          _requestNativeCancel(id);
+          if (nativeWorkerActive || nativeCancelledItemIds.contains(id)) {
+            // The native worker or iOS expiry already cancelled this attempt.
+            // A second cancel can arrive after it unwinds and leave a flag
+            // that aborts the resumed download before it starts.
+            _verificationWaitCoordinator.cancelItem(id);
+          } else {
+            _requestNativeCancel(id);
+          }
           _requeueItemForPause(id);
         }
       }
@@ -1343,7 +1357,7 @@ class DownloadQueueNotifier extends Notifier<DownloadQueueState> {
 
     _log.i('Retrying item: ${item.track.name} (id: $id)');
     // A cancel issued while the item never started leaves a pre-registered
-    // flag in the Go backend that the next attempt would consume and abort
+    // flag in the backend that the next attempt would consume and abort
     // instantly; the user asked for a retry, so drop it first.
     try {
       await PlatformBridge.resetDownloadCancel(id);
@@ -1776,7 +1790,7 @@ class DownloadQueueNotifier extends Notifier<DownloadQueueState> {
       await _initOutputDir();
     }
 
-    // iOS: Validate that outputDir is writable (not iCloud Drive which Go
+    // iOS: Validate that outputDir is writable (not iCloud Drive which native code
     // can't access), unless a bookmark makes this app-Documents path-shape
     // check irrelevant (see shouldValidateIosOutputDir).
     if (shouldValidateIosOutputDir(
@@ -1793,7 +1807,7 @@ class DownloadQueueNotifier extends Notifier<DownloadQueueState> {
         _log.w(
           'iOS: iCloud Drive path detected, falling back to app Documents folder',
         );
-        _log.w('Go backend cannot write to iCloud Drive due to iOS sandboxing');
+        _log.w('Native backend cannot access this iCloud Drive path');
         final musicDir = await _ensureDefaultDocumentsOutputDir();
         state = state.copyWith(outputDir: musicDir.path);
         ref.read(settingsProvider.notifier).setDownloadDirectory(musicDir.path);

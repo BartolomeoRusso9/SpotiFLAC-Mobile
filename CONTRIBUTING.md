@@ -25,7 +25,7 @@ The repository is the source of truth for tool versions:
 
 - Flutter: `.fvmrc`
 - Dart: bundled with the pinned Flutter SDK
-- Go: `go_backend/go.mod`
+- Rust: `rust_backend/rust-toolchain.toml` and `rust_backend/Cargo.lock`
 - Android SDK, NDK, and Java: `.github/workflows/ci.yml`
 - Xcode: required only for iOS builds
 
@@ -50,25 +50,11 @@ exact Flutter version declared in `.fvmrc` and replace `fvm flutter` with
    fvm flutter pub get
    ```
 
-3. Build the Go backend for Android. `ANDROID_NDK_HOME` must point to the NDK
-   version used by CI and `CGO_ENABLED` must be enabled.
-
-   ```bash
-   cd go_backend
-   go mod download
-   go install golang.org/x/mobile/cmd/gomobile
-   gomobile init
-   mkdir -p ../android/app/libs
-   gomobile bind \
-     -target=android/arm,android/arm64 \
-     -androidapi 24 \
-     -o ../android/app/libs/gobackend.aar \
-     .
-   cd ..
-   ```
-
-   Running `go install` from `go_backend/` uses the `x/mobile` version pinned by
-   `go.mod`. Do not replace it with `@latest` in project scripts.
+3. Install Rust with rustup, then run `(cd rust_backend && rustup show)` to
+   activate the pinned toolchain. Install Clang/libclang for the native bindings
+   (`libclang-dev` on Ubuntu, Xcode command-line tools on macOS). Android Gradle
+   builds the Rust libraries and bindings automatically. For a manual host build,
+   run `bash scripts/build_rust_backend.sh host`.
 
 4. Run the app:
 
@@ -76,8 +62,8 @@ exact Flutter version declared in `.fvmrc` and replace `fvm flutter` with
    fvm flutter run --dart-define="GIT_COMMIT=$(git rev-parse --short=8 HEAD)"
    ```
 
-For iOS, run `scripts/build_ios.sh` on macOS before opening
-`ios/Runner.xcworkspace`.
+For iOS, run `bash scripts/build_ios.sh` on macOS, then `(cd ios && pod install)`
+before opening `ios/Runner.xcworkspace`. The application uses the Rust backend.
 
 The About footer shows the short commit supplied through `GIT_COMMIT` at
 compile time. The Android build script and iOS release workflow supply it
@@ -88,20 +74,20 @@ commands directly; without it, the footer shows only the copyright.
 
 ```text
 lib/          Flutter UI, state, models, and platform orchestration
-go_backend/   Download pipeline, extension runtime, and shared backend logic
+rust_backend/ Production backend, native bindings, and unit tests
 android/      Android platform bridge and foreground worker
 ios/          iOS platform bridge and application project
 test/         Flutter unit and widget tests
 assets/       Images, fonts, and bundled resources
-docs/         Contributor-facing technical contracts
+docs/         Local documentation and migration archives (gitignored)
 scripts/      Reproducible project build helpers
 ```
 
 SpotiFLAC Mobile is extension-driven. Extension-specific behavior must be
 declared through a generic manifest field, capability, or reusable app API.
 Do not add provider-name checks such as `if source == 'provider-name'` to the
-main app. The Go backend should parse and expose the generic declaration, and
-Dart should consume that declaration without knowing which extension uses it.
+main app. The backend should parse and expose the generic declaration, and Dart
+should consume that declaration without knowing which extension uses it.
 
 ## Generated Files
 
@@ -118,8 +104,9 @@ Run checks that cover the code you changed. Before opening a PR, the relevant
 commands should pass.
 
 Cross-language lyric usability cases live in
-`android/app/src/test/resources/lyrics_usability_cases.tsv`. Dart, Go, and
-Android tests read the same cases; add a case there when changing that policy.
+`android/app/src/test/resources/lyrics_usability_cases.tsv`. Dart and Android
+tests read the same cases; add a case there when changing
+that policy.
 
 Flutter and Dart:
 
@@ -129,16 +116,13 @@ fvm flutter analyze
 fvm flutter test
 ```
 
-Go backend:
+Rust formatting, Clippy, and unit tests:
 
 ```bash
-cd go_backend
-gofmt -w .
-go vet ./...
-go test ./...
+bash scripts/check_rust_backend.sh
 ```
 
-Android native code, after building `gobackend.aar`:
+Android native code (Gradle builds the Rust artifacts automatically):
 
 ```bash
 cd android

@@ -12,7 +12,11 @@ extension _SingleItemDownload on DownloadQueueNotifier {
     );
   }
 
-  Future<String?> _runPostProcessingHooks(String filePath, Track track) async {
+  Future<String?> _runPostProcessingHooks(
+    String filePath,
+    Track track,
+    String itemId,
+  ) async {
     try {
       final settings = ref.read(settingsProvider);
       final extensionState = ref.read(extensionProvider);
@@ -48,6 +52,7 @@ extension _SingleItemDownload on DownloadQueueNotifier {
       final result = await PlatformBridge.runPostProcessingV2(
         filePath,
         metadata: metadata,
+        itemId: itemId,
       );
 
       if (result['success'] == true) {
@@ -126,6 +131,7 @@ class _DownloadRun {
   /// probe doesn't have to copy the published file back out of SAF.
   Map<String, dynamic>? probedFinalMetadata;
   bool externalLrcWritten = false;
+  final Map<String, String> _directoryScopes = {};
 
   Future<void> _run() async {
     final normalizedService = n._normalizeQueuedService(item.service);
@@ -258,6 +264,14 @@ class _DownloadRun {
     } catch (e, stackTrace) {
       await _handleRunException(e, stackTrace);
     } finally {
+      for (final token in _directoryScopes.values) {
+        try {
+          await PlatformBridge.releaseDownloadDirectory(token);
+        } catch (e) {
+          _log.w('Failed to release output directory scope: $e');
+        }
+      }
+      _directoryScopes.clear();
       if (pausedDuringThisRun) {
         n._pausePendingItemIds.remove(item.id);
       }
@@ -564,6 +578,10 @@ class _DownloadRun {
 
     if (!useSaf) {
       await n._ensureDirExists(outputDir, label: 'Output folder');
+      if (!_directoryScopes.containsKey(outputDir)) {
+        _directoryScopes[outputDir] =
+            await PlatformBridge.acquireDownloadDirectory(outputDir);
+      }
     }
 
     _log.d('Output dir: $outputDir');
@@ -740,10 +758,27 @@ class _DownloadRun {
       final postProcessedPath = await n._runPostProcessingHooks(
         hookInput,
         trackToDownload,
+        item.id,
       );
       if (postProcessedPath != null && postProcessedPath.isNotEmpty) {
+        if (deferredSafPublish && postProcessedPath != hookInput) {
+          final output = File(postProcessedPath);
+          if (!await output.exists() || await output.length() <= 0) {
+            throw StateError('Post-processing output missing or empty');
+          }
+          await deleteFile(hookInput);
+        }
         filePath = postProcessedPath;
         result['file_path'] = postProcessedPath;
+      }
+      if (await _shouldAbort(
+        'during post-processing',
+        deleteFileOnAbort: wasExisting ? null : filePath,
+      )) {
+        if (!wasExisting && filePath != hookInput) {
+          await deleteFile(hookInput);
+        }
+        return false;
       }
     }
 
@@ -800,7 +835,8 @@ class _DownloadRun {
     }
 
     final lrcTarget = filePath;
-    if (effectiveSafMode && lrcTarget != null && isContentUri(lrcTarget)) {
+    if (lrcTarget != null &&
+        (!wasExisting || (effectiveSafMode && isContentUri(lrcTarget)))) {
       externalLrcWritten = await n._saveExternalLrc(
         result: result,
         settings: settings,
@@ -808,7 +844,7 @@ class _DownloadRun {
         track: trackToDownload,
         service: item.service,
         filePath: lrcTarget,
-        storageMode: 'saf',
+        storageMode: effectiveSafMode ? 'saf' : 'app',
         downloadTreeUri: settings.downloadTreeUri,
         safRelativeDir: effectiveOutputDir,
         resolveBaseName: () async {
@@ -958,9 +994,8 @@ class _DownloadRun {
     } else if (metadataEmbeddingEnabled &&
         !isContentUriPath &&
         isFlacFile &&
-        !wasExisting &&
-        decryptionDescriptor != null) {
-      await _embedLocalFlacAfterDecrypt(path);
+        !wasExisting) {
+      await _embedLocalFlac(path);
     } else if (metadataEmbeddingEnabled &&
         !isContentUriPath &&
         effectiveSafMode &&
@@ -1454,14 +1489,16 @@ class _DownloadRun {
     }
   }
 
-  Future<void> _embedLocalFlacAfterDecrypt(String currentFilePath) async {
-    _log.d(
-      'Local FLAC after decrypt detected, embedding metadata and cover...',
-    );
+  Future<void> _embedLocalFlac(String currentFilePath) async {
+    _log.d('Local FLAC detected, embedding metadata and cover...');
     try {
       n.updateItemStatus(item.id, DownloadStatus.finalizing, progress: 0.99);
 
-      await _embedFinalMetadata(currentFilePath, format: 'flac');
+      await _embedFinalMetadata(
+        currentFilePath,
+        format: 'flac',
+        writeExternalLrc: false,
+      );
       _log.d('Local FLAC metadata embedding completed');
     } catch (e) {
       _log.w('Local FLAC metadata embedding failed: $e');
@@ -1473,7 +1510,7 @@ class _DownloadRun {
   Future<String?> _embedFinalMetadata(
     String path, {
     required String format,
-    bool writeExternalLrc = true,
+    bool writeExternalLrc = false,
   }) async {
     final track = buildTrackForMetadataEmbedding(
       trackToDownload,

@@ -2,21 +2,26 @@ PODS:
   - Flutter (1.0.0)
   - open_filex (0.0.2):
     - Flutter
+  - SpotiFLACBackend (0.1.0)
 
 DEPENDENCIES:
   - Flutter (from `Flutter`)
   - open_filex (from `.symlinks/plugins/open_filex/ios`)
+  - SpotiFLACBackend (from `../rust_backend/target/ios`)
 
 EXTERNAL SOURCES:
   Flutter:
     :path: Flutter
   open_filex:
     :path: ".symlinks/plugins/open_filex/ios"
+  SpotiFLACBackend:
+    :path: "../rust_backend/target/ios"
 
 SPEC CHECKSUMS:
   Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
-  open_filex: 432f3cd11432da3e39f47fcc0df2b1603854eff1
+  open_filex: 6e26e659846ec990262224a12ef1c528bb4edbe4
+  SpotiFLACBackend: e0c81656e8e4c31e86b9f14bbb8e245fb3a14011
 
-PODFILE CHECKSUM: 56111b15e504c4f967a8ce631d1fc11455de8985
+PODFILE CHECKSUM: 6ca58d78915f3e4fcb64938b9167b26e33d44a8a
 
 COCOAPODS: 1.16.2

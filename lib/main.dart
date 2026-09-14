@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:spotiflac_android/app.dart';
 import 'package:spotiflac_android/models/settings.dart';
@@ -17,19 +21,23 @@ import 'package:spotiflac_android/services/platform_bridge.dart';
 import 'package:spotiflac_android/services/share_intent_service.dart';
 import 'package:spotiflac_android/services/cover_cache_manager.dart';
 import 'package:spotiflac_android/services/app_state_database.dart';
-import 'package:spotiflac_android/services/extension_storage_service.dart';
 import 'package:spotiflac_android/utils/local_library_scan_prefs.dart';
 import 'package:spotiflac_android/utils/logger.dart';
 import 'package:spotiflac_android/utils/extension_auth_launcher.dart';
 
 final _log = AppLogger('Main');
+_StartupBenchmark? _startupBenchmark;
 
 void main() {
+  if (const bool.fromEnvironment('CORE_BACKEND_STARTUP_BENCHMARK')) {
+    _startupBenchmark = _StartupBenchmark();
+  }
   // Catch uncaught Dart errors so a failing async path is logged, not fatal.
   // Native (Go) crashes still can't be caught here.
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      _startupBenchmark?.observeFirstFrame();
 
       final previousOnError = FlutterError.onError;
       FlutterError.onError = (details) {
@@ -66,7 +74,7 @@ void main() {
             ),
             initialThemeSettingsProvider.overrideWithValue(bootstrapTheme),
           ],
-          child: _EagerInitialization(
+          child: EagerInitialization(
             child: SpotiFLACApp(
               disableOverscrollEffects: runtimeProfile.disableOverscrollEffects,
             ),
@@ -78,6 +86,79 @@ void main() {
       _log.e('Uncaught zone error: $error');
     },
   );
+}
+
+// Opt-in release measurement. The ordinary startup path owns initialization;
+// reporting and validation happen after both measured boundaries are captured.
+class _StartupBenchmark {
+  final _watch = Stopwatch()..start();
+  late final Future<int> _firstFrame;
+
+  void observeFirstFrame() {
+    _firstFrame = WidgetsBinding.instance.waitUntilFirstFrameRasterized.then(
+      (_) => _watch.elapsedMicroseconds,
+    );
+  }
+
+  void extensionsReady(ExtensionState state, AppSettings settings) {
+    final ready = _watch.elapsedMicroseconds;
+    unawaited(_report(state, settings, ready));
+  }
+
+  Future<void> _report(
+    ExtensionState state,
+    AppSettings settings,
+    int ready,
+  ) async {
+    try {
+      if (!kReleaseMode) throw StateError('Startup benchmark requires release');
+      final firstFrame = await _firstFrame.timeout(const Duration(seconds: 30));
+      if (!state.isInitialized || state.error != null) {
+        throw StateError('Extensions are not ready: ${state.error}');
+      }
+      final backends = await PlatformBridge.getBackendImplementations();
+      const backend = String.fromEnvironment('EXPECTED_CORE_BACKEND');
+      if (!const ['go', 'rust'].contains(backend) ||
+          backends.length != 4 ||
+          backends.values.any((value) => value != backend)) {
+        throw StateError('Unexpected backend ownership: $backends');
+      }
+      await _write({
+        'result': 'CORE_BACKEND_STARTUP_PASS backend=$backend',
+        'startup': {
+          'schema': 1,
+          'backend': backend,
+          'mode': 'release',
+          'start_boundary': 'Dart main entry before bindings',
+          'first_frame_boundary': 'first rasterized frame observed',
+          'ready_boundary': 'production ensureInitialized completed',
+          'cache': 'fresh process; warm filesystem',
+          'first_frame_us': firstFrame,
+          'extensions_ready_us': ready,
+          'settings_sha256': sha256
+              .convert(utf8.encode(jsonEncode(settings.toJson())))
+              .toString(),
+          'extensions': [
+            for (final extension in state.extensions)
+              {
+                'id': extension.id,
+                'enabled': extension.enabled,
+                'status': extension.status,
+              },
+          ],
+        },
+      });
+    } catch (error) {
+      await _write({'result': 'CORE_BACKEND_STARTUP_FAIL $error'});
+    }
+  }
+
+  Future<void> _write(Map<String, Object?> result) async {
+    final support = await getApplicationSupportDirectory();
+    await File(
+      '${support.path}/core-backend-probe-result.json',
+    ).writeAsString(jsonEncode({'pid': pid, ...result}), flush: true);
+  }
 }
 
 const _runtimeProfileTierKey = 'runtime_profile_tier_v1';
@@ -220,16 +301,16 @@ class _RuntimeProfile {
   };
 }
 
-class _EagerInitialization extends ConsumerStatefulWidget {
-  const _EagerInitialization({required this.child});
+class EagerInitialization extends ConsumerStatefulWidget {
+  const EagerInitialization({super.key, required this.child});
   final Widget child;
 
   @override
-  ConsumerState<_EagerInitialization> createState() =>
+  ConsumerState<EagerInitialization> createState() =>
       _EagerInitializationState();
 }
 
-class _EagerInitializationState extends ConsumerState<_EagerInitialization>
+class _EagerInitializationState extends ConsumerState<EagerInitialization>
     with WidgetsBindingObserver {
   ProviderSubscription<bool>? _localLibraryEnabledSub;
   Timer? _downloadHistoryWarmupTimer;
@@ -293,8 +374,7 @@ class _EagerInitializationState extends ConsumerState<_EagerInitialization>
           ref.read(downloadQueueProvider.notifier).flushQueuePersistence(),
         );
       }
-      // Backgrounded: return the Go heap's high-water mark to the OS so the
-      // process is a smaller kill target.
+      // Backgrounded: release idle native runtimes and connections.
       unawaited(PlatformBridge.releaseNativeMemory());
     }
   }
@@ -302,7 +382,7 @@ class _EagerInitializationState extends ConsumerState<_EagerInitialization>
   @override
   void didHaveMemoryPressure() {
     // OS memory pressure: drop decoded bitmaps (disk caches stay intact) and
-    // have the Go side release freed heap back to the OS.
+    // ask the native backend to release disposable runtimes and caches.
     final imageCache = PaintingBinding.instance.imageCache;
     imageCache.clear();
     imageCache.clearLiveImages();
@@ -414,15 +494,11 @@ class _EagerInitializationState extends ConsumerState<_EagerInitialization>
 
   Future<void> _initializeExtensions() async {
     try {
-      final storage = await ExtensionStorageService.prepare();
-
-      await ref
-          .read(extensionProvider.notifier)
-          .initialize(
-            storage.extensionsDir,
-            storage.dataDir,
-            masterKey: storage.masterKey,
-          );
+      await ref.read(extensionProvider.notifier).ensureInitialized();
+      _startupBenchmark?.extensionsReady(
+        ref.read(extensionProvider),
+        ref.read(settingsProvider),
+      );
       if (!mounted) return;
       NotificationService().verificationNotifications.setHandler((
         target,

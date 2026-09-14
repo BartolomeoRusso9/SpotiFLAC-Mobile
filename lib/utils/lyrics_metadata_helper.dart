@@ -83,7 +83,7 @@ String _sidecarLrcPath(String path) {
   return '$path.lrc';
 }
 
-/// Writes a ".lrc" sidecar next to a re-enriched audio file when the Go backend
+/// Writes a ".lrc" sidecar next to a re-enriched audio file when the backend
 /// result requests it (`write_external_lrc`), honoring the user's lyrics mode.
 ///
 /// This handles the filesystem case only. SAF (`content://`) files are written

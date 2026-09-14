@@ -17,7 +17,6 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.util.AtomicFile
 import androidx.core.app.NotificationCompat
-import gobackend.Gobackend
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,6 +30,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 // Native-worker item state snapshots for the Flutter side.
 
@@ -243,24 +243,26 @@ internal fun DownloadService.updateNativeWorkerItem(itemId: String, updater: (Do
 }
 
 /**
- * Polls the exported Go delta API once for the whole native queue. Workers
+ * Polls the selected backend delta API once for the whole native queue. Workers
  * update their item state from [nativeWorkerProgressItems] instead of making
  * independent full-payload calls. The generation check prevents a delayed
- * gomobile call from an old queue from contaminating a replacement queue.
+ * native call from an old queue from contaminating a replacement queue.
  */
 internal fun DownloadService.startNativeWorkerProgressCoordinator(generation: Long): Job {
-    nativeWorkerProgressJob?.cancel()
+    stopNativeWorkerProgressCoordinator()
     val coordinatorEpoch = nativeWorkerProgressEpoch.incrementAndGet()
     synchronized(nativeWorkerProgressLock) {
         nativeWorkerProgressItems.clear()
         nativeWorkerProgressSeq = 0L
     }
 
+    val connection = AtomicReference<CoreDownloadProgress?>(null)
+    nativeWorkerProgressConnection = connection
     val job = serviceScope.launch {
         val lastSignatures = mutableMapOf<String, String?>()
         while (isActive && isNativeWorkerProgressActive(generation)) {
             maintainNativeWorkerWakeLock()
-            val changedItemIds = pollNativeWorkerProgress(generation)
+            val changedItemIds = pollNativeWorkerProgress(generation, connection)
             val snapshotItemIds = mutableListOf<String>()
             for (itemId in changedItemIds) {
                 if (!updateNativeWorkerItemProgress(itemId, emitNotification = false)) {
@@ -305,6 +307,7 @@ internal fun DownloadService.startNativeWorkerProgressCoordinator(generation: Lo
             delay(1000)
         }
     }
+    job.invokeOnCompletion { connection.getAndSet(null)?.close() }
     nativeWorkerProgressJob = job
     return job
 }
@@ -313,6 +316,8 @@ internal fun DownloadService.stopNativeWorkerProgressCoordinator(job: Job? = nat
     if (job == null) return
     if (nativeWorkerProgressJob === job) {
         nativeWorkerProgressJob = null
+        nativeWorkerProgressConnection?.getAndSet(null)?.close()
+        nativeWorkerProgressConnection = null
         nativeWorkerProgressEpoch.incrementAndGet()
     }
     job.cancel()
@@ -326,14 +331,29 @@ internal fun DownloadService.cancelNativeWorkerProgressCoordinator() {
     }
 }
 
-private fun DownloadService.pollNativeWorkerProgress(generation: Long): Set<String> {
+private fun DownloadService.pollNativeWorkerProgress(
+    generation: Long,
+    connection: AtomicReference<CoreDownloadProgress?>,
+): Set<String> {
     val sinceSeq = synchronized(nativeWorkerProgressLock) { nativeWorkerProgressSeq }
     val raw = try {
-        Gobackend.waitForAllDownloadProgressDelta(sinceSeq, 5_000L)
+        val reader = connection.get() ?: coreBackend.openDownloadProgress().also { connection.set(it) }
+        if (nativeWorkerProgressConnection !== connection || !isNativeWorkerProgressActive(generation)) {
+            connection.getAndSet(null)?.close()
+            return emptySet()
+        }
+        reader.waitDelta(sinceSeq, 5_000L)
     } catch (_: Exception) {
+        connection.getAndSet(null)?.close()
+        synchronized(nativeWorkerProgressLock) {
+            if (nativeWorkerProgressConnection === connection) {
+                nativeWorkerProgressItems.clear()
+                nativeWorkerProgressSeq = 0L
+            }
+        }
         return emptySet()
     }
-    if (raw.isBlank() || !isNativeWorkerProgressActive(generation)) return emptySet()
+    if (raw.isBlank() || nativeWorkerProgressConnection !== connection || !isNativeWorkerProgressActive(generation)) return emptySet()
 
     return try {
         val root = JSONObject(raw)
@@ -366,11 +386,11 @@ private fun DownloadService.pollNativeWorkerProgress(generation: Long): Set<Stri
             }
         }
         synchronized(nativeWorkerProgressLock) {
-            if (!isNativeWorkerProgressActive(generation)) return emptySet()
+            if (nativeWorkerProgressConnection !== connection || !isNativeWorkerProgressActive(generation)) return emptySet()
             if (reset) nativeWorkerProgressItems.clear()
             nativeWorkerProgressItems.putAll(updated)
             removed.forEach { nativeWorkerProgressItems.remove(it) }
-            if (nextSeq > nativeWorkerProgressSeq) {
+            if (reset || nextSeq > nativeWorkerProgressSeq) {
                 nativeWorkerProgressSeq = nextSeq
             }
         }

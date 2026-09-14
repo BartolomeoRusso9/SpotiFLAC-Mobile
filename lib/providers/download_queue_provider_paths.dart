@@ -6,8 +6,8 @@ extension _DownloadQueuePaths on DownloadQueueNotifier {
     return Directory('$documentsPath/$_defaultOutputFolderName');
   }
 
-  Directory _defaultAndroidMusicOutputDir(String storageRootPath) {
-    return Directory('$storageRootPath/$_defaultAndroidMusicSubpath');
+  Directory _defaultAndroidDownloadOutputDir(String storageRootPath) {
+    return Directory('$storageRootPath/$_defaultAndroidDownloadSubpath');
   }
 
   Future<Directory> _ensureDefaultDocumentsOutputDir() async {
@@ -19,17 +19,17 @@ extension _DownloadQueuePaths on DownloadQueueNotifier {
     return musicDir;
   }
 
-  Future<Directory?> _ensureDefaultAndroidMusicOutputDir() async {
+  Future<Directory?> _ensureDefaultAndroidDownloadOutputDir() async {
     final dir = await getExternalStorageDirectory();
     if (dir == null) return null;
 
-    final musicDir = _defaultAndroidMusicOutputDir(
+    final downloadDir = _defaultAndroidDownloadOutputDir(
       dir.parent.parent.parent.parent.path,
     );
-    if (!await musicDir.exists()) {
-      await musicDir.create(recursive: true);
+    if (!await downloadDir.exists()) {
+      await downloadDir.create(recursive: true);
     }
-    return musicDir;
+    return downloadDir;
   }
 
   Future<Directory?> _ensureAndroidAppSpecificOutputDir() async {
@@ -78,7 +78,7 @@ extension _DownloadQueuePaths on DownloadQueueNotifier {
 
   Future<Directory> _findWritableAppFolder({String? failedOutputDir}) async {
     final candidates = <Future<Directory?> Function()>[
-      if (Platform.isAndroid) _ensureDefaultAndroidMusicOutputDir,
+      if (Platform.isAndroid) _ensureDefaultAndroidDownloadOutputDir,
       if (Platform.isAndroid) _ensureAndroidAppSpecificOutputDir,
       () async => _ensureDefaultDocumentsOutputDir(),
     ];
@@ -141,11 +141,10 @@ extension _DownloadQueuePaths on DownloadQueueNotifier {
     _appFolderStorageFallback = fallback;
     try {
       return await fallback;
-    } catch (_) {
+    } finally {
       if (identical(_appFolderStorageFallback, fallback)) {
         _appFolderStorageFallback = null;
       }
-      rethrow;
     }
   }
 
@@ -157,7 +156,7 @@ extension _DownloadQueuePaths on DownloadQueueNotifier {
           state = state.copyWith(outputDir: musicDir.path);
         } else {
           final musicDir =
-              await _ensureDefaultAndroidMusicOutputDir() ??
+              await _ensureDefaultAndroidDownloadOutputDir() ??
               await _ensureDefaultDocumentsOutputDir();
           state = state.copyWith(outputDir: musicDir.path);
         }

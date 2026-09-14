@@ -63,10 +63,17 @@ target 'Runner' do
   use_modular_headers!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
-end
+  rust_pod_dir = File.expand_path('../rust_backend/target/ios', __dir__)
+  unless File.directory?(File.join(rust_pod_dir, 'SpotiFLACBackendFFI.xcframework')) &&
+         File.file?(File.join(rust_pod_dir, 'SpotiFLACBackend.podspec')) &&
+         File.file?(File.join(rust_pod_dir, 'SpotiFLACBackend.swift'))
+    raise 'Run bash scripts/build_rust_backend.sh ios before installing Rust application pods'
+  end
+  pod 'SpotiFLACBackend', :path => '../rust_backend/target/ios'
 
-target 'RunnerTests' do
-  inherit! :search_paths
+  target 'RunnerTests' do
+    inherit! :search_paths
+  end
 end
 
 post_install do |installer|

@@ -22,7 +22,6 @@ import io.flutter.embedding.engine.FlutterShellArgs
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import com.ryanheise.audioservice.AudioServicePlugin
-import gobackend.Gobackend
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -135,8 +134,8 @@ internal fun MainActivity.copyUriToTemp(uri: Uri, fallbackExt: String? = null): 
             val extFromName = extFromFileName(nameHint)
             val extFromMime = extFromMimeType(mime)
             val ext = if (extFromName.isNotBlank()) extFromName else if (extFromMime.isNotBlank()) extFromMime else (fallbackExt ?: "")
-            val suffix: String? = if (ext.isNotBlank()) ext else null
-            tempFile = File.createTempFile("saf_", suffix, cacheDir)
+            val suffix = ext.ifBlank { ".tmp" }
+            tempFile = coreBackend.createTemporaryMediaFile(this, "saf_", suffix)
 
             contentResolver.openInputStream(uri)?.use { input ->
                 FileOutputStream(tempFile).use { output ->
@@ -156,7 +155,6 @@ internal fun MainActivity.copyUriToTemp(uri: Uri, fallbackExt: String? = null): 
                 )
                 val result = copyMediaStoreUriToTemp(uri, fallbackExt)
                 if (result != null) {
-                    success = true
                     return result
                 }
             }
@@ -190,8 +188,8 @@ internal fun MainActivity.copyMediaStoreUriToTemp(uri: Uri, fallbackExt: String?
         var tempFile: File? = null
         try {
             val ext = resolveMediaStoreExt(uri, fallbackExt)
-            val suffix: String? = if (ext.isNotBlank()) ext else null
-            tempFile = File.createTempFile("ms_", suffix, cacheDir)
+            val suffix = ext.ifBlank { ".tmp" }
+            tempFile = coreBackend.createTemporaryMediaFile(this, "ms_", suffix)
 
             contentResolver.openInputStream(uri)?.use { input ->
                 FileOutputStream(tempFile).use { output ->
@@ -295,7 +293,7 @@ internal fun MainActivity.readAudioMetadataFromUri(
     uri, displayNameHint, fallbackExt,
     acceptDirect = { !it.optBoolean("metadataFromFilename", false) },
 ) { path, name ->
-    val obj = JSONObject(Gobackend.readAudioMetadataWithHintAndCoverCacheKeyJSON(
+    val obj = JSONObject(coreBackend.readAudioMetadata(
         path, name, coverCacheKey,
     ))
     obj.takeUnless { it.has("error") }
@@ -305,7 +303,7 @@ internal fun MainActivity.readCompleteMetadataFromUri(
     uri: Uri,
     displayNameHint: String? = null,
 ): JSONObject? = readMetadataFromUri(uri, displayNameHint) { path, name ->
-    JSONObject(Gobackend.readFileMetadataWithHint(path, name)).takeUnless { it.has("error") }
+    JSONObject(coreBackend.readFileMetadata(path, name)).takeUnless { it.has("error") }
 }
 
 internal fun MainActivity.writeUriFromPath(uri: Uri, srcPath: String): Boolean {
@@ -388,20 +386,14 @@ internal fun MainActivity.writeSafSidecarLrc(audioUri: Uri, lrcContent: String):
         }
     }
 
-internal fun MainActivity.runPostProcessingSafV2(fileUriStr: String, metadataJson: String): String {
+internal fun MainActivity.runPostProcessingSafV2(fileUriStr: String, metadataJson: String, itemId: String): String {
         val uri = Uri.parse(fileUriStr)
         val doc = DocumentFile.fromSingleUri(this, uri)
             ?: return errorJson("SAF file not found")
 
         val tempInput = copyUriToTemp(uri) ?: return errorJson("Failed to copy SAF file to temp")
-        val tempDir = File(tempInput).parentFile?.absolutePath ?: ""
-        if (tempDir.isNotBlank()) {
-            try {
-                Gobackend.allowDownloadDir(tempDir)
-            } catch (_: Exception) {}
-        }
-
         val inputObj = JSONObject()
+        inputObj.put("item_id", itemId)
         inputObj.put("path", tempInput)
         inputObj.put("uri", fileUriStr)
         inputObj.put("name", doc.name ?: File(tempInput).name)
@@ -409,7 +401,7 @@ internal fun MainActivity.runPostProcessingSafV2(fileUriStr: String, metadataJso
         inputObj.put("size", doc.length())
         inputObj.put("is_saf", true)
 
-        val response = Gobackend.runPostProcessingV2JSON(inputObj.toString(), metadataJson)
+        val response = coreBackend.runPostProcessing(inputObj.toString(), metadataJson)
         val respObj = JSONObject(response)
         if (!respObj.optBoolean("success", false)) {
             try {

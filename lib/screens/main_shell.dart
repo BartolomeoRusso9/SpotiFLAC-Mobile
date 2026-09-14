@@ -186,7 +186,7 @@ class _MainShellState extends ConsumerState<MainShell>
                               notifier.setDownloadDirectory('');
                               Navigator.of(dialogContext).pop();
                             },
-                      child: Text(context.l10n.storageModeAppFolder),
+                      child: Text(context.l10n.storageAutomaticFolder),
                     ),
                     FilledButton(
                       onPressed: isPickingFolder

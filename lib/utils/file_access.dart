@@ -4,6 +4,7 @@ import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:spotiflac_android/services/music_player_service.dart';
 import 'package:spotiflac_android/services/platform_bridge.dart';
+import 'package:spotiflac_android/utils/ios_container_paths.dart';
 import 'package:spotiflac_android/utils/mime_utils.dart';
 
 /// Whether the queue should run its iOS output-directory path-shape check
@@ -65,7 +66,7 @@ String _joinRecoveredIosPath(String documentsPath, String suffix) {
 /// Checks if a path is a valid writable directory on iOS.
 /// Returns false if:
 /// - The path is the app container root (not writable)
-/// - The path is an iCloud Drive path (not accessible by Go backend)
+/// - The path is an iCloud Drive path (not accessible by the backend)
 /// - The path is outside the app sandbox
 bool isValidIosWritablePath(String path) {
   if (!Platform.isIOS) return true;
@@ -109,8 +110,8 @@ Future<String> validateOrFixIosPath(
 }) async {
   if (!Platform.isIOS) return path;
 
-  final trimmed = path.trim();
   final docDir = await getApplicationDocumentsDirectory();
+  final trimmed = rebaseIosSandboxPath(path.trim(), docDir.path);
 
   final nestedLegacyMatch = _iosNestedLegacyDocumentsPattern.firstMatch(
     trimmed,

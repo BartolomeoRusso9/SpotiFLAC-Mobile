@@ -116,16 +116,32 @@ class SettingsNotifier extends Notifier<AppSettings> {
     2000,
   };
 
-  final Future<SharedPreferences> _prefs = SharedPreferences.getInstance();
+  Future<SharedPreferences> get _prefs => SharedPreferences.getInstance();
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
   bool _isSavingSettings = false;
   bool _saveQueued = false;
   String? _pendingSettingsJson;
+  Future<void>? _loadSettingsFuture;
 
   @override
   AppSettings build() {
-    unawaited(_loadSettings());
+    unawaited(
+      ensureLoaded().catchError((Object error, StackTrace stack) {
+        _log.e('Failed to load settings', error, stack);
+      }),
+    );
     return ref.read(initialSettingsProvider);
+  }
+
+  /// Startup and extension actions share loading, including preference migrations.
+  Future<void> ensureLoaded() {
+    return _loadSettingsFuture ??= _loadSettings().catchError((
+      Object error,
+      StackTrace stack,
+    ) {
+      _loadSettingsFuture = null;
+      Error.throwWithStackTrace(error, stack);
+    });
   }
 
   Future<void> _loadSettings() async {
@@ -197,9 +213,9 @@ class SettingsNotifier extends Notifier<AppSettings> {
 
     LogBuffer.loggingEnabled = state.enableLogging;
 
-    _syncLyricsSettingsToBackend();
-    _syncNetworkCompatibilitySettingsToBackend();
-    _syncExtensionFallbackSettingsToBackend();
+    await syncLyricsSettingsToBackend();
+    await _syncNetworkCompatibilitySettingsToBackend();
+    await _syncExtensionFallbackSettingsToBackend();
   }
 
   void _syncLyricsSettingsToBackend() {
@@ -217,41 +233,34 @@ class SettingsNotifier extends Notifier<AppSettings> {
     }
 
     try {
-      await PlatformBridge.setLyricsFetchOptions({
-        'include_translation_netease': snapshot.lyricsIncludeTranslationNetease,
-        'include_romanization_netease':
-            snapshot.lyricsIncludeRomanizationNetease,
-        'multi_person_word_by_word': snapshot.lyricsMultiPersonWordByWord,
-        'apple_elrc_word_sync': snapshot.lyricsAppleElrcWordSync,
-        'musixmatch_language': snapshot.musixmatchLanguage,
-      });
+      await PlatformBridge.setLyricsFetchOptions(snapshot.lyricsFetchOptions);
     } catch (e) {
       _log.w('Failed to sync lyrics fetch options to backend: $e');
     }
   }
 
-  void _syncNetworkCompatibilitySettingsToBackend() {
+  Future<void> _syncNetworkCompatibilitySettingsToBackend() async {
     if (!PlatformBridge.supportsCoreBackend) return;
 
     final compatibilityMode = state.networkCompatibilityMode;
-    PlatformBridge.setNetworkCompatibilityOptions(
+    await PlatformBridge.setNetworkCompatibilityOptions(
       allowHttp: compatibilityMode,
       insecureTls: false,
     ).catchError((Object e) {
       _log.w('Failed to sync network compatibility options to backend: $e');
     });
 
-    PlatformBridge.setAllowPrivateNetwork(state.allowLocalNetwork).catchError((
-      Object e,
-    ) {
+    await PlatformBridge.setAllowPrivateNetwork(
+      state.allowLocalNetwork,
+    ).catchError((Object e) {
       _log.w('Failed to sync allow local network option to backend: $e');
     });
   }
 
-  void _syncExtensionFallbackSettingsToBackend() {
+  Future<void> _syncExtensionFallbackSettingsToBackend() async {
     if (!PlatformBridge.supportsCoreBackend) return;
 
-    PlatformBridge.setDownloadFallbackExtensionIds(
+    await PlatformBridge.setDownloadFallbackExtensionIds(
       state.downloadFallbackExtensionIds,
     ).catchError((Object e) {
       _log.w('Failed to sync extension fallback settings to backend: $e');
@@ -348,8 +357,8 @@ class SettingsNotifier extends Notifier<AppSettings> {
 
     LogBuffer.loggingEnabled = state.enableLogging;
     _syncLyricsSettingsToBackend();
-    _syncNetworkCompatibilitySettingsToBackend();
-    _syncExtensionFallbackSettingsToBackend();
+    await _syncNetworkCompatibilitySettingsToBackend();
+    await _syncExtensionFallbackSettingsToBackend();
   }
 
   Future<void> _normalizeIosDownloadDirectoryIfNeeded() async {
@@ -727,7 +736,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
           extensionIds == null && state.downloadFallbackExtensionIds != null,
     );
     _saveSettings();
-    _syncExtensionFallbackSettingsToBackend();
+    unawaited(_syncExtensionFallbackSettingsToBackend());
   }
 
   void setSeparateSingles(bool enabled) {
@@ -810,13 +819,13 @@ class SettingsNotifier extends Notifier<AppSettings> {
   void setNetworkCompatibilityMode(bool enabled) {
     state = state.copyWith(networkCompatibilityMode: enabled);
     _saveSettings();
-    _syncNetworkCompatibilitySettingsToBackend();
+    unawaited(_syncNetworkCompatibilitySettingsToBackend());
   }
 
   void setAllowLocalNetwork(bool enabled) {
     state = state.copyWith(allowLocalNetwork: enabled);
     _saveSettings();
-    _syncNetworkCompatibilitySettingsToBackend();
+    unawaited(_syncNetworkCompatibilitySettingsToBackend());
   }
 
   void setSongLinkRegion(String region) {

@@ -298,16 +298,23 @@ void main() {
       ).firstMatch(appDelegateSource);
       expect(expirationHandler, isNotNull);
       expect(
-        expirationHandler!
+        expirationHandler!.group(0)!,
+        contains('self?.coreBackend.cancelActiveDownloads()'),
+      );
+      expect(
+        expirationHandler
             .group(0)!
-            .indexOf('GobackendCancelAllActiveDownloads()'),
+            .indexOf('self?.coreBackend.cancelActiveDownloads()'),
         lessThan(
           expirationHandler.group(0)!.indexOf('iosBackgroundDownloadExpired'),
         ),
       );
       expect(
-        queueProviderSource,
-        contains('pauseQueue(persistAcrossRestarts: false)'),
+        RegExp(
+          r'pauseQueue\(\s*persistAcrossRestarts:\s*false,\s*'
+          r'nativeCancelledItemIds:\s*cancelledItemIds,\s*\)',
+        ).hasMatch(queueProviderSource),
+        true,
       );
       expect(queueProviderSource, contains('_iosBackgroundExecutionExpired'));
       expect(queueProviderSource, contains('final requeueItemIds ='));
@@ -366,13 +373,16 @@ void main() {
       () {
         expect(
           RegExp(
-            r'Gobackend\.waitForAllDownloadProgressDelta\(',
+            r'coreBackend\.openDownloadProgress\(',
           ).allMatches(workerSnapshotSource),
           hasLength(1),
         );
+        expect(workerSnapshotSource, isNot(contains('Gobackend.')));
         expect(
-          workerSnapshotSource,
-          isNot(contains('Gobackend.getAllDownloadProgress()')),
+          RegExp(
+            r'\.waitDelta\(sinceSeq, 5_000L\)',
+          ).allMatches(workerSnapshotSource),
+          hasLength(1),
         );
         expect(workerSnapshotSource, contains('"item_deltas"'));
         expect(

@@ -74,11 +74,14 @@ jobs:
           distribution: "temurin"
           java-version: "25"
 
-      - name: Setup Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go_backend/go.mod
-          cache-dependency-path: go_backend/go.sum
+      - name: Activate pinned Rust toolchain
+        working-directory: rust_backend
+        run: rustup show
+
+      - name: Install Rust binding generator dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev
 
       # Cache Gradle for faster builds
       - name: Cache Gradle
@@ -112,26 +115,6 @@ jobs:
           # Set NDK path
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> $GITHUB_ENV
 
-      - name: Install gomobile
-        working-directory: go_backend
-        run: |
-          # Installed from inside the module so the go.mod-pinned x/mobile
-          # version is used (reproducible + covered by the setup-go cache).
-          go install golang.org/x/mobile/cmd/gomobile
-          gomobile init
-
-      - name: Build Go backend for Android
-        working-directory: go_backend
-        run: |
-          mkdir -p ../android/app/libs
-          # arm/arm64 only: ndk.abiFilters in app/build.gradle.kts strips
-          # every other ABI from all outputs (universal APK included), so an
-          # amd64 slice would never reach a shipped APK — it only bloats the
-          # aar and slows this step.
-          gomobile bind -target=android/arm,android/arm64 -androidapi 24 -o ../android/app/libs/gobackend.aar .
-        env:
-          CGO_ENABLED: 1
-
       - name: Setup Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
@@ -154,7 +137,7 @@ jobs:
 
       - name: Build APK (Release - unsigned)
         run: |
-          bash scripts/build_android.sh
+          bash scripts/build_android.sh --target lib/main.dart
           ls -la build/app/outputs/flutter-apk/
 
       - name: Sign APKs
@@ -167,7 +150,7 @@ jobs:
           keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
         env:
-          BUILD_TOOLS_VERSION: "36.0.0"
+          BUILD_TOOLS_VERSION: "37.0.0"
 
       - name: Rename APKs
         env:
@@ -209,6 +192,20 @@ jobs:
           done
           ls -la
 
+      - name: Audit signed Rust APKs before upload
+        env:
+          VERSION: ${{ needs.get-version.outputs.version }}
+        run: |
+          apk_dir=build/app/outputs/flutter-apk
+          python3 scripts/check_backend_apk.py "$apk_dir/SpotiFLAC-${VERSION}-arm64.apk" \
+            --backend rust --abis arm64-v8a
+          python3 scripts/check_backend_apk.py "$apk_dir/SpotiFLAC-${VERSION}-arm32.apk" \
+            --backend rust --abis armeabi-v7a
+          for abi in arm64 arm32; do
+            "$ANDROID_HOME/build-tools/37.0.0/zipalign" -c -P 16 4 \
+              "$apk_dir/SpotiFLAC-${VERSION}-${abi}.apk"
+          done
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
@@ -228,24 +225,16 @@ jobs:
           sudo xcode-select -s /Applications/Xcode_26.1.1.app
           xcodebuild -version
 
-      - name: Setup Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go_backend/go.mod
-          cache-dependency-path: go_backend/go.sum
+      - name: Build Rust backend for iOS
+        run: bash scripts/build_ios.sh
 
       # Cache CocoaPods
       - name: Cache CocoaPods
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ios/Pods
-          key: pods-${{ runner.os }}-${{ hashFiles('ios/Podfile.lock') }}
-          restore-keys: pods-${{ runner.os }}-
-
-      - name: Build Go backend for iOS
-        run: bash scripts/build_ios.sh
-        env:
-          CGO_ENABLED: 1
+          key: pods-rust-${{ runner.os }}-${{ hashFiles('ios/Podfile', 'ios/Podfile.lock', 'rust_backend/SpotiFLACBackend.podspec', 'rust_backend/Cargo.lock') }}
+          restore-keys: pods-rust-${{ runner.os }}-
 
       - name: Setup Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
@@ -276,10 +265,14 @@ jobs:
       - name: Generate app icons
         run: dart run flutter_launcher_icons
 
+      - name: Configure Rust application pods
+        working-directory: ios
+        run: pod install
+
       - name: Build iOS (unsigned)
         run: |
           # Build Flutter iOS without codesigning
-          flutter build ios --release --no-codesign --config-only \
+          flutter build ios --release --no-codesign --config-only --target lib/main.dart \
             --dart-define="GIT_COMMIT=$(git rev-parse --short=8 HEAD)"
 
           # Use xcodebuild with code signing disabled
@@ -295,6 +288,12 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM=""
+
+      - name: Audit Rust iOS archive before packaging
+        run: |
+          python3 scripts/check_backend_ios.py \
+            ios/build/Runner.xcarchive/Products/Applications/Runner.app \
+            --backend rust --archs arm64 --platform ios --release
 
       - name: Create IPA
         env:

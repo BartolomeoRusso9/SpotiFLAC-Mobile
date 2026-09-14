@@ -55,26 +55,26 @@ object SafDownloadHandler {
         }
     }
 
-    fun handle(context: Context, requestJson: String, downloader: (String) -> String): String {
+    internal fun handle(context: Context, requestJson: String, backend: CoreBackend): String {
         val req = JSONObject(requestJson)
         val storageMode = req.optString("storage_mode", "")
         val treeUriStr = req.optString("saf_tree_uri", "")
         if (storageMode != "saf" || treeUriStr.isBlank()) {
-            return downloader(requestJson)
+            return backend.downloadByStrategy(requestJson)
         }
 
         val relativeDir = sanitizeRelativeDir(req.optString("saf_relative_dir", ""))
         val outputExt = normalizeExt(req.optString("saf_output_ext", ""))
         val fileName = buildSafFileName(req, outputExt)
         return withSafNameLock(treeUriStr, relativeDir, fileName) {
-            handleSafLocked(context, req, downloader, treeUriStr, relativeDir, outputExt, fileName)
+            handleSafLocked(context, req, backend, treeUriStr, relativeDir, outputExt, fileName)
         }
     }
 
     private fun handleSafLocked(
         context: Context,
         req: JSONObject,
-        downloader: (String) -> String,
+        backend: CoreBackend,
         treeUriStr: String,
         relativeDir: String,
         outputExt: String,
@@ -112,12 +112,12 @@ object SafDownloadHandler {
         if (deferSafPublish) {
             existingDir?.let { deleteStaleStagedFiles(it, fileName, outputExt) }
             val workingExt = outputExt.ifBlank { ".tmp" }
-            val workingFile = File.createTempFile("native_saf_work_", workingExt, context.cacheDir)
+            val workingFile = backend.createTemporaryMediaFile(context, "native_saf_work_", workingExt)
             return try {
                 req.put("output_path", workingFile.absolutePath)
                 req.put("output_ext", outputExt)
                 req.remove("output_fd")
-                val response = downloader(req.toString())
+                val response = backend.downloadByStrategy(req.toString())
                 val respObj = JSONObject(response)
                 if (respObj.optBoolean("success", false)) {
                     val resolvedFileName = respObj.optString("resolved_file_name", "")
@@ -162,16 +162,32 @@ object SafDownloadHandler {
         var document = createOrReuseDocumentFile(targetDir, stagedMimeType, stagedFileName)
             ?: return errorJson("Failed to create SAF file")
 
-        val pfd = context.contentResolver.openFileDescriptor(document.uri, "rw")
-            ?: return errorJson("Failed to open SAF file")
-
+        var pfd: android.os.ParcelFileDescriptor? = null
         var detachedFd: Int? = null
+        var workingFile: File? = null
         try {
-            detachedFd = pfd.detachFd()
-            req.put("output_path", "")
-            req.put("output_fd", detachedFd)
+            if (backend.supportsOutputDescriptors) {
+                val descriptor = context.contentResolver.openFileDescriptor(document.uri, "rw")
+                    ?: throw IllegalStateException("Failed to open SAF file")
+                pfd = descriptor
+                detachedFd = descriptor.detachFd()
+                req.put("output_path", "")
+                req.put("output_fd", detachedFd)
+            } else {
+                // The OS adapter retains descriptor ownership. A path-based
+                // backend writes into its granted staging directory, then the
+                // existing SAF copy/promotion publishes the completed output.
+                val staged = backend.createTemporaryMediaFile(
+                    context,
+                    "native_saf_work_",
+                    outputExt.ifBlank { ".tmp" },
+                )
+                workingFile = staged
+                req.put("output_path", staged.absolutePath)
+                req.remove("output_fd")
+            }
             req.put("output_ext", outputExt)
-            val response = downloader(req.toString())
+            val response = backend.downloadByStrategy(req.toString())
             val respObj = JSONObject(response)
             if (respObj.optBoolean("success", false)) {
                 val resolvedFileName = respObj.optString("resolved_file_name", "").trim()
@@ -180,15 +196,16 @@ object SafDownloadHandler {
                 } else {
                     fileName
                 }
-                val goFilePath = respObj.optString("file_path", "")
-                if (goFilePath.isNotEmpty() &&
-                    !goFilePath.startsWith("content://") &&
-                    !goFilePath.startsWith("/proc/self/fd/")
-                ) {
+                val backendFilePath = respObj.optString("file_path", "")
+                val localFilePath = backendFilePath.takeIf {
+                    it.isNotEmpty() && !it.startsWith("content://") &&
+                        !it.startsWith("/proc/self/fd/")
+                } ?: workingFile?.absolutePath
+                if (localFilePath != null) {
                     try {
-                        val srcFile = File(goFilePath)
+                        val srcFile = File(localFilePath)
                         if (!srcFile.exists() || srcFile.length() <= 0) {
-                            throw IllegalStateException("extension output missing or empty: $goFilePath")
+                            throw IllegalStateException("extension output missing or empty: $localFilePath")
                         }
                         val actualExt = normalizeExt(srcFile.extension)
                         if (actualExt.isNotBlank()) {
@@ -259,9 +276,10 @@ object SafDownloadHandler {
             document.delete()
             return errorJson("SAF download failed: ${e.message}")
         } finally {
+            workingFile?.delete()
             if (detachedFd == null) {
                 try {
-                    pfd.close()
+                    pfd?.close()
                 } catch (_: Exception) {
                 }
             }
@@ -315,7 +333,7 @@ object SafDownloadHandler {
                 ?.takeIf { it.isNotBlank() }
                 ?.let { ".$it" }
                 ?: ".tmp"
-            val createdTemp = File.createTempFile("native_saf_", extension, context.cacheDir)
+            val createdTemp = createCoreBackend(context).createTemporaryMediaFile(context, "native_saf_", extension)
             temp = createdTemp
             context.contentResolver.openInputStream(uri)?.use { input ->
                 createdTemp.outputStream().use { output ->

@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:spotiflac_android/services/sqlite_helpers.dart' as sqlite;
 import 'package:spotiflac_android/utils/isrc_utils.dart' as isrc;
+import 'package:spotiflac_android/utils/ios_container_paths.dart';
 import 'package:spotiflac_android/utils/logger.dart';
 import 'package:spotiflac_android/utils/path_match_keys.dart';
 
@@ -507,21 +508,13 @@ class HistoryDatabase {
   void _putPathKeysInBatch(Batch batch, String id, String? filePath) =>
       sqlite.putPathKeysInBatch(batch, 'history_path_keys', id, filePath);
 
-  static final _iosContainerPattern = RegExp(
-    r'/var/mobile/Containers/Data/Application/[A-F0-9\-]+/',
-    caseSensitive: false,
-  );
-
   Future<void> _initContainerPath() async {
     if (!Platform.isIOS || _currentContainerPath != null) return;
 
     try {
       final docDir = await getApplicationDocumentsDirectory();
-      final match = _iosContainerPattern.firstMatch(docDir.path);
-      if (match != null) {
-        _currentContainerPath = match.group(0);
-        _log.d('iOS container path: $_currentContainerPath');
-      }
+      _currentContainerPath = docDir.parent.path;
+      _log.d('iOS container path: $_currentContainerPath');
     } catch (e) {
       _log.w('Failed to get iOS container path: $e');
     }
@@ -531,18 +524,7 @@ class HistoryDatabase {
     if (filePath == null || filePath.isEmpty) return filePath ?? '';
     if (!Platform.isIOS || _currentContainerPath == null) return filePath;
 
-    if (_iosContainerPattern.hasMatch(filePath)) {
-      final normalized = filePath.replaceFirst(
-        _iosContainerPattern,
-        _currentContainerPath!,
-      );
-      if (normalized != filePath) {
-        _log.d('Normalized iOS path: $filePath -> $normalized');
-      }
-      return normalized;
-    }
-
-    return filePath;
+    return rebaseIosSandboxPath(filePath, '$_currentContainerPath/Documents');
   }
 
   Future<bool> migrateIosContainerPaths() async {
@@ -572,7 +554,7 @@ class HistoryDatabase {
         final id = row['id'] as String;
         final oldPath = row['file_path'] as String?;
 
-        if (oldPath != null && _iosContainerPattern.hasMatch(oldPath)) {
+        if (oldPath != null) {
           final newPath = _normalizeIosPath(oldPath);
           if (newPath != oldPath) {
             batch.update(

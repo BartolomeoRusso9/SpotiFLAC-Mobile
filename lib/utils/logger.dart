@@ -106,8 +106,8 @@ class LogEntry {
   @override
   String toString() {
     final errorPart = error != null ? ' | $error' : '';
-    final goPart = isFromGo ? ' [Go]' : '';
-    return '[$formattedTime] [$level]$goPart [$tag] $message$errorPart';
+    final nativePart = isFromGo ? ' [Native]' : '';
+    return '[$formattedTime] [$level]$nativePart [$tag] $message$errorPart';
   }
 }
 
@@ -209,7 +209,7 @@ class LogBuffer extends ChangeNotifier {
         }
 
         final timestamp = logMap['timestamp'] as String? ?? '';
-        final tag = logMap['tag'] as String? ?? 'Go';
+        final tag = logMap['tag'] as String? ?? 'Native';
         final message = logMap['message'] as String? ?? '';
 
         DateTime parsedTime = DateTime.now();
@@ -245,7 +245,7 @@ class LogBuffer extends ChangeNotifier {
       _lastGoLogIndex = nextIndex;
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('Failed to fetch Go logs: $e');
+        debugPrint('Failed to fetch native backend logs: $e');
       }
     }
   }
@@ -353,7 +353,7 @@ class LogBuffer extends ChangeNotifier {
     buffer.writeln('Warnings: $warnCount');
     buffer.writeln('Info: $infoCount');
     buffer.writeln('Debug: $debugCount');
-    buffer.writeln('From Go Backend: $goCount');
+    buffer.writeln('From Native Backend: $goCount');
     buffer.writeln();
 
     buffer.writeln('=' * 60);

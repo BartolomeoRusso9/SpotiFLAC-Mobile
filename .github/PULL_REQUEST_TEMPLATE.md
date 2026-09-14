@@ -22,7 +22,7 @@
 - [ ] `dart format --output=none --set-exit-if-changed lib test`
 - [ ] `flutter analyze`
 - [ ] `flutter test`
-- [ ] `gofmt`, `go vet ./...`, and `go test ./...` in `go_backend/`
+- [ ] `bash scripts/check_rust_backend.sh`
 - [ ] Android or iOS native checks
 - [ ] Manual reproduction or device test
 

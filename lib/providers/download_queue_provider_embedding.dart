@@ -833,17 +833,17 @@ extension _DownloadQueueEmbedding on DownloadQueueNotifier {
           '${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(10000)}';
       final coverPath = '${tempDir.path}/cover_embed_$uniqueId.jpg';
 
-      // Go's cover pipeline: shared cache/singleflight, retries, timeouts.
+      // Mobile backends allocate temporary media inside their owned scope.
       final result = await PlatformBridge.downloadCoverToFile(
         coverUrl,
-        coverPath,
+        Platform.isAndroid || Platform.isIOS ? '' : coverPath,
         maxDimension: maxDimension,
       );
       if (result['error'] != null) {
         _log.w('Failed to download cover: ${result['error']}');
         return null;
       }
-      return coverPath;
+      return result['file_path'] as String? ?? coverPath;
     } catch (e) {
       _log.e('Failed to download cover for embedding: $e');
       return null;

@@ -22,7 +22,6 @@ import com.zarz.spotiflac.NativeFinalizationPolicy.isLosslessAudioCodec
 import com.zarz.spotiflac.NativeFinalizationPolicy.isLossyAudioCodec
 import com.zarz.spotiflac.NativeFinalizationPolicy.normalizeAudioCodec
 import com.zarz.spotiflac.NativeFinalizationPolicy.resolvePreferredDecryptionExtension
-import gobackend.Gobackend
 import org.json.JSONObject
 import java.io.File
 import java.io.RandomAccessFile
@@ -31,7 +30,6 @@ import java.util.Locale
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.pow
 
 
@@ -99,7 +97,7 @@ internal fun NativeDownloadFinalizer.runFFmpeg(command: String, shouldCancel: ()
     return runFFmpegArguments(FFmpegKitConfig.parseArguments(command), shouldCancel)
 }
 
-internal fun NativeDownloadFinalizer.runFFmpegArguments(arguments: Array<String>, shouldCancel: () -> Boolean = { false }): Pair<Boolean, String> {
+internal fun NativeDownloadFinalizer.runFFmpegArguments(arguments: Array<String>, shouldCancel: () -> Boolean = { false }, trackFinalizerSession: Boolean = true): Pair<Boolean, String> {
     checkCancelled(shouldCancel)
     installNativeFFmpegCallbackFilter()
     val latch = CountDownLatch(1)
@@ -116,7 +114,7 @@ internal fun NativeDownloadFinalizer.runFFmpegArguments(arguments: Array<String>
     )
     val sessionId = session.sessionId
     synchronized(activeFFmpegSessionLock) {
-        activeFFmpegSessionIds.add(sessionId)
+        if (trackFinalizerSession) activeFFmpegSessionIds.add(sessionId)
     }
     nativeFFmpegSessionIds.add(sessionId)
     FFmpegKitConfig.asyncFFmpegExecute(session)
@@ -154,71 +152,6 @@ internal fun NativeDownloadFinalizer.installNativeFFmpegCallbackFilter() {
             forwardedFFmpegCompleteCallback = current
             FFmpegKitConfig.enableFFmpegSessionCompleteCallback(nativeFilteringFFmpegCompleteCallback)
         }
-    }
-}
-
-internal fun NativeDownloadFinalizer.withFFmpegCommandPump(
-    shouldCancel: () -> Boolean = { false },
-    block: () -> String,
-): String {
-    val running = AtomicBoolean(true)
-    val handled = mutableSetOf<String>()
-    val pump = Thread {
-        while (running.get()) {
-            try {
-                val raw = Gobackend.waitForPendingFFmpegCommandsJSON(1_000L)
-                val commands = org.json.JSONArray(raw)
-                for (index in 0 until commands.length()) {
-                    val command = commands.optJSONObject(index) ?: continue
-                    val id = command.optString("command_id", "")
-                    val rawArguments = command.optJSONArray("arguments")
-                    val arguments = if (rawArguments == null) {
-                        emptyArray()
-                    } else {
-                        Array(rawArguments.length()) { argumentIndex ->
-                            rawArguments.optString(argumentIndex, "")
-                        }
-                    }
-                    if (id.isBlank() || arguments.isEmpty() || arguments.any { it.isEmpty() } || handled.contains(id)) {
-                        continue
-                    }
-                    handled.add(id)
-                    // Every claimed command must get a result delivered to
-                    // the Go side, even on failure or cancellation: the
-                    // backend blocks until one arrives and never retries a
-                    // claimed id, so bailing out here would strand the
-                    // gomobile call the main thread is sitting in forever.
-                    val result = try {
-                        if (shouldCancel()) {
-                            Pair(false, "cancelled")
-                        } else {
-                            runFFmpegArguments(arguments, shouldCancel)
-                        }
-                    } catch (e: Exception) {
-                        Pair(false, e.message ?: "FFmpeg execution failed")
-                    }
-                    try {
-                        Gobackend.setFFmpegCommandResultByID(
-                            id,
-                            result.first,
-                            result.second,
-                            if (result.first) "" else result.second,
-                        )
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to deliver FFmpeg result for $id: ${e.message}")
-                    }
-                }
-            } catch (_: Exception) {
-            }
-        }
-    }
-    pump.isDaemon = true
-    pump.start()
-    return try {
-        block()
-    } finally {
-        running.set(false)
-        pump.interrupt()
     }
 }
 

@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:spotiflac_android/utils/logger.dart';
 import 'package:spotiflac_android/utils/audio_format_utils.dart';
 import 'package:spotiflac_android/utils/file_access.dart';
+import 'package:spotiflac_android/utils/ios_container_paths.dart';
 import 'package:spotiflac_android/services/history_database.dart';
 import 'package:spotiflac_android/services/library_cleanup.dart';
 import 'package:spotiflac_android/services/sqlite_helpers.dart' as sqlite;
@@ -48,6 +49,7 @@ class LibraryDatabase {
         version: schemaVersion,
         onCreate: _createDB,
         onUpgrade: _upgradeDB,
+        onOpen: _migrateIosContainerPaths,
       );
       // Library upserts use INSERT OR REPLACE. Recursive triggers ensure the
       // implicit delete also decrements materialized lookup ref-counts.
@@ -61,6 +63,56 @@ class LibraryDatabase {
   }
 
   bool get searchFtsAvailable => _searchFtsAvailable ?? false;
+
+  Future<void> _migrateIosContainerPaths(Database db) async {
+    if (!Platform.isIOS) return;
+    final documents = await getApplicationDocumentsDirectory();
+    // Keep rows and their lookup keys consistent before any startup cleanup
+    // can mistake a relocated file for a deleted one. Bookmarks remain the
+    // authority for external sources.
+    await db.transaction((txn) async {
+      const localSources = "bookmark IS NULL OR bookmark = ''";
+      final sources = await txn.query(
+        'library_sources',
+        columns: ['id', 'path'],
+        where: localSources,
+      );
+      final rows = await txn.query(
+        'library',
+        columns: ['id', 'file_path', 'cover_path'],
+        where:
+            'source_id IN (SELECT id FROM library_sources WHERE $localSources)',
+      );
+      final batch = txn.batch();
+      for (final row in rows) {
+        final updates = <String, Object?>{};
+        for (final column in ['file_path', 'cover_path']) {
+          final previous = row[column] as String?;
+          if (previous == null) continue;
+          final current = rebaseIosSandboxPath(previous, documents.path);
+          if (current != previous) updates[column] = current;
+        }
+        if (updates.isEmpty) continue;
+        final id = row['id'] as String;
+        batch.update('library', updates, where: 'id = ?', whereArgs: [id]);
+        if (updates.containsKey('file_path')) {
+          _putPathKeysInBatch(batch, id, updates['file_path'] as String);
+        }
+      }
+      for (final source in sources) {
+        final previous = source['path'] as String;
+        final current = rebaseIosSandboxPath(previous, documents.path);
+        if (current == previous) continue;
+        batch.update(
+          'library_sources',
+          {'path': current},
+          where: 'id = ?',
+          whereArgs: [source['id']],
+        );
+      }
+      await batch.commit(noResult: true);
+    });
+  }
 
   Future<void> _ensureHistoryAttached(Database db) async {
     if (_historyAttached) return;

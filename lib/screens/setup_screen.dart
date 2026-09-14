@@ -425,14 +425,14 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
   Future<String> _getDefaultDirectory() async {
     if (Platform.isAndroid) {
-      final musicDir = Directory('/storage/emulated/0/Music/SpotiFLAC');
+      final downloadDir = Directory('/storage/emulated/0/Download/SpotiFLAC');
       try {
-        if (!await musicDir.exists()) {
-          await musicDir.create(recursive: true);
+        if (!await downloadDir.exists()) {
+          await downloadDir.create(recursive: true);
         }
-        return musicDir.path;
+        return downloadDir.path;
       } catch (e) {
-        debugPrint('Cannot create Music folder: $e');
+        debugPrint('Cannot create Download folder: $e');
       }
     }
     final appDir = await getApplicationDocumentsDirectory();
@@ -923,7 +923,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   Widget _buildDirectoryStep(ColorScheme colorScheme) {
     return _StepLayout(
       title: context.l10n.setupFolderChoose,
-      description: context.l10n.setupFolderDescription,
+      description: Platform.isAndroid
+          ? context.l10n.storageDownloadFolderHint
+          : context.l10n.setupFolderDescription,
       icon: Icons.create_new_folder,
       child: Column(
         children: [

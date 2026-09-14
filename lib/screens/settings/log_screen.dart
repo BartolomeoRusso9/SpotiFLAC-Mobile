@@ -640,7 +640,7 @@ class _LogEntryTile extends StatelessWidget {
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
-                            context.l10n.actionGo,
+                            'Native',
                             style: const TextStyle(
                               fontSize: 9,
                               fontWeight: FontWeight.bold,

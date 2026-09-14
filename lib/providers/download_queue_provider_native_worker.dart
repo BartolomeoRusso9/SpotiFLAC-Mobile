@@ -1382,6 +1382,7 @@ extension _DownloadQueueNativeWorker on DownloadQueueNotifier {
     final postProcessedPath = await _runPostProcessingHooks(
       filePath,
       trackToDownload,
+      item.id,
     );
     if (postProcessedPath != null && postProcessedPath.isNotEmpty) {
       filePath = postProcessedPath;

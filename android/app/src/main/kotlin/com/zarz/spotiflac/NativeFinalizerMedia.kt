@@ -26,7 +26,6 @@ import com.zarz.spotiflac.NativeFinalizationPolicy.removeQualityVariantStagingLa
 import com.zarz.spotiflac.NativeFinalizationPolicy.resolveQualityVariantFilename
 import com.zarz.spotiflac.NativeFinalizationPolicy.normalizeAudioCodec
 import com.zarz.spotiflac.NativeFinalizationPolicy.resolvePreferredDecryptionExtension
-import gobackend.Gobackend
 import org.json.JSONObject
 import java.io.File
 import java.io.RandomAccessFile
@@ -176,7 +175,7 @@ internal fun NativeDownloadFinalizer.writeExternalLrc(context: Context, input: N
     if (!input.request.optBoolean("embed_metadata", false) || !input.request.optBoolean("embed_lyrics", false)) return
     val lyricsMode = input.request.optString("lyrics_mode", "")
     if (lyricsMode != "external" && lyricsMode != "both") return
-    val lrc = resolveLyricsLrc(input)
+    val lrc = resolveLyricsLrc(context, input)
     if (
         !NativeFinalizationPolicy.hasUsableLyricsContent(lrc) ||
         lrc.trim().equals("[instrumental:true]", ignoreCase = true)
@@ -217,7 +216,7 @@ internal fun NativeDownloadFinalizer.writeExternalLrc(context: Context, input: N
     }
 }
 
-internal fun NativeDownloadFinalizer.resolveLyricsLrc(input: NativeDownloadFinalizer.FinalizeInput): String {
+internal fun NativeDownloadFinalizer.resolveLyricsLrc(context: Context, input: NativeDownloadFinalizer.FinalizeInput): String {
     val existing = input.result.optString("lyrics_lrc", "").trim()
     if (existing.isNotEmpty()) return existing
 
@@ -227,7 +226,7 @@ internal fun NativeDownloadFinalizer.resolveLyricsLrc(input: NativeDownloadFinal
     if (trackName.isBlank() || artistName.isBlank()) return ""
 
     return try {
-        val fetched = Gobackend.getLyricsLRC(
+        val fetched = createCoreBackend(context).getLyricsLrc(
             spotifyId,
             trackName,
             artistName,
@@ -303,13 +302,13 @@ internal fun NativeDownloadFinalizer.embedBasicMetadata(context: Context, path: 
     val lyricsMode = input.request.optString("lyrics_mode", "embed")
     val shouldResolveLyrics = input.request.optBoolean("embed_lyrics", false) &&
         (lyricsMode == "embed" || lyricsMode == "both")
-    val lyrics = if (shouldResolveLyrics) resolveLyricsLrc(input) else ""
+    val lyrics = if (shouldResolveLyrics) resolveLyricsLrc(context, input) else ""
     val shouldEmbedLyrics = shouldResolveLyrics &&
         NativeFinalizationPolicy.hasUsableLyricsContent(lyrics) &&
         !lyrics.trim().equals("[instrumental:true]", ignoreCase = true)
-    // FLAC, MP3, Opus, and M4A all have native Go tag writers that edit the
+    // FLAC, MP3, Opus, and M4A all have backend tag writers that edit the
     // tag block atomically without an ffmpeg remux (which drops foreign
-    // frames and rewrites the whole container). The Go side answers
+    // frames and rewrites the whole container). The backend answers
     // method=ffmpeg when it cannot handle the file natively.
     if (format == "flac" || format == "mp3" || format == "opus" || format == "m4a") {
         val nativeCover = downloadCoverForMetadata(context, input)
@@ -339,7 +338,7 @@ internal fun NativeDownloadFinalizer.embedBasicMetadata(context: Context, path: 
                 fields.put("lyrics", lyrics)
                 fields.put("unsyncedlyrics", lyrics)
             }
-            val response = Gobackend.editFileMetadata(path, fields.toString())
+            val response = createCoreBackend(context).editFileMetadata(path, fields.toString())
             val method = try {
                 JSONObject(response).optString("method", "")
             } catch (_: Exception) {
@@ -509,9 +508,10 @@ internal fun NativeDownloadFinalizer.downloadCoverForMetadata(context: Context, 
 
     val safeItemId = input.itemId.ifBlank { "item" }.replace(Regex("[^A-Za-z0-9._-]"), "_")
     val maxDimension = input.request.optLong("cover_max_dimension", 0L).coerceAtLeast(0L)
-    val output = File.createTempFile("native_cover_${safeItemId}_", ".jpg", context.cacheDir)
+    val backend = createCoreBackend(context)
+    val output = backend.createTemporaryMediaFile(context, "native_cover_${safeItemId}_", ".jpg")
     return try {
-        Gobackend.downloadCoverToFileSized(
+        backend.downloadCoverToFileSized(
             coverUrl,
             output.absolutePath,
             maxDimension

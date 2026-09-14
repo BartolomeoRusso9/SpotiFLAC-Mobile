@@ -27,7 +27,7 @@ void main() {
     expect(
       formatLogEntries(entries),
       '[10:20:30.040] [INFO] [Search] first\n'
-      '[10:20:31.050] [ERROR] [Go] [Download] second | failed',
+      '[10:20:31.050] [ERROR] [Native] [Download] second | failed',
     );
   });
 

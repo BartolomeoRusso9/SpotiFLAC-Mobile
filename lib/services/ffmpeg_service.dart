@@ -2117,7 +2117,7 @@ class FFmpegService {
       return null;
     }
 
-    // Write tags + cover via the native ID3-chunk writer in the Go backend.
+    // Write tags + cover via the native ID3-chunk writer.
     final hasMetadata = metadata.values.any((v) => v.trim().isNotEmpty);
     final hasCover = coverPath != null && coverPath.trim().isNotEmpty;
     if (hasMetadata || hasCover) {

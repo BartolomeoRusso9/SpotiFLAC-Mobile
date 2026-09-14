@@ -18,8 +18,9 @@ jobs:
       pull-requests: read
     outputs:
       dart: ${{ steps.filter.outputs.dart }}
-      go: ${{ steps.filter.outputs.go }}
       android: ${{ steps.filter.outputs.android }}
+      ios: ${{ steps.filter.outputs.ios }}
+      rust: ${{ steps.filter.outputs.rust }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -40,20 +41,34 @@ jobs:
               - 'l10n.yaml'
               - '.fvmrc'
               - '.github/workflows/ci.yml'
-            go:
-              - 'go_backend/**'
-              - 'android/app/src/test/resources/**'
+            rust:
+              - 'rust_backend/**'
+              - 'scripts/*rust*.sh'
+              - 'android/gradlew'
+              - 'android/gradle/wrapper/**'
+              - '.github/workflows/ci.yml'
+            ios:
+              - 'ios/**'
+              - 'scripts/build_ios.sh'
+              - 'scripts/check_backend_ios.py'
+              - 'lib/**'
+              - 'assets/**'
+              - 'pubspec.yaml'
+              - 'pubspec.lock'
+              - 'l10n.yaml'
+              - '.fvmrc'
               - '.github/workflows/ci.yml'
             android:
               - 'android/**'
-              - 'go_backend/**'
-              - 'lib/models/settings.dart'
-              - 'lib/providers/download_queue_provider*.dart'
-              - 'lib/services/download_request_payload.dart'
-              - 'lib/services/history_database.dart'
-              - 'lib/services/platform_bridge.dart'
+              - 'rust_backend/**'
+              - 'scripts/build_android.sh'
+              - 'scripts/build_rust_backend.sh'
+              - 'scripts/check_backend_apk.py'
+              - 'lib/**'
+              - 'assets/**'
               - 'pubspec.yaml'
               - 'pubspec.lock'
+              - 'l10n.yaml'
               - '.fvmrc'
               - '.github/workflows/ci.yml'
 
@@ -87,40 +102,88 @@ jobs:
       - name: Analyze
         run: flutter analyze
 
+      - name: Install media test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version
+          ffprobe -version
+
       - name: Run tests
         run: flutter test
 
-  go:
-    name: Go vet & test
+  rust:
+    name: Rust checks & Android libraries
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.go == 'true'
-
-    defaults:
-      run:
-        working-directory: go_backend
+    if: needs.changes.outputs.rust == 'true'
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - name: Setup Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      - name: Setup Java for Android SDK tools
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
-          go-version-file: go_backend/go.mod
-          cache-dependency-path: go_backend/go.sum
+          distribution: "temurin"
+          java-version: "25"
 
-      - name: Check formatting
-        run: test -z "$(gofmt -l .)"
+      - name: Activate pinned Rust toolchain
+        working-directory: rust_backend
+        run: rustup show
 
-      - name: Vet
-        run: go vet ./...
+      - name: Install C binding generator dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev
 
-      - name: Run tests
-        run: go test ./...
+      - name: Rust formatting, Clippy and unit tests
+        run: bash scripts/check_rust_backend.sh
+
+      - name: Install Android NDK
+        run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;29.0.14206865"
+
+      - name: Build Android ARM32 and ARM64 libraries
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865" bash scripts/build_rust_backend.sh android
+
+  rust-ios:
+    name: Rust iOS libraries & release application
+    runs-on: macos-latest
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.ios == 'true'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Activate pinned Rust toolchain
+        working-directory: rust_backend
+        run: rustup show
+
+      - name: Build iOS device and universal simulator XCFramework
+        run: bash scripts/build_rust_backend.sh ios
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: "stable"
+          flutter-version-file: .fvmrc
+          cache: true
+
+      - name: Configure Rust application pods
+        run: |
+          flutter pub get
+          cd ios
+          pod install
+
+      - name: Build and audit Rust iOS release application
+        run: |
+          flutter build ios --release --no-codesign --target lib/main.dart
+          python3 scripts/check_backend_ios.py build/ios/iphoneos/Runner.app \
+            --backend rust --archs arm64 --platform ios --release
 
   android:
-    name: Android compile & native tests
+    name: Android Rust builds & native tests
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.android == 'true'
@@ -134,12 +197,6 @@ jobs:
         with:
           distribution: "temurin"
           java-version: "25"
-
-      - name: Setup Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go_backend/go.mod
-          cache-dependency-path: go_backend/go.sum
 
       - name: Setup Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
@@ -162,25 +219,30 @@ jobs:
             "build-tools;37.0.0"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
 
-      - name: Build Go backend for Android
-        working-directory: go_backend
-        run: |
-          go install golang.org/x/mobile/cmd/gomobile
-          gomobile init
-          mkdir -p ../android/app/libs
-          gomobile bind \
-            -target=android/arm,android/arm64 \
-            -androidapi 24 \
-            -o ../android/app/libs/gobackend.aar \
-            .
-        env:
-          CGO_ENABLED: 1
-
       - name: Get Flutter dependencies
         run: flutter pub get
 
       - name: Configure Flutter SDK for Gradle
         run: echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
 
-      - name: Compile Kotlin and run native unit tests
-        run: gradle -p android :app:compileDebugKotlin :app:testDebugUnitTest
+      - name: Install Rust application build prerequisites
+        run: |
+          cd rust_backend
+          rustup show
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev
+
+      - name: Package Rust application and run native unit tests
+        run: gradle -p android :app:assembleDebug :app:testDebugUnitTest
+
+      - name: Build Rust release application
+        run: bash scripts/build_android.sh --target lib/main.dart
+
+      - name: Verify Rust release APK payloads
+        run: |
+          python3 scripts/check_backend_apk.py \
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+            --backend rust --abis arm64-v8a
+          python3 scripts/check_backend_apk.py \
+            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk \
+            --backend rust --abis armeabi-v7a

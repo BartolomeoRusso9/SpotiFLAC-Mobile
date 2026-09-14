@@ -27,7 +27,15 @@ class ExtensionStorageService {
   static Future<ExtensionStoragePaths>? _preparing;
 
   static Future<ExtensionStoragePaths> prepare() {
-    return _preparing ??= _prepare();
+    return _preparing ??= _prepare().catchError((
+      Object error,
+      StackTrace stack,
+    ) {
+      // A transient filesystem/keystore failure must not poison every retry
+      // until the process is restarted.
+      _preparing = null;
+      Error.throwWithStackTrace(error, stack);
+    });
   }
 
   static Future<ExtensionStoragePaths> _prepare() async {

@@ -239,6 +239,7 @@ class RepoNotifier extends Notifier<RepoState> {
     );
 
     try {
+      await ref.read(extensionProvider.notifier).ensureInitialized();
       await PlatformBridge.initExtensionRepo(cacheDir);
 
       if (savedUrl.isNotEmpty) {
