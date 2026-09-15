@@ -2193,11 +2193,13 @@ class PlatformBridge {
 
   static Future<LibraryScanNDJSONFile> scanLibraryFolderToNDJSONFile(
     String folderPath, {
+    bool forceFullScan = false,
     bool Function()? isCancelled,
   }) {
     return _scanToNDJSONFile(
       method: 'scanLibraryFolderToNDJSONFile',
       arguments: {'folder_path': folderPath},
+      forceFullScan: forceFullScan,
       isCancelled: isCancelled,
     );
   }
@@ -2239,11 +2241,13 @@ class PlatformBridge {
 
   static Future<LibraryScanNDJSONFile> scanSafTreeToNDJSONFile(
     String treeUri, {
+    bool forceFullScan = false,
     bool Function()? isCancelled,
   }) {
     return _scanToNDJSONFile(
       method: 'scanSafTreeToNDJSONFile',
       arguments: {'tree_uri': treeUri},
+      forceFullScan: forceFullScan,
       isCancelled: isCancelled,
     );
   }
@@ -2251,6 +2255,7 @@ class PlatformBridge {
   static Future<LibraryScanNDJSONFile> _scanToNDJSONFile({
     required String method,
     required Map<String, dynamic> arguments,
+    required bool forceFullScan,
     bool Function()? isCancelled,
   }) async {
     // Stable support-directory path lets native SAF scans resume after process death.
@@ -2270,6 +2275,21 @@ class PlatformBridge {
       'library_scan_${hash.toRadixString(16).padLeft(8, '0')}.ndjson',
     );
     try {
+      if (isCancelled?.call() == true) {
+        throw StateError('Library scan cancelled before native scan');
+      }
+      if (forceFullScan) {
+        // An explicit rescan must not resume metadata from an earlier attempt.
+        for (final file in [output, File('${output.path}.state')]) {
+          if (await file.exists()) await file.delete();
+        }
+        // Preserve covers referenced by the current DB until ingestion succeeds.
+        // Fresh paths bypass native disk and Flutter image caches together.
+        final covers = Directory('${scanDir.path}/library_covers');
+        await covers.create(recursive: true);
+        final freshCovers = await covers.createTemp('full_scan_');
+        await setLibraryCoverCacheDir(freshCovers.path);
+      }
       if (isCancelled?.call() == true) {
         throw StateError('Library scan cancelled before native scan');
       }

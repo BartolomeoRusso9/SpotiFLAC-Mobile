@@ -522,15 +522,18 @@ class LocalLibraryNotifier extends Notifier<LocalLibraryState> {
     required String sourceId,
     required String folderPath,
     required bool isSaf,
+    required bool forceFullScan,
   }) async {
     if (_scanCancelRequested) return null;
     final scanFile = isSaf
         ? await PlatformBridge.scanSafTreeToNDJSONFile(
             folderPath,
+            forceFullScan: forceFullScan,
             isCancelled: () => _scanCancelRequested,
           )
         : await PlatformBridge.scanLibraryFolderToNDJSONFile(
             folderPath,
+            forceFullScan: forceFullScan,
             isCancelled: () => _scanCancelRequested,
           );
     var ingested = false;
@@ -677,6 +680,7 @@ class LocalLibraryNotifier extends Notifier<LocalLibraryState> {
           sourceId: activeSourceId,
           folderPath: effectiveFolderPath,
           isSaf: isSaf,
+          forceFullScan: forceFullScan,
         );
         if (scanResult == null || _scanCancelRequested) {
           state = state.copyWith(
