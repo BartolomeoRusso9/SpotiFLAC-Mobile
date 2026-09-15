@@ -7,6 +7,7 @@ analyzer:
   exclude:
     - build/**
     - .dart_tool/**
+    - docs/internal/**
     - lib/**/*.g.dart
     - lib/l10n/*.dart
     - android/**
