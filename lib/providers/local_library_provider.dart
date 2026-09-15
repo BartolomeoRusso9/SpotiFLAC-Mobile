@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:spotiflac_android/providers/settings_provider.dart';
+import 'package:spotiflac_android/services/library_cleanup.dart';
 import 'package:spotiflac_android/services/library_database.dart';
 import 'package:spotiflac_android/services/notification_service.dart';
 import 'package:spotiflac_android/services/platform_bridge.dart';
@@ -1203,23 +1204,10 @@ class LocalLibraryNotifier extends Notifier<LocalLibraryState> {
         offset += pageSize;
       }
 
-      var deletedCount = 0;
-      await for (final entity in libraryCoverDir.list(
-        recursive: true,
-        followLinks: false,
-      )) {
-        if (entity is! File || referencedCoverPaths.contains(entity.path)) {
-          continue;
-        }
-        try {
-          await entity.delete();
-          deletedCount++;
-        } catch (e) {
-          _log.w(
-            'Failed deleting stale library cover cache ${entity.path}: $e',
-          );
-        }
-      }
+      final deletedCount = await pruneUnreferencedLibraryCovers(
+        libraryCoverDir,
+        referencedCoverPaths,
+      );
 
       if (deletedCount > 0) {
         _log.i('Pruned $deletedCount stale library cover cache files');

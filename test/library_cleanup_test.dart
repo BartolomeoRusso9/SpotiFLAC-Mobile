@@ -103,6 +103,42 @@ void main() {
   tearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
   test(
+    'cover cleanup preserves references through directory aliases',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'library-cover-cleanup-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final directory = await Directory('${root.path}/covers').create();
+      final alias = await Link('${root.path}/alias').create(directory.path);
+      final canonical = await File(
+        '${directory.path}/canonical.jpg',
+      ).writeAsBytes([1]);
+      final legacy = await File(
+        '${directory.path}/legacy.jpg',
+      ).writeAsBytes([2]);
+      final orphan = await File(
+        '${directory.path}/orphan.jpg',
+      ).writeAsBytes([3]);
+      final outside = await File('${root.path}/outside.jpg').writeAsBytes([4]);
+      await Link('${directory.path}/outside.jpg').create(outside.path);
+
+      final deleted =
+          await pruneUnreferencedLibraryCovers(Directory(alias.path), {
+            await canonical.resolveSymbolicLinks(),
+            '${alias.path}/legacy.jpg',
+            '${alias.path}/already-missing.jpg',
+          });
+
+      expect(await canonical.exists(), isTrue);
+      expect(await legacy.exists(), isTrue);
+      expect(await orphan.exists(), isFalse);
+      expect(await outside.readAsBytes(), [4]);
+      expect(deleted, 1);
+    },
+  );
+
+  test(
     'cleanup pages without skipping after deletions and preserves unknown',
     () async {
       final db = _CleanupDatabase();

@@ -1,5 +1,39 @@
+import 'dart:io';
 import 'package:sqflite/sqflite.dart';
 import 'package:spotiflac_android/utils/file_access.dart';
+import 'package:spotiflac_android/utils/logger.dart';
+
+Future<int> pruneUnreferencedLibraryCovers(
+  Directory directory,
+  Set<String> referencedPaths,
+) async {
+  // Native scans may return canonical paths while Dart lists a directory alias.
+  final retainedPaths = {...referencedPaths};
+  for (final path in referencedPaths) {
+    try {
+      retainedPaths.add(await File(path).resolveSymbolicLinks());
+    } on FileSystemException {
+      // Missing cache files can remain referenced until the next full scan.
+    }
+  }
+  var deleted = 0;
+  await for (final entity in directory.list(
+    recursive: true,
+    followLinks: false,
+  )) {
+    if (entity is! File || retainedPaths.contains(entity.path)) continue;
+    try {
+      if (retainedPaths.contains(await entity.resolveSymbolicLinks())) continue;
+      await entity.delete();
+      deleted++;
+    } catch (error) {
+      final message =
+          'Failed deleting stale library cover cache ${entity.path}: $error';
+      AppLogger('LocalLibrary').w(message);
+    }
+  }
+  return deleted;
+}
 
 /// Pages by stable ID (not OFFSET, since rows are removed during traversal).
 /// A high-water mark bounds the run if a concurrent scan adds new rows.
