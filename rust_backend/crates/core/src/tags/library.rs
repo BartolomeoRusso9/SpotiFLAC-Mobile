@@ -261,6 +261,10 @@ fn apply_tags(
         ("album_type", "albumType"),
         ("explicit", "explicit"),
         ("upc", "upc"),
+        ("replay_gain_track_gain", "replaygain_track_gain"),
+        ("replay_gain_track_peak", "replaygain_track_peak"),
+        ("replay_gain_album_gain", "replaygain_album_gain"),
+        ("replay_gain_album_peak", "replaygain_album_peak"),
     ] {
         let value = &tags[source];
         if !matches!(value, Value::Null)

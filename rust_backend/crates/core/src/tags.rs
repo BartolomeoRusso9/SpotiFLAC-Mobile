@@ -269,7 +269,48 @@ fn truthy(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
     use std::io::Cursor;
+
+    #[test]
+    fn library_scan_preserves_replaygain_values_written_to_flac() {
+        let mut source = b"fLaC\x80\0\0\x22".to_vec();
+        source.resize(42, 0);
+        source.extend_from_slice(&[0xff, 0xf8, 0, 0]);
+        let fields = BTreeMap::from([
+            ("replaygain_track_gain".into(), "-6.20 dB".into()),
+            ("replaygain_track_peak".into(), "0.000000".into()),
+            ("replaygain_album_gain".into(), "0.00 dB".into()),
+            ("replaygain_album_peak".into(), "1.234567".into()),
+        ]);
+        let mut output = Vec::new();
+        rewrite_audio_tags(
+            &mut Cursor::new(&source),
+            &mut output,
+            "flac",
+            &fields,
+            None,
+            &|| Ok(()),
+        )
+        .unwrap();
+        let mut reader = Cursor::new(&output);
+        let scan = read_library_metadata(&mut reader, "track.flac", "", "", 0, &|| Ok(())).unwrap();
+        let full = read_file_metadata(&mut reader, "track.flac", "", &|| Ok(())).unwrap();
+        let empty = read_library_metadata(
+            &mut Cursor::new(source),
+            "track.flac",
+            "",
+            "",
+            0,
+            &|| Ok(()),
+        )
+        .unwrap();
+        for (key, value) in fields {
+            assert_eq!(scan[&key], value);
+            assert_eq!(scan[&key], full[&key]);
+            assert!(empty.get(&key).is_none());
+        }
+    }
 
     fn atom(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
         [

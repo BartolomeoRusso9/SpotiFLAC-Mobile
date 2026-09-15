@@ -193,6 +193,8 @@ extension _TrackMetadataConvertAndCueSplit on _TrackMetadataScreenState {
 
   Future<void> _rescanReplayGain() async {
     if (!_fileExists) return;
+    final sourcePath = cleanFilePath;
+    final generation = _metadataLoadGeneration;
     final messenger = ScaffoldMessenger.of(context);
     messenger.clearSnackBars();
     messenger.showSnackBar(
@@ -203,9 +205,16 @@ extension _TrackMetadataConvertAndCueSplit on _TrackMetadataScreenState {
     );
     bool ok = false;
     try {
-      ok = await ReplayGainService.applyToFile(cleanFilePath);
+      ok = await ReplayGainService.applyToFile(sourcePath);
     } catch (e) {
       _log.w('ReplayGain rescan failed: $e');
+    }
+    if (!mounted) return;
+    if (ok &&
+        generation == _metadataLoadGeneration &&
+        sourcePath == cleanFilePath) {
+      _hasLoadedResolvedAudioMetadata = false;
+      await _refreshResolvedAudioMetadataFromFile();
     }
     if (!mounted) return;
     messenger.hideCurrentSnackBar();

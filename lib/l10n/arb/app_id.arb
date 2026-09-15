@@ -2169,6 +2169,22 @@
   "@trackAudioQuality": {
     "description": "Metadata label - audio quality"
   },
+  "trackReplayGainTrackGain": "ReplayGain Track Gain",
+  "@trackReplayGainTrackGain": {
+    "description": "Metadata label - ReplayGain track gain"
+  },
+  "trackReplayGainTrackPeak": "ReplayGain Track Peak",
+  "@trackReplayGainTrackPeak": {
+    "description": "Metadata label - ReplayGain track peak"
+  },
+  "trackReplayGainAlbumGain": "ReplayGain Album Gain",
+  "@trackReplayGainAlbumGain": {
+    "description": "Metadata label - ReplayGain album gain"
+  },
+  "trackReplayGainAlbumPeak": "ReplayGain Album Peak",
+  "@trackReplayGainAlbumPeak": {
+    "description": "Metadata label - ReplayGain album peak"
+  },
   "libraryQualityLabelFileFormat": "Format berkas",
   "libraryRemovedMissingFiles": "Removed {count} missing files from library",
   "@libraryRemovedMissingFiles": {

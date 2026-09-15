@@ -125,6 +125,12 @@ class TrackMetadataScreen extends ConsumerStatefulWidget {
 class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen>
     with CollapsingHeaderScrollMixin<TrackMetadataScreen> {
   static const int _maxCoverPreviewCacheEntries = 96;
+  static const _replayGainFields = [
+    'replaygain_track_gain',
+    'replaygain_track_peak',
+    'replaygain_album_gain',
+    'replaygain_album_peak',
+  ];
   static final Map<String, _EmbeddedCoverPreviewCacheEntry>
   _embeddedCoverPreviewCache = {};
 
@@ -299,6 +305,14 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen>
         return;
       }
 
+      final replayGainMetadata = {
+        for (final key in _replayGainFields)
+          key: normalizeOptionalString(metadata[key]?.toString()),
+      };
+      final replayGainChanged = replayGainMetadata.entries.any(
+        (entry) => entry.value != _editedMetadata?[entry.key],
+      );
+
       final resolvedBitDepth = readPositiveInt(metadata['bit_depth']);
       final resolvedSampleRate = readPositiveInt(metadata['sample_rate']);
       final resolvedFormat = detectedAudioFormatFromMetadata(metadata);
@@ -437,7 +451,8 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen>
               needsDuration ||
               formatChanged);
 
-      if ((resolvedBitDepth != null ||
+      if ((replayGainChanged ||
+              resolvedBitDepth != null ||
               resolvedSampleRate != null ||
               resolvedFormat != null ||
               fileHasTitle ||
@@ -465,6 +480,7 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen>
           _resolvedAudioFormat = resolvedFormat;
           _editedMetadata = {
             ...?_editedMetadata,
+            ...replayGainMetadata,
             // ignore: use_null_aware_elements
             if (resolvedBitDepth != null) 'bit_depth': resolvedBitDepth,
             // ignore: use_null_aware_elements

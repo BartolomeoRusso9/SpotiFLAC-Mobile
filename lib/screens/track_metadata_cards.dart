@@ -456,6 +456,18 @@ extension _TrackMetadataCards on _TrackMetadataScreenState {
 
   Widget _buildMetadataGrid(BuildContext context, ColorScheme colorScheme) {
     final audioQualityStr = _displayAudioQuality;
+    final replayGainTrackGain = normalizeOptionalString(
+      _editedMetadata?['replaygain_track_gain']?.toString(),
+    );
+    final replayGainTrackPeak = normalizeOptionalString(
+      _editedMetadata?['replaygain_track_peak']?.toString(),
+    );
+    final replayGainAlbumGain = normalizeOptionalString(
+      _editedMetadata?['replaygain_album_gain']?.toString(),
+    );
+    final replayGainAlbumPeak = normalizeOptionalString(
+      _editedMetadata?['replaygain_album_peak']?.toString(),
+    );
 
     final items = <_MetadataItem>[
       _MetadataItem(context.l10n.trackTrackName, trackName),
@@ -481,6 +493,26 @@ extension _TrackMetadataCards on _TrackMetadataScreenState {
         _MetadataItem(context.l10n.trackDuration, formatClock(duration!)),
       if (audioQualityStr != null)
         _MetadataItem(context.l10n.trackAudioQuality, audioQualityStr),
+      if (replayGainTrackGain != null)
+        _MetadataItem(
+          context.l10n.trackReplayGainTrackGain,
+          replayGainTrackGain,
+        ),
+      if (replayGainTrackPeak != null)
+        _MetadataItem(
+          context.l10n.trackReplayGainTrackPeak,
+          replayGainTrackPeak,
+        ),
+      if (replayGainAlbumGain != null)
+        _MetadataItem(
+          context.l10n.trackReplayGainAlbumGain,
+          replayGainAlbumGain,
+        ),
+      if (replayGainAlbumPeak != null)
+        _MetadataItem(
+          context.l10n.trackReplayGainAlbumPeak,
+          replayGainAlbumPeak,
+        ),
       if (_embeddedCoverDimensions case final dimensions?)
         _MetadataItem(
           context.l10n.trackCoverResolution,
