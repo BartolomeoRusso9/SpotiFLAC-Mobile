@@ -30,6 +30,7 @@ mod session_host;
 pub mod signed_session;
 pub mod storage;
 pub mod transfer_policy;
+mod url_host;
 mod utility_host;
 
 pub use runtime::{ExtensionError, ExtensionRuntime, ExtensionServices, RuntimeLimits};

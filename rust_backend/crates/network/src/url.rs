@@ -3,7 +3,7 @@
 
 use std::net::Ipv6Addr;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct UrlParts {
     pub scheme: String,
     pub hostname: String,
@@ -14,6 +14,11 @@ pub struct UrlParts {
     pub fragment: String,
     pub port: Option<String>,
     pub has_credentials: bool,
+    pub host: Vec<u8>,
+    pub username: Vec<u8>,
+    pub password: Option<Vec<u8>>,
+    pub opaque: String,
+    pub omit_host: bool,
 }
 
 impl UrlParts {
@@ -46,6 +51,9 @@ impl UrlParts {
         let mut hostname = String::new();
         let mut port = None;
         let mut has_credentials = false;
+        let mut raw_host = Vec::new();
+        let mut username = Vec::new();
+        let mut password = None;
         if !rest.starts_with('/') {
             if !scheme.is_empty() {
                 return Some(Self {
@@ -58,6 +66,8 @@ impl UrlParts {
                     fragment: fragment.to_owned(),
                     port,
                     has_credentials,
+                    opaque: rest.to_owned(),
+                    ..Default::default()
                 });
             }
             if rest.split('/').next()?.contains(':') {
@@ -79,11 +89,20 @@ impl UrlParts {
                     return None;
                 }
                 decode(user, Escape::Path)?;
+                let (name, secret) = user
+                    .split_once(':')
+                    .map_or((user, None), |(name, secret)| (name, Some(secret)));
+                username = decode(name, Escape::Path)?;
+                password = match secret {
+                    Some(secret) => Some(decode(secret, Escape::Path)?),
+                    None => None,
+                };
                 host
             } else {
                 authority
             };
             hostname = parse_host(host, scheme)?;
+            raw_host = decode(host, Escape::Path)?;
             let port_part = if host.starts_with('[') {
                 &host[host.rfind(']')? + 1..]
             } else {
@@ -91,6 +110,7 @@ impl UrlParts {
             };
             port = port_part.strip_prefix(':').map(str::to_owned);
         }
+        let omit_host = !scheme.is_empty() && path.starts_with('/') && !path.starts_with("//");
         let path = if rest.is_empty() {
             b"/".to_vec()
         } else {
@@ -106,7 +126,109 @@ impl UrlParts {
             fragment: fragment.to_owned(),
             port,
             has_credentials,
+            host: raw_host,
+            username,
+            password,
+            opaque: String::new(),
+            omit_host,
         })
+    }
+
+    /// Serialize a parsed reference without the HTTP layer's credential removal
+    /// or empty-path normalization.
+    pub fn reference_string(&self) -> String {
+        let mut result = String::new();
+        if !self.scheme.is_empty() {
+            result.push_str(&self.scheme);
+            result.push(':');
+        }
+        if !self.opaque.is_empty() {
+            result.push_str(&self.opaque);
+        } else {
+            if (!self.scheme.is_empty() || !self.host.is_empty() || self.has_credentials)
+                && !(self.omit_host && self.host.is_empty() && !self.has_credentials)
+            {
+                if !self.host.is_empty() || !self.raw_path.is_empty() || self.has_credentials {
+                    result.push_str("//");
+                }
+                if self.has_credentials {
+                    result.push_str(&escape_component(&self.username, b"$&+,;="));
+                    if let Some(password) = &self.password {
+                        result.push(':');
+                        result.push_str(&escape_component(password, b"$&+,;="));
+                    }
+                    result.push('@');
+                }
+                result.push_str(&escape_component(&self.host, b"!$&'()*+,;=:[]<>\""));
+            }
+            let path = self.escaped_path();
+            if !path.is_empty() && !path.starts_with('/') && !self.host.is_empty() {
+                result.push('/');
+            }
+            if result.is_empty() && path.split('/').next().is_some_and(|p| p.contains(':')) {
+                result.push_str("./");
+            }
+            result.push_str(&path);
+        }
+        if self.force_query || !self.raw_query.is_empty() {
+            result.push('?');
+            result.push_str(&self.raw_query);
+        }
+        if !self.fragment.is_empty() {
+            result.push('#');
+            if self.fragment.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || b"-._~!$&'()*+,;=:[]/%@?".contains(&byte)
+            }) {
+                result.push_str(&self.fragment);
+            } else {
+                result.push_str(&escape_component(
+                    &unescape_path(&self.fragment).unwrap_or_default(),
+                    b"!$&()*+,/:;=?@",
+                ));
+            }
+        }
+        result
+    }
+
+    /// Go ResolveReference semantics for JavaScript URL construction, including
+    /// credentials and opaque schemes that cannot be used as HTTP requests.
+    pub fn resolve_reference(&self, reference: &str) -> Option<Self> {
+        let mut target = Self::parse(reference)?;
+        let absolute =
+            !target.scheme.is_empty() || !target.host.is_empty() || target.has_credentials;
+        if target.scheme.is_empty() {
+            target.scheme.clone_from(&self.scheme);
+        }
+        if absolute {
+            if target.opaque.is_empty() {
+                target.raw_path = resolve_path(&target.escaped_path(), "");
+            }
+        } else {
+            if target.raw_path.is_empty() && !target.force_query && target.raw_query.is_empty() {
+                target.raw_query.clone_from(&self.raw_query);
+                if target.fragment.is_empty() {
+                    target.fragment.clone_from(&self.fragment);
+                }
+            }
+            if target.raw_path.is_empty() && !self.opaque.is_empty() {
+                target.opaque.clone_from(&self.opaque);
+            } else {
+                target.host.clone_from(&self.host);
+                target.hostname.clone_from(&self.hostname);
+                target.port.clone_from(&self.port);
+                target.has_credentials = self.has_credentials;
+                target.username.clone_from(&self.username);
+                target.password.clone_from(&self.password);
+                let base = if self.opaque.is_empty() {
+                    self.escaped_path()
+                } else {
+                    String::new()
+                };
+                target.raw_path = resolve_path(&base, &target.escaped_path());
+            }
+        }
+        // URL(base) reparses the resolved string in the legacy runtime.
+        Self::parse(&target.reference_string())
     }
 
     pub fn authority(&self) -> String {
@@ -220,6 +342,23 @@ impl UrlParts {
         target.path = decode(&target.raw_path, Escape::Path)?;
         Some(target)
     }
+}
+
+pub fn unescape_path(input: &str) -> Option<Vec<u8>> {
+    decode(input, Escape::Path)
+}
+
+fn escape_component(value: &[u8], reserved: &[u8]) -> String {
+    let mut result = String::with_capacity(value.len());
+    for &byte in value {
+        if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) || reserved.contains(&byte) {
+            result.push(char::from(byte));
+        } else {
+            use std::fmt::Write;
+            let _ = write!(result, "%{byte:02X}");
+        }
+    }
+    result
 }
 
 // RFC 3986 dot segments apply to escaped paths. In particular, %2e%2e and

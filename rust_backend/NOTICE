@@ -8,6 +8,8 @@ the Rust backend. Retain this notice in source and binary distributions.
 The artwork resampling in `crates/core/src/cover.rs` also follows the
 ApproxBiLinear pixel-center and premultiplied-alpha calculations from
 `golang.org/x/image/draw`, under the same Go Authors BSD license below.
+URL reference parsing and serialization in `crates/network/src/url.rs` follow
+`net/url`, also under that license.
 
 Copyright 2009 The Go Authors.
 Copyright 2014 The Go Authors. All rights reserved.

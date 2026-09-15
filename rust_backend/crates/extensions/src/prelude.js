@@ -67,6 +67,46 @@
         }
         return goString(value);
     }
+    function queryMethods(values, mutable) {
+        const result = {};
+        for (const method of mutable ? ["append", "delete", "get", "getAll", "has", "set"] : ["get", "getAll", "has"]) {
+            if (method === "append" || method === "set" || method === "delete") {
+                result[method] = function(key, value) {
+                    if (arguments.length >= (method === "delete" ? 1 : 2)) {
+                        values.write(method, goString(key), method === "delete" ? "" : goString(value));
+                    }
+                };
+            } else {
+                result[method] = function(key) {
+                    if (!arguments.length) return method === "getAll" ? [] : method === "has" ? false : null;
+                    return values.read(method, goString(key));
+                };
+            }
+        }
+        result.toString = function() { return values.encode(); };
+        return result;
+    }
+    globalThis.URL = function URL(input, base) {
+        if (!new.target) throw new TypeError("URL requires new");
+        if (!arguments.length) { this.href = ""; return; }
+        const parsed = host.parseURL(goString(input), base === undefined ? undefined : goString(base));
+        Object.assign(this, parsed);
+        if (parsed.searchParams) {
+            this.searchParams = queryMethods(parsed.searchParams, false);
+            this.toString = this.toJSON = function() { return parsed.href; };
+        }
+    };
+    globalThis.URLSearchParams = function URLSearchParams(init) {
+        if (!new.target) throw new TypeError("URLSearchParams requires new");
+        const values = host.parseQuery(typeof init === "string" ? goString(init).replace(/^\?/, "") : "");
+        const boxed = [boxedStringValue, boxedNumberValue, boxedBooleanValue].some(valueOf => {
+            try { stringApply(valueOf, init, []); return true; } catch (_) { return false; }
+        });
+        if (isMap(init) && !boxed) {
+            for (const key of Object.keys(init)) values.write("set", key.toWellFormed(), formatGo(init[key]));
+        }
+        Object.assign(this, queryMethods(values, true));
+    };
     const byteArrays = new WeakSet();
     const responseByteArrays = new WeakMap();
     function emptyBytes() {

@@ -17,6 +17,7 @@ pub(crate) fn register<'js>(
     services: &ExtensionServices,
 ) -> rquickjs::Result<Object<'js>> {
     let host = Object::new(ctx.clone())?;
+    crate::url_host::register(ctx, &host)?;
     crate::utility_host::register(ctx, &host, Arc::clone(&control), services)?;
     crate::legacy_host::register(ctx, &host, Arc::clone(&control), services)?;
     let item_control = Arc::clone(&control);
