@@ -1,6 +1,6 @@
 //! Application metadata JSON, preserving the distinct legacy tag-reader JSON.
 
-use super::{AudioMetadata, read_audio_tags};
+use super::{AudioMetadata, read_audio_tags, read_container_format};
 use crate::media::{mp3_quality, ogg_quality, probe_mp4_quality, probe_quality, riff_quality};
 use serde_json::{Map, Value};
 use std::io::{self, Read, Seek, SeekFrom};
@@ -31,20 +31,21 @@ pub fn read_file_metadata(
 
 fn read_metadata(file: &mut (impl Read + Seek), path: &str, hint: &str) -> Result<Value, String> {
     let extension = file_metadata_extension(path, hint)?;
-    let (mut format, mut codec) = match extension.as_str() {
-        ".flac" => ("flac", "flac"),
-        ".m4a" | ".mp4" | ".aac" => ("m4a", ""),
-        ".mp3" => ("mp3", "mp3"),
-        ".ogg" | ".opus" => ("opus", "opus"),
-        ".ape" => ("ape", "ape"),
-        ".wv" => ("wv", "wv"),
-        ".mpc" => ("mpc", "mpc"),
-        ".wav" => ("wav", "pcm"),
-        ".aiff" | ".aif" | ".aifc" => ("aiff", "pcm"),
+    let container = read_container_format(file, &extension[1..])?;
+    let (mut format, mut codec) = match container {
+        "flac" => ("flac", "flac"),
+        "m4a" | "mp4" | "aac" => ("m4a", ""),
+        "mp3" => ("mp3", "mp3"),
+        "ogg" | "opus" => ("opus", "opus"),
+        "ape" => ("ape", "ape"),
+        "wv" => ("wv", "wv"),
+        "mpc" => ("mpc", "mpc"),
+        "wav" => ("wav", "pcm"),
+        "aiff" | "aif" | "aifc" => ("aiff", "pcm"),
         _ => unreachable!("validated metadata extension"),
     };
     let size = file.seek(SeekFrom::End(0)).map_err(|e| e.to_string())? as i64;
-    let mut metadata = read_audio_tags(file, &extension[1..], &|| Ok(()));
+    let mut metadata = read_audio_tags(file, container, &|| Ok(()));
     if format == "flac" && metadata.is_err() {
         let fallback = read_audio_tags(file, "ogg", &|| Ok(()));
         if fallback.is_ok() {

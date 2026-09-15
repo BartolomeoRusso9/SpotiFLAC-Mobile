@@ -1,6 +1,6 @@
 //! Library scan DTOs composed from the existing tag and quality readers.
 
-use super::{AudioMetadata, CoverArt, file::ObservedReader, read_tags};
+use super::{AudioMetadata, CoverArt, file::ObservedReader, read_container_format, read_tags};
 use crate::lyrics::lrc::has_usable_content;
 use crate::media::{mp3_quality, ogg_quality, probe_mp4_quality, probe_quality, riff_quality};
 use serde_json::{Value, json};
@@ -140,19 +140,20 @@ fn read(
     mut cover: Option<&mut Option<CoverArt>>,
 ) -> Result<Value, String> {
     let mut result = library_metadata(path, hint, scan_time, mod_time);
-    let format = library_extension(path, hint);
-    let metadata = read_tags(file, &format, &|| Ok(()), cover.as_deref_mut());
+    let extension = library_extension(path, hint);
+    let format = read_container_format(file, &extension)?;
+    let metadata = read_tags(file, format, &|| Ok(()), cover.as_deref_mut());
     let tagged = metadata.is_ok();
     if !tagged && let Some(cover) = cover {
         *cover = None;
     }
     if let Ok(metadata) = metadata {
-        apply_tags(&mut result, metadata, &format, path, hint)?;
+        apply_tags(&mut result, metadata, format, path, hint)?;
     }
     // MP4 and RIFF probe quality independently of whether tags are present.
     if !tagged
         && !matches!(
-            format.as_str(),
+            format,
             "m4a" | "mp4" | "aac" | "wav" | "aiff" | "aif" | "aifc"
         )
     {
@@ -163,7 +164,7 @@ fn read(
         .map_err(|error| error.to_string())?;
     file.seek(SeekFrom::Start(0))
         .map_err(|error| error.to_string())?;
-    let quality = match format.as_str() {
+    let quality = match format {
         "flac" => probe_quality(file, &|| Ok(())),
         "m4a" | "mp4" | "aac" => probe_mp4_quality(file, &|| Ok(())),
         "mp3" => mp3_quality(file, size as i64),
@@ -181,7 +182,7 @@ fn read(
                 result[key] = value.into();
             }
         }
-        let bitrate = match format.as_str() {
+        let bitrate = match format {
             "flac" if quality.total_samples > 0 && quality.sample_rate > 0 => {
                 (size as f64 * 8.0
                     / (quality.total_samples as f64 / quality.sample_rate as f64)

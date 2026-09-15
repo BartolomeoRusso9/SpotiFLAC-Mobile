@@ -28,8 +28,32 @@ pub struct CoverArt {
     pub mime: String,
 }
 
+fn read_container_format<'a>(
+    reader: &mut (impl Read + Seek),
+    format: &'a str,
+) -> Result<&'a str, String> {
+    if format != "opus" {
+        return Ok(format);
+    }
+    // Opus is also carried in MP4; the filename can still end in .opus.
+    reader
+        .seek(SeekFrom::Start(0))
+        .map_err(|error| error.to_string())?;
+    let mut header = [0; 8];
+    let read = reader.read_exact(&mut header);
+    reader
+        .seek(SeekFrom::Start(0))
+        .map_err(|error| error.to_string())?;
+    match read {
+        Ok(()) if &header[4..] == b"ftyp" => Ok("m4a"),
+        Ok(()) => Ok(format),
+        Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => Ok(format),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
 /// Extract the embedded bytes without decoding the image or reading audio into
-/// memory. Format selection/hints and output publication belong to the owner.
+/// memory. Path hints and output publication belong to the owner.
 pub fn extract_cover(
     reader: &mut (impl Read + Seek),
     format: &str,
@@ -44,6 +68,7 @@ pub fn extract_cover(
         check,
         failure: None,
     };
+    let format = read_container_format(&mut observed, format)?;
     let mut reader = BufReader::new(&mut observed);
     let result = match format {
         "flac" => containers::flac_cover(&mut reader),
@@ -173,6 +198,7 @@ fn read_tags(
         reader: BufReader::new(CheckedReader { reader, check }),
         position: 0,
     };
+    let format = read_container_format(&mut reader, format)?;
     let result = match format {
         "flac" => match cover {
             Some(cover) => containers::flac_with_cover(&mut reader, cover),
@@ -238,4 +264,78 @@ fn truthy(value: &str) -> bool {
         value.trim().to_ascii_lowercase().as_str(),
         "1" | "true" | "yes" | "explicit"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    fn atom(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+        [
+            ((body.len() + 8) as u32).to_be_bytes().as_slice(),
+            kind,
+            body,
+        ]
+        .concat()
+    }
+
+    #[test]
+    fn opus_in_mp4_reads_tags_cover_and_library_quality() {
+        let mut ilst = Vec::new();
+        let cover = b"\xff\xd8\xff\xd9";
+        for (kind, value) in [
+            (b"\xa9nam", b"Track Title".as_slice()),
+            (b"\xa9ART", b"Artist Name".as_slice()),
+            (b"covr", cover.as_slice()),
+        ] {
+            ilst.extend(atom(kind, &atom(b"data", &[&[0; 8], value].concat())));
+        }
+        let metadata = atom(
+            b"udta",
+            &atom(
+                b"meta",
+                &[&[0; 4], atom(b"ilst", &ilst).as_slice()].concat(),
+            ),
+        );
+        let mut entry = [0; 28];
+        entry[24..26].copy_from_slice(&48_000_u16.to_be_bytes());
+        let moov = [metadata, atom(b"Opus", &entry)].concat();
+        let data = [atom(b"ftyp", b"isom\0\0\0\0"), atom(b"moov", &moov)].concat();
+        for suffix in ["opus", "m4a"] {
+            let mut reader = Cursor::new(&data);
+            reader.set_position(data.len() as u64);
+            let path = format!("Track Title - Artist Name.{suffix}");
+            let scan = read_library_metadata(&mut reader, &path, "", "", 0, &|| Ok(())).unwrap();
+            assert_eq!(scan["trackName"], "Track Title");
+            assert_eq!(scan["artistName"], "Artist Name");
+            assert_eq!(scan["format"], "opus");
+            assert_eq!(scan["sampleRate"], 48_000);
+            assert!(scan.get("metadataFromFilename").is_none());
+            assert_eq!(
+                read_audio_tags(&mut reader, suffix, &|| Ok(()))
+                    .unwrap()
+                    .title,
+                "Track Title"
+            );
+            let metadata = read_file_metadata(&mut reader, &path, "", &|| Ok(())).unwrap();
+            assert_eq!(metadata["title"], "Track Title");
+            assert_eq!(metadata["audio_codec"], "opus");
+            assert_eq!(
+                extract_cover(&mut reader, suffix, &|| Ok(())).unwrap().data,
+                cover
+            );
+            assert_eq!(reader.into_inner(), &data);
+        }
+        let mut reader = Cursor::new(&data);
+        assert!(read_file_metadata(&mut reader, "misnamed.flac", "", &|| Ok(())).is_err());
+        assert_eq!(
+            read_audio_tags(&mut reader, "opus", &|| Err("cancelled".into())).unwrap_err(),
+            "cancelled"
+        );
+        assert_eq!(
+            extract_cover(&mut reader, "opus", &|| Err("cancelled".into())).unwrap_err(),
+            "cancelled"
+        );
+    }
 }
