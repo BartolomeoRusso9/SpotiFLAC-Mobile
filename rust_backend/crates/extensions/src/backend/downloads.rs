@@ -492,6 +492,7 @@ impl Backend {
         let quality = match manifest.resolve_download_quality(&request.quality, source.as_ref()) {
             Ok(quality) => quality,
             Err(error) => {
+                self.log_provider_failure(&request.download_provider, "quality selection", &error);
                 return Ok(DownloadOutcome::Retry(failure(
                     &request.download_provider,
                     &error,
@@ -502,7 +503,15 @@ impl Backend {
         };
         let mut attempt = request.clone();
         attempt.quality = quality;
-        self.download_attempt(&attempt, manifest, availability, lease)
+        let outcome = self.download_attempt(&attempt, manifest, availability, lease)?;
+        if let DownloadOutcome::Retry(response) = &outcome {
+            self.log_provider_failure(
+                &request.download_provider,
+                "download",
+                text(response, "error"),
+            );
+        }
+        Ok(outcome)
     }
 
     fn download_availability(
@@ -523,10 +532,31 @@ impl Backend {
             item_id: request.item_id.clone(),
             track: host_track(request).as_object().cloned(),
         };
-        let raw = self
+        let result = self
             .check_availability_with_lease(id, input, 30_000, Some(lease))
-            .map_err(|error| error.to_string())?;
-        serde_json::from_str(&raw).map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).map_err(|error| error.to_string()));
+        match &result {
+            Ok(value) if value["available"] != true => {
+                self.log_provider_failure(id, "availability", text(value, "reason"));
+            }
+            Err(error) => self.log_provider_failure(id, "availability", error),
+            _ => {}
+        }
+        result
+    }
+
+    fn log_provider_failure(&self, id: &str, stage: &str, reason: &str) {
+        let reason = if reason.trim().is_empty() {
+            "no reason supplied"
+        } else {
+            reason
+        };
+        let _ = self.environment().log_buffer().add(
+            "WARN",
+            "DownloadPlanner",
+            &format!("Provider {id} failed during {stage}: {reason}"),
+        );
     }
 
     fn enrich_download_source(
