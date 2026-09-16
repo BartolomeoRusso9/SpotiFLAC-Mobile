@@ -1518,6 +1518,7 @@ class _DownloadRun {
       label: (result['label'] as String?) ?? label,
       copyright: result['copyright'] as String?,
       comment: result['comment'] as String?,
+      lyricsLrc: result['lyrics_lrc'] as String?,
       downloadService: item.service,
       writeExternalLrc: writeExternalLrc,
     );

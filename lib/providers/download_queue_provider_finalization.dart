@@ -149,6 +149,7 @@ extension _DownloadQueueFinalization on DownloadQueueNotifier {
           label: result['label'] as String?,
           copyright: result['copyright'] as String?,
           comment: result['comment'] as String?,
+          lyricsLrc: result['lyrics_lrc'] as String?,
           downloadService: downloadService,
           writeExternalLrc: storageMode != 'saf',
         );
@@ -1079,6 +1080,7 @@ extension _DownloadQueueFinalization on DownloadQueueNotifier {
         label: result['label'] as String?,
         copyright: result['copyright'] as String?,
         comment: result['comment'] as String?,
+        lyricsLrc: result['lyrics_lrc'] as String?,
         downloadService: context.item.service,
         writeExternalLrc: context.storageMode != 'saf',
       );

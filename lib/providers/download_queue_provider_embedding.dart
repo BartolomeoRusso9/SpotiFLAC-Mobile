@@ -402,6 +402,7 @@ extension _DownloadQueueEmbedding on DownloadQueueNotifier {
     String? label,
     String? copyright,
     String? comment,
+    String? lyricsLrc,
     String? downloadService,
     bool writeExternalLrc = true,
   }) async {
@@ -516,13 +517,16 @@ extension _DownloadQueueEmbedding on DownloadQueueNotifier {
 
       if (shouldEmbedLyrics || shouldSaveExternalLyrics) {
         try {
-          final fetchedLrc = await PlatformBridge.getLyricsLRC(
-            track.id,
-            track.name,
-            track.artistName,
-            filePath: '',
-            durationMs: track.duration * 1000,
-          );
+          final fetchedLrc =
+              lyricsLrc != null && hasUsableLyricsContent(lyricsLrc)
+              ? lyricsLrc
+              : await PlatformBridge.getLyricsLRC(
+                  track.id,
+                  track.name,
+                  track.artistName,
+                  filePath: '',
+                  durationMs: track.duration * 1000,
+                );
           if (hasUsableLyricsContent(fetchedLrc) &&
               !isInstrumentalLyricsMarker(fetchedLrc)) {
             lrcContent = fetchedLrc;
