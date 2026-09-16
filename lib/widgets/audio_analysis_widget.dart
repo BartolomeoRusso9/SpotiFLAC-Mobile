@@ -5,10 +5,12 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:ffmpeg_kit_flutter_new_full/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_new_full/ffmpeg_session.dart';
 import 'package:ffmpeg_kit_flutter_new_full/ffprobe_kit.dart';
 import 'package:ffmpeg_kit_flutter_new_full/return_code.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/services/audio_analysis_jobs.dart';
 import 'package:spotiflac_android/widgets/settings_group.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
@@ -606,6 +608,29 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
   bool _spectrogramChannelLoading = false;
   int _spectrogramRequestId = 0;
   String? _unsupportedCodec;
+  final _analysisJobs = AudioAnalysisJobs<FFmpegSession>(
+    start: (arguments) async {
+      final completed = Completer<FFmpegSession>();
+      final session = await FFmpegKit.executeWithArgumentsAsync(
+        arguments,
+        completed.complete,
+      );
+      final id = session.getSessionId();
+      if (id == null) {
+        // Never pass null to cancel: FFmpegKit interprets it as cancel-all.
+        await completed.future;
+        throw StateError('Analysis session has no ID');
+      }
+      return (id: id, completed: completed.future);
+    },
+    cancel: (id) => FFmpegKit.cancel(id),
+  );
+
+  void _checkAnalysisRequest(int requestId) {
+    if (!mounted || requestId != _spectrogramRequestId) {
+      throw const AudioAnalysisCancelled();
+    }
+  }
 
   static const _supportedExtensions = {
     '.flac',
@@ -654,6 +679,7 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
     }
 
     _spectrogramRequestId++;
+    _analysisJobs.invalidate();
     _spectrogramImage?.dispose();
     _spectrogramImage = null;
     _spectrogramChannel = -1;
@@ -672,6 +698,7 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
   @override
   void dispose() {
     _spectrogramRequestId++;
+    _analysisJobs.dispose();
     _spectrogramImage?.dispose();
     super.dispose();
   }
@@ -709,6 +736,7 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
         image ??= await _generateAndCacheSpectrogram(
           filePath: expectedPath,
           analysisData: cached,
+          requestId: requestId,
         );
         if (isCurrentRequest()) {
           setState(() {
@@ -729,28 +757,30 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
   Future<ui.Image> _generateAndCacheSpectrogram({
     String? filePath,
     AudioAnalysisData? analysisData,
+    required int requestId,
   }) async {
+    _checkAnalysisRequest(requestId);
     final sourcePath = filePath ?? widget.filePath;
     final data = analysisData ?? _data;
+    final channel = _spectrogramChannel;
     final artifact = await _generateSpectrogramForFile(
       sourcePath,
-      channel: _spectrogramChannel,
+      requestId: requestId,
+      channel: channel,
       durationSeconds: data?.duration,
       sampleRate: data?.sampleRate,
       channels: data?.channels,
     );
-    await _saveSpectrogramToCache(
-      sourcePath,
-      artifact.image,
-      channel: _spectrogramChannel,
-    );
+    await _saveSpectrogramToCache(sourcePath, artifact.image, channel: channel);
     return artifact.image;
   }
 
   Future<void> _analyze({bool forceRefresh = false}) async {
     if (_analyzing) return;
+    final sourcePath = widget.filePath;
+    final requestId = ++_spectrogramRequestId;
+    _analysisJobs.invalidate();
     setState(() {
-      _spectrogramRequestId++;
       _analyzing = true;
       _spectrogramChannelLoading = false;
       _error = null;
@@ -764,12 +794,11 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
 
     try {
       if (forceRefresh) {
-        await _clearCache(widget.filePath);
+        await _clearCache(sourcePath);
       }
 
-      final cached = forceRefresh
-          ? null
-          : await _loadFromCache(widget.filePath);
+      final cached = forceRefresh ? null : await _loadFromCache(sourcePath);
+      _checkAnalysisRequest(requestId);
       AudioAnalysisData data;
       ui.Image? image;
 
@@ -780,24 +809,28 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
         }
         data = cached;
         image = await _loadSpectrogramFromCache(
-          widget.filePath,
+          sourcePath,
           channel: _spectrogramChannel,
         );
       } else {
-        final result = await _runAnalysis(widget.filePath);
+        final result = await _runAnalysis(sourcePath, requestId);
         data = result.data;
         image = result.spectrogramImage;
-        await _saveToCache(widget.filePath, data);
+        await _saveToCache(sourcePath, data);
         await _saveSpectrogramToCache(
-          widget.filePath,
+          sourcePath,
           image,
           channel: _spectrogramChannel,
         );
       }
 
-      image ??= await _generateAndCacheSpectrogram(analysisData: data);
+      image ??= await _generateAndCacheSpectrogram(
+        filePath: sourcePath,
+        analysisData: data,
+        requestId: requestId,
+      );
 
-      if (mounted) {
+      if (mounted && requestId == _spectrogramRequestId) {
         setState(() {
           _data = data;
           _spectrogramImage?.dispose();
@@ -807,8 +840,10 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
       } else {
         image.dispose();
       }
+    } on AudioAnalysisCancelled {
+      // A new file/request owns the state; cancelled native work is cleaned up.
     } on _UnsupportedAudioAnalysisCodecException catch (e) {
-      if (mounted) {
+      if (mounted && requestId == _spectrogramRequestId) {
         setState(() {
           _unsupportedCodec = e.codecLabel;
           _error = null;
@@ -816,7 +851,7 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
         });
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && requestId == _spectrogramRequestId) {
         setState(() {
           _error = context.friendlyError(e);
           _analyzing = false;
@@ -947,7 +982,11 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
     }
   }
 
-  Future<_AudioAnalysisRunResult> _runAnalysis(String filePath) async {
+  Future<_AudioAnalysisRunResult> _runAnalysis(
+    String filePath,
+    int requestId,
+  ) async {
+    _checkAnalysisRequest(requestId);
     String workingPath = filePath;
     String? tempCopy;
     if (filePath.startsWith('content://')) {
@@ -959,7 +998,9 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
     }
 
     try {
+      _checkAnalysisRequest(requestId);
       final info = await _getMediaInfo(workingPath);
+      _checkAnalysisRequest(requestId);
       final unsupported = unsupportedAudioAnalysisCodecLabel(info.codecName);
       if (unsupported != null) {
         throw _UnsupportedAudioAnalysisCodecException(unsupported);
@@ -971,12 +1012,14 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
             : info.duration;
         spectrogram = await _generateSpectrogram(
           workingPath,
+          requestId: requestId,
           channel: -1,
           includeCutoffPlane: true,
           durationSeconds: effectiveDuration,
           sampleRate: info.sampleRate,
           channels: info.channels,
         );
+        _checkAnalysisRequest(requestId);
         final cutoffIntensity = spectrogram.cutoffIntensity;
         if (cutoffIntensity == null) {
           throw Exception('FFmpeg spectral cutoff plane was not generated');
@@ -992,6 +1035,7 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
         );
         final levelMetrics = await _runFullStreamLevelAnalysis(
           workingPath,
+          requestId: requestId,
           durationSeconds: effectiveDuration,
         );
         if (levelMetrics == null) {
@@ -1044,11 +1088,13 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
 
   Future<_GeneratedSpectrogram> _generateSpectrogramForFile(
     String filePath, {
+    required int requestId,
     required int channel,
     double? durationSeconds,
     int? sampleRate,
     int? channels,
   }) async {
+    _checkAnalysisRequest(requestId);
     String workingPath = filePath;
     String? tempCopy;
     if (filePath.startsWith('content://')) {
@@ -1062,6 +1108,7 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
     try {
       return await _generateSpectrogram(
         workingPath,
+        requestId: requestId,
         channel: channel,
         durationSeconds: durationSeconds,
         sampleRate: sampleRate,
@@ -1078,6 +1125,7 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
 
   Future<_GeneratedSpectrogram> _generateSpectrogram(
     String inputPath, {
+    required int requestId,
     required int channel,
     bool includeCutoffPlane = false,
     double? durationSeconds,
@@ -1091,7 +1139,8 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
     final cutoffPath = includeCutoffPlane ? '$rawPath.cutoff.gray' : null;
 
     try {
-      final session = await FFmpegKit.executeWithArguments(
+      _checkAnalysisRequest(requestId);
+      final session = await _analysisJobs.run(
         buildAudioSpectrogramArguments(
           inputPath: inputPath,
           outputPath: rawPath,
@@ -1163,6 +1212,8 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
   Future<void> _changeSpectrogramChannel(int channel) async {
     final data = _data;
     if (data == null ||
+        _spectrogramChannelLoading ||
+        _analyzing ||
         channel == _spectrogramChannel ||
         channel < -1 ||
         channel >= data.channels) {
@@ -1170,6 +1221,7 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
     }
 
     final previousChannel = _spectrogramChannel;
+    final sourcePath = widget.filePath;
     final requestId = ++_spectrogramRequestId;
     setState(() {
       _spectrogramChannel = channel;
@@ -1178,20 +1230,18 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
 
     ui.Image? image;
     try {
-      image = await _loadSpectrogramFromCache(
-        widget.filePath,
-        channel: channel,
-      );
+      image = await _loadSpectrogramFromCache(sourcePath, channel: channel);
       if (image == null) {
         final artifact = await _generateSpectrogramForFile(
-          widget.filePath,
+          sourcePath,
+          requestId: requestId,
           channel: channel,
           durationSeconds: data.duration,
           sampleRate: data.sampleRate,
           channels: data.channels,
         );
         image = artifact.image;
-        await _saveSpectrogramToCache(widget.filePath, image, channel: channel);
+        await _saveSpectrogramToCache(sourcePath, image, channel: channel);
       }
 
       if (!mounted || requestId != _spectrogramRequestId) {
@@ -1378,6 +1428,7 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
 
   Future<_LevelMetrics?> _runFullStreamLevelAnalysis(
     String inputPath, {
+    required int requestId,
     required double durationSeconds,
   }) async {
     final tempDir = await getTemporaryDirectory();
@@ -1386,7 +1437,8 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
       '${DateTime.now().microsecondsSinceEpoch}.txt',
     );
     try {
-      final session = await FFmpegKit.executeWithArguments(
+      _checkAnalysisRequest(requestId);
+      final session = await _analysisJobs.run(
         buildAudioMetricsArguments(
           inputPath: inputPath,
           metadataPath: metadataFile.path,

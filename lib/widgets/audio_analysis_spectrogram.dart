@@ -44,7 +44,9 @@ class _SpectrogramView extends StatelessWidget {
                     ChoiceChip(
                       label: Text(context.l10n.audioAnalysisChannels),
                       selected: selectedChannel < 0,
-                      onSelected: (_) => onChannelChanged(-1),
+                      onSelected: channelLoading
+                          ? null
+                          : (_) => onChannelChanged(-1),
                       visualDensity: VisualDensity.compact,
                     ),
                     for (var channel = 0; channel < channels; channel++) ...[
@@ -52,7 +54,9 @@ class _SpectrogramView extends StatelessWidget {
                       ChoiceChip(
                         label: Text('Ch ${channel + 1}'),
                         selected: selectedChannel == channel,
-                        onSelected: (_) => onChannelChanged(channel),
+                        onSelected: channelLoading
+                            ? null
+                            : (_) => onChannelChanged(channel),
                         visualDensity: VisualDensity.compact,
                       ),
                     ],
