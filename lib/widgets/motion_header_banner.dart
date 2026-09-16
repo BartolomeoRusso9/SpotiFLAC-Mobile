@@ -28,6 +28,7 @@ class _MotionHeaderBannerState extends State<MotionHeaderBanner>
   VideoPlayerController? _controller;
   bool _ready = false;
   bool _failed = false;
+  bool _headerVisible = true;
   ValueListenable<TickerModeData>? _tickerMode;
 
   @override
@@ -40,6 +41,11 @@ class _MotionHeaderBannerState extends State<MotionHeaderBanner>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final header = context
+        .dependOnInheritedWidgetOfExactType<FlexibleSpaceBarSettings>();
+    // A collapsed FlexibleSpaceBar hides its background with opacity only;
+    // its TickerMode remains enabled while the pinned toolbar is visible.
+    _headerVisible = header == null || header.currentExtent > header.minExtent;
     // TickerMode is off while this subtree is hidden: covered by an opaque
     // route (Navigator offstages it) or on an inactive shell tab. Follow it
     // so the decoder doesn't keep running behind other screens.
@@ -56,13 +62,15 @@ class _MotionHeaderBannerState extends State<MotionHeaderBanner>
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     final appVisible =
         lifecycle == null || lifecycle == AppLifecycleState.resumed;
-    return appVisible && (_tickerMode?.value.enabled ?? true);
+    return appVisible && _headerVisible && (_tickerMode?.value.enabled ?? true);
   }
 
   void _syncPlayback() {
     final controller = _controller;
     if (controller == null || !_ready) return;
-    if (_visible) {
+    final shouldPlay = _visible;
+    if (controller.value.isPlaying == shouldPlay) return;
+    if (shouldPlay) {
       controller.play();
     } else {
       controller.pause();
