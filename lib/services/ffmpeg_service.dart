@@ -664,6 +664,7 @@ class FFmpegService {
 
   static Future<String?> convertM4aToFlac(
     String inputPath, {
+    String? sourceCodec,
     @visibleForTesting Future<FFmpegResult> Function(List<String>)? execute,
   }) async {
     final plan = await _conversionOutputPlan(
@@ -672,7 +673,48 @@ class FFmpegService {
       deleteOriginal: true,
     );
     try {
-      final result = await (execute ?? _executeWithArguments)([
+      final run = execute ?? _executeWithArguments;
+      final codec = sourceCodec ?? await probePrimaryAudioCodec(inputPath);
+      if (codec?.trim().toLowerCase() == 'flac') {
+        final remux = await run([
+          '-v',
+          'error',
+          '-xerror',
+          '-i',
+          inputPath,
+          '-c:a',
+          'copy',
+          '-f',
+          'flac',
+          plan.workingPath,
+          '-y',
+        ]);
+        if (remux.success && await _hasNativeFlacHeader(plan.workingPath)) {
+          final validation = await run([
+            '-v',
+            'error',
+            '-xerror',
+            '-err_detect',
+            'crccheck+explode',
+            '-i',
+            plan.workingPath,
+            '-map',
+            '0:a:0',
+            '-f',
+            'null',
+            '-',
+          ]);
+          if (validation.success) {
+            return await _finalizeConversionOutput(
+              plan: plan,
+              inputPath: inputPath,
+              deleteOriginal: true,
+            );
+          }
+        }
+        _log.w('FLAC remux validation failed; retrying with the encoder');
+      }
+      final result = await run([
         '-v',
         'error',
         '-xerror',
@@ -698,6 +740,22 @@ class FFmpegService {
     }
     await _cleanupConversionOutput(plan);
     return null;
+  }
+
+  static Future<bool> _hasNativeFlacHeader(String path) async {
+    final file = File(path);
+    if (!await file.exists() || await file.length() <= 42) return false;
+    final input = await file.open();
+    try {
+      final magic = await input.read(4);
+      return magic.length == 4 &&
+          magic[0] == 0x66 &&
+          magic[1] == 0x4c &&
+          magic[2] == 0x61 &&
+          magic[3] == 0x43;
+    } finally {
+      await input.close();
+    }
   }
 
   /// Corrects a native FLAC payload's suffix without replacing a sibling file.

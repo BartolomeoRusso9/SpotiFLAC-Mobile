@@ -1236,7 +1236,10 @@ class _DownloadRun {
               DownloadStatus.finalizing,
               progress: 0.95,
             );
-            final flacPath = await FFmpegService.convertM4aToFlac(tempPath);
+            final flacPath = await FFmpegService.convertM4aToFlac(
+              tempPath,
+              sourceCodec: codec,
+            );
             if (flacPath == null) {
               _log.w('FFmpeg conversion returned null, keeping M4A file');
               branch = 'convertFailed';
@@ -1364,6 +1367,7 @@ class _DownloadRun {
             );
             final flacPath = await FFmpegService.convertM4aToFlac(
               currentFilePath,
+              sourceCodec: codec,
             );
 
             if (flacPath != null) {

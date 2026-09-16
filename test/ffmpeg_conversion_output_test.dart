@@ -28,6 +28,7 @@ void main() {
       ).writeAsString('existing');
       final result = await FFmpegService.convertM4aToFlac(
         source.path,
+        sourceCodec: 'alac',
         execute: (arguments) async {
           expect(arguments[arguments.indexOf('-i') + 1], source.path);
           expect(await source.exists(), isTrue);
@@ -45,6 +46,7 @@ void main() {
     final source = await input('Song.m4a');
     final result = await FFmpegService.convertM4aToFlac(
       source.path,
+      sourceCodec: 'alac',
       execute: (arguments) async {
         await File(arguments[arguments.length - 2]).writeAsString('partial');
         return FFmpegResult(success: false, returnCode: 1, output: 'failure');
@@ -64,7 +66,11 @@ void main() {
         (_) async => FFmpegResult(success: true, returnCode: 0, output: ''),
       ]) {
         expect(
-          await FFmpegService.convertM4aToFlac(source.path, execute: execute),
+          await FFmpegService.convertM4aToFlac(
+            source.path,
+            sourceCodec: 'alac',
+            execute: execute,
+          ),
           isNull,
         );
         expect(await source.readAsString(), 'source');
@@ -77,6 +83,7 @@ void main() {
     final source = await input('Song.flac');
     final result = await FFmpegService.convertM4aToFlac(
       source.path,
+      sourceCodec: 'alac',
       execute: (arguments) async {
         expect(arguments[arguments.length - 2], isNot(source.path));
         expect(await source.readAsString(), 'source');
@@ -101,13 +108,96 @@ void main() {
     }
 
     final results = await Future.wait([
-      FFmpegService.convertM4aToFlac(first.path, execute: execute),
-      FFmpegService.convertM4aToFlac(second.path, execute: execute),
+      FFmpegService.convertM4aToFlac(
+        first.path,
+        sourceCodec: 'alac',
+        execute: execute,
+      ),
+      FFmpegService.convertM4aToFlac(
+        second.path,
+        sourceCodec: 'alac',
+        execute: execute,
+      ),
     ]);
     expect(results.toSet(), hasLength(2));
     expect(results, everyElement(isNotNull));
     expect(await directory.list().length, 2);
   });
+
+  test(
+    'FLAC payload is remuxed and decoded before deleting its source',
+    () async {
+      final source = await input('Song.m4a');
+      final commands = <List<String>>[];
+      final result = await FFmpegService.convertM4aToFlac(
+        source.path,
+        sourceCodec: 'flac',
+        execute: (arguments) async {
+          commands.add(arguments);
+          expect(await source.exists(), isTrue);
+          if (arguments.contains('copy')) {
+            // Preserve FFmpeg's existing attached-artwork stream selection.
+            expect(arguments, isNot(contains('-map')));
+            await File(arguments[arguments.length - 2]).writeAsBytes([
+              0x66,
+              0x4c,
+              0x61,
+              0x43,
+              ...List<int>.filled(64, 0),
+            ]);
+          } else {
+            expect(arguments, containsAllInOrder(['-f', 'null', '-']));
+            expect(
+              arguments,
+              containsAllInOrder(['-err_detect', 'crccheck+explode', '-i']),
+            );
+            expect(arguments, isNot(contains('-frames:a')));
+          }
+          return FFmpegResult(success: true, returnCode: 0, output: '');
+        },
+      );
+      expect(result, isNotNull);
+      expect(commands, hasLength(2));
+      expect(await source.exists(), isFalse);
+    },
+  );
+
+  for (final failure in ['copy', 'header', 'decode']) {
+    test(
+      'invalid FLAC $failure falls back to encoding the intact source',
+      () async {
+        final source = await input('Song.m4a');
+        var encoded = false;
+        final result = await FFmpegService.convertM4aToFlac(
+          source.path,
+          sourceCodec: 'flac',
+          execute: (arguments) async {
+            expect(await source.readAsString(), 'source');
+            if (arguments.contains('copy')) {
+              await File(arguments[arguments.length - 2]).writeAsBytes([
+                if (failure != 'header') ...[0x66, 0x4c, 0x61, 0x43],
+                ...List<int>.filled(64, 0),
+              ]);
+              return FFmpegResult(
+                success: failure != 'copy',
+                returnCode: failure == 'copy' ? 1 : 0,
+                output: '',
+              );
+            }
+            if (arguments.last == '-') {
+              return FFmpegResult(success: false, returnCode: 1, output: 'bad');
+            }
+            encoded = true;
+            expect(arguments, containsAllInOrder(['-c:a', 'flac']));
+            return succeed(arguments);
+          },
+        );
+        expect(encoded, isTrue);
+        expect(await File(result!).readAsString(), 'converted');
+        expect(await source.exists(), isFalse);
+      },
+    );
+  }
 
   test(
     'native FLAC rename preserves sibling files and adds missing suffix',

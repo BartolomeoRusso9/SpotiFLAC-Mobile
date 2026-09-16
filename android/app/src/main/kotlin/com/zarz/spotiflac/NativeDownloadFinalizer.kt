@@ -778,16 +778,18 @@ object NativeDownloadFinalizer {
                 adoptedOutput = true
                 return
             }
-            val result = runFFmpeg(
-                "-v error -xerror -i ${q(localInput)} -c:a flac -compression_level 8 ${q(stagedOutput)} -y",
-                shouldCancel,
+            convertToStagedFlac(
+                input = localInput,
+                stagedOutput = stagedOutput,
+                codec = codec,
+                execute = { arguments -> runFFmpegArguments(arguments, shouldCancel) },
+                checkCancelled = { checkCancelled(shouldCancel) },
             )
-            if (!result.first || !File(stagedOutput).exists()) {
-                throw IllegalStateException("container conversion failed: ${result.second}")
-            }
             if (!promoteStagedConversion(stagedOutput, output)) {
                 throw IllegalStateException("failed to publish container conversion output")
             }
+            // Keep metadata failures before adoption so the source survives
+            // and the unsuccessful output is removed by the local cleanup.
             embedBasicMetadata(context, output, input, "flac")
             replaceStatePath(context, input, state, output, deleteOld = true)
             adoptedOutput = true
