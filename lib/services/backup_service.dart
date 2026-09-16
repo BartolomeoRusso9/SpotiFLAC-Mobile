@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:archive/archive_io.dart';
 import 'package:path/path.dart' as p;
@@ -159,7 +160,6 @@ class BackupService {
     final historyFile = File(p.join(staging.path, 'history.ndjson'));
     final metadataFile = File(p.join(staging.path, 'metadata.json'));
     final partFile = File('${output.path}.part');
-    ZipFileEncoder? encoder;
 
     try {
       var historyCount = 0;
@@ -171,6 +171,7 @@ class BackupService {
           for (final item in page) {
             historySink.writeln(jsonEncode(item));
           }
+          await historySink.flush();
           historyCount += page.length;
           offset += page.length;
           if (page.length < _historyPageSize) break;
@@ -209,37 +210,55 @@ class BackupService {
       await metadataFile.writeAsString(jsonEncode(metadata), flush: true);
 
       if (await partFile.exists()) await partFile.delete();
-      encoder = ZipFileEncoder()..create(partFile.path);
-      await encoder.addFile(metadataFile, 'metadata.json');
-      if (includeHistory) {
-        await encoder.addFile(historyFile, 'history.ndjson');
-      }
+      final archiveFiles = <({String path, String name, bool store})>[
+        (path: metadataFile.path, name: 'metadata.json', store: false),
+        if (includeHistory)
+          (path: historyFile.path, name: 'history.ndjson', store: false),
+      ];
       for (final entry in coverManifest.entries) {
         final sourcePath = playlistCoverFiles[entry.key]?['path'];
         if (sourcePath == null) continue;
-        await encoder.addFile(
-          File(sourcePath),
-          entry.value['file'],
-          ZipFileEncoder.store,
-        );
+        archiveFiles.add((
+          path: sourcePath,
+          name: entry.value['file']!,
+          store: true,
+        ));
       }
-      await encoder.close();
-      encoder = null;
+      await _encodeArchiveInBackground(partFile.path, archiveFiles);
       if (await output.exists()) await output.delete();
       await partFile.rename(output.path);
       _log.i('Streaming backup written to ${output.path}');
       return output;
     } finally {
-      if (encoder != null) {
-        try {
-          await encoder.close();
-        } catch (_) {}
-      }
       try {
         if (await staging.exists()) await staging.delete(recursive: true);
       } catch (_) {}
+      try {
+        if (await partFile.exists()) await partFile.delete();
+      } catch (_) {}
     }
   }
+
+  // archive's file-backed encoder still performs compression and writes
+  // synchronously. Pass only paths to the worker; database/plugin callbacks
+  // and the paged history loader stay on their owning isolate.
+  static Future<void> _encodeArchiveInBackground(
+    String outputPath,
+    List<({String path, String name, bool store})> files,
+  ) => Isolate.run(() async {
+    final encoder = ZipFileEncoder()..create(outputPath);
+    try {
+      for (final file in files) {
+        await encoder.addFile(
+          File(file.path),
+          file.name,
+          file.store ? ZipFileEncoder.store : null,
+        );
+      }
+    } finally {
+      await encoder.close();
+    }
+  });
 
   static Future<File> _newBackupFile([Directory? outputDirectory]) async {
     final dir = outputDirectory ?? await getApplicationDocumentsDirectory();
@@ -268,6 +287,23 @@ class BackupService {
     String path, {
     Directory? temporaryDirectory,
   }) async {
+    final tempRoot = temporaryDirectory ?? await getTemporaryDirectory();
+    final bundle = await _parseFileInBackground(path, tempRoot.path);
+    if (bundle == null) {
+      _log.w('Backup file could not be read: invalid or unsupported contents');
+    }
+    return bundle;
+  }
+
+  static Future<BackupBundle?> _parseFileInBackground(
+    String path,
+    String temporaryPath,
+  ) => Isolate.run(() => _parseFile(path, temporaryPath));
+
+  static Future<BackupBundle?> _parseFile(
+    String path,
+    String temporaryPath,
+  ) async {
     final file = File(path);
     final header = await file
         .openRead(0, 4)
@@ -279,13 +315,13 @@ class BackupService {
         header[2] == 0x03 &&
         header[3] == 0x04;
     return isZip
-        ? _parseArchive(file, temporaryDirectory: temporaryDirectory)
+        ? _parseArchive(file, temporaryDirectory: Directory(temporaryPath))
         : parse(await file.readAsString());
   }
 
   static Future<BackupBundle?> _parseArchive(
     File file, {
-    Directory? temporaryDirectory,
+    required Directory temporaryDirectory,
   }) async {
     InputFileStream? input;
     Archive? archive;
@@ -315,10 +351,9 @@ class BackupService {
       if (dataRaw is! Map) return null;
       final data = Map<String, dynamic>.from(dataRaw);
 
-      final tempRoot = temporaryDirectory ?? await getTemporaryDirectory();
       extractionDir = await Directory(
         p.join(
-          tempRoot.path,
+          temporaryDirectory.path,
           'spotiflac_restore_${DateTime.now().microsecondsSinceEpoch}',
         ),
       ).create(recursive: true);
