@@ -251,16 +251,9 @@ class _DownloadRun {
       }
 
       n._downloadCount++;
-      if (n._downloadCount % DownloadQueueNotifier._cleanupInterval == 0) {
-        _log.d(
-          'Cleaning up idle connections (after ${n._downloadCount} downloads)...',
-        );
-        try {
-          await PlatformBridge.cleanupConnections();
-        } catch (e) {
-          _log.e('Connection cleanup failed: $e');
-        }
-      }
+      // The HTTP pool expires idle connections itself. Keep warm connections
+      // for the next track; network changes/errors and queue teardown still
+      // recycle the pool when needed.
     } catch (e, stackTrace) {
       await _handleRunException(e, stackTrace);
     } finally {

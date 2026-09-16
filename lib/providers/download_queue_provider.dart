@@ -320,7 +320,6 @@ class DownloadQueueNotifier extends Notifier<DownloadQueueState> {
   final QueueProcessingGate _queueProcessingGate = QueueProcessingGate();
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   int _downloadCount = 0;
-  static const _cleanupInterval = 50;
   static const _progressPollingInterval = Duration(milliseconds: 1200);
   static const _idleProgressPollEveryTicks = 3;
   static const _progressStreamBootstrapTimeout = Duration(seconds: 3);
@@ -1897,17 +1896,18 @@ class DownloadQueueNotifier extends Notifier<DownloadQueueState> {
       await PlatformBridge.endBackgroundDownloadTask();
     }
 
-    if (_downloadCount > 0) {
-      _log.d('Final connection cleanup...');
+    if (stoppedWhilePaused && _downloadCount > 0) {
       try {
         await PlatformBridge.cleanupConnections();
       } catch (e) {
         _log.e('Final cleanup failed: $e');
       }
-      _downloadCount = 0;
     }
+    _downloadCount = 0;
 
     if (!stoppedWhilePaused) {
+      // Releasing idle runtimes already recycles the Rust HTTP pool. A
+      // separate cleanup immediately beforehand only builds it twice.
       await PlatformBridge.releaseNativeMemory();
     }
 
