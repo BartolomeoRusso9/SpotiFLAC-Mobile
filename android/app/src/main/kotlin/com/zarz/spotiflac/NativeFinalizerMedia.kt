@@ -250,6 +250,16 @@ internal fun NativeDownloadFinalizer.lyricsDurationMs(input: NativeDownloadFinal
     return if (duration > 10000L) duration else duration * 1000L
 }
 
+internal fun nativeMetadataEditHandled(response: String): Boolean {
+    val result = JSONObject(response)
+    val error = if (result.isNull("error")) "" else result.optString("error", "").trim()
+    val method = result.optString("method", "").trim()
+    check(result.opt("success") == true && error.isEmpty() && method.isNotEmpty()) {
+        error.ifEmpty { "Native metadata editor returned no successful result" }
+    }
+    return method != "ffmpeg"
+}
+
 internal fun NativeDownloadFinalizer.embedBasicMetadata(context: Context, path: String, input: NativeDownloadFinalizer.FinalizeInput, format: String) {
     if (!input.request.optBoolean("embed_metadata", false)) return
     val title = resultString(input, "title").ifBlank {
@@ -318,6 +328,7 @@ internal fun NativeDownloadFinalizer.embedBasicMetadata(context: Context, path: 
                 .put("artist", artist)
                 .put("album", album)
                 .put("album_artist", albumArtist)
+                .put("artist_tag_mode", input.request.optString("artist_tag_mode", ""))
                 .put("date", date)
                 .put("isrc", isrc)
                 .put("composer", composer)
@@ -339,12 +350,7 @@ internal fun NativeDownloadFinalizer.embedBasicMetadata(context: Context, path: 
                 fields.put("unsyncedlyrics", lyrics)
             }
             val response = createCoreBackend(context).editFileMetadata(path, fields.toString())
-            val method = try {
-                JSONObject(response).optString("method", "")
-            } catch (_: Exception) {
-                ""
-            }
-            method != "ffmpeg"
+            nativeMetadataEditHandled(response)
         } catch (e: Exception) {
             if (format == "flac") throw e
             Log.w(TAG, "Native tag embed failed for $format: ${e.message}; falling back to ffmpeg")
