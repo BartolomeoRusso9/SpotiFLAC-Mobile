@@ -630,10 +630,10 @@ extension _DownloadQueueEmbedding on DownloadQueueNotifier {
         }
       }
 
-      // Native Go tag writers handle these formats in-process, streaming the
-      // audio through untouched — no FFmpeg spawn, no full container remux,
-      // no temp-promote copy. The Go side answers method=ffmpeg for files it
-      // can't handle natively, and any failure falls back to FFmpeg below.
+      // Native Rust tag writers handle these formats without spawning FFmpeg.
+      // Edits publish staged output atomically; identical FLAC headers skip
+      // the audio copy. The backend answers method=ffmpeg for unsupported files,
+      // and any failure falls back to FFmpeg below.
       // Opus ReplayGain is written and verified separately below, through the
       // same native R128 writer used by manual scans and album gain updates.
       var embeddedNatively = false;

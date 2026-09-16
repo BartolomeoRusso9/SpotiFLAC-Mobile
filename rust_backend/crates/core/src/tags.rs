@@ -19,7 +19,7 @@ use serde::Serialize;
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
 pub use write::{
     embed_flac_metadata, rewrite_ac4_config, rewrite_ac4_metadata, rewrite_audio_tags,
-    rewrite_m4a_freeform,
+    rewrite_flac_tags_if_changed, rewrite_m4a_freeform,
 };
 
 #[derive(Clone, Debug)]

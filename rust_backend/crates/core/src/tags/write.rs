@@ -73,6 +73,60 @@ pub fn rewrite_audio_tags(
     )
 }
 
+/// Edit FLAC tags, leaving output untouched when the complete metadata header
+/// is already identical. The native owner can then discard its staging file.
+pub fn rewrite_flac_tags_if_changed(
+    source: &mut (impl Read + Seek),
+    output: &mut impl Write,
+    fields: &Fields,
+    cover: Option<&[u8]>,
+    check: &dyn Fn() -> Result<(), String>,
+) -> Result<bool, String> {
+    check()?;
+    validate_fields(fields)?;
+    // Read only metadata and the frame sync needed for validation. A buffered
+    // reader here would also pull audio into memory on the no-op path.
+    let mut source = CheckedReader {
+        reader: source,
+        check,
+    };
+    seek(&mut source, SeekFrom::Start(0))?;
+    let (data, end) = flac_header(
+        &mut source,
+        fields,
+        cover.filter(|bytes| !bytes.is_empty()),
+        None,
+        check,
+    )?;
+    if data.len() as u64 == end {
+        seek(&mut source, SeekFrom::Start(0))?;
+        let mut buffer = [0; 65536];
+        let mut unchanged = true;
+        for expected in data.chunks(buffer.len()) {
+            exact(&mut source, &mut buffer[..expected.len()])?;
+            if buffer[..expected.len()] != *expected {
+                unchanged = false;
+                break;
+            }
+        }
+        check()?;
+        if unchanged {
+            return Ok(false);
+        }
+    }
+    write_sections(
+        &mut source,
+        output,
+        vec![Section {
+            start: 0,
+            end,
+            data,
+        }],
+        check,
+    )?;
+    Ok(true)
+}
+
 /// Embed canonical Vorbis keys without clearing empty values or removing
 /// legacy aliases. This is the enrichment contract, distinct from the editor.
 pub fn embed_flac_metadata(
@@ -662,6 +716,150 @@ fn picture(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
+    use std::io;
+    use std::rc::Rc;
+
+    struct CountingReader {
+        data: Cursor<Vec<u8>>,
+        bytes_read: Rc<Cell<usize>>,
+    }
+
+    impl Read for CountingReader {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            let count = self.data.read(buffer)?;
+            self.bytes_read.set(self.bytes_read.get() + count);
+            Ok(count)
+        }
+    }
+
+    impl Seek for CountingReader {
+        fn seek(&mut self, offset: SeekFrom) -> io::Result<u64> {
+            self.data.seek(offset)
+        }
+    }
+
+    fn editable_flac() -> (Vec<u8>, usize, Fields) {
+        let mut comments = Vec::new();
+        put_string(&mut comments, b"SpotiFLAC");
+        comments.extend(2_u32.to_le_bytes());
+        put_string(&mut comments, b"CUSTOM=preserve");
+        put_string(&mut comments, b"TITLE=Example");
+        let blocks = [
+            (0, vec![0; 34]),
+            (1, vec![0; 16]),
+            (4, comments),
+            (6, picture(b"original cover", &|| Ok(())).unwrap().unwrap()),
+        ];
+        let mut input = b"fLaC".to_vec();
+        for (index, (kind, data)) in blocks.iter().enumerate() {
+            input.push(kind | if index + 1 == blocks.len() { 0x80 } else { 0 });
+            input.extend(&(data.len() as u32).to_be_bytes()[1..]);
+            input.extend(data);
+        }
+        let audio_start = input.len();
+        input.extend([0xff, 0xf8]);
+        input.resize(audio_start + 1024 * 1024, 0x55);
+        let fields = Fields::from([("title".into(), "Example".into())]);
+        (input, audio_start, fields)
+    }
+
+    #[test]
+    fn unchanged_flac_tags_do_not_copy_audio_or_write_output() {
+        for cover in [None, Some(b"original cover".as_slice())] {
+            let (input, audio_start, fields) = editable_flac();
+            let bytes_read = Rc::new(Cell::new(0));
+            let mut source = CountingReader {
+                data: Cursor::new(input),
+                bytes_read: bytes_read.clone(),
+            };
+            let mut output = Vec::new();
+            assert!(
+                !rewrite_flac_tags_if_changed(
+                    &mut source,
+                    &mut output,
+                    &fields,
+                    cover,
+                    &|| Ok(()),
+                )
+                .unwrap()
+            );
+            assert!(output.is_empty());
+            // One header parse, two frame-sync bytes, one exact comparison.
+            assert_eq!(bytes_read.get(), audio_start * 2 + 2);
+        }
+    }
+
+    #[test]
+    fn changed_flac_tags_match_full_rewrite_and_preserve_audio() {
+        let (input, audio_start, _) = editable_flac();
+        for (title, cover) in [
+            ("Changed", None), // Equal-length header with different bytes.
+            ("A longer title", None),
+            ("Example", Some(b"different artwork".as_slice())),
+        ] {
+            let fields = Fields::from([("title".into(), title.into())]);
+            let mut expected = Vec::new();
+            rewrite_audio_tags(
+                &mut Cursor::new(&input),
+                &mut expected,
+                "flac",
+                &fields,
+                cover,
+                &|| Ok(()),
+            )
+            .unwrap();
+            let mut output = Vec::new();
+            assert!(
+                rewrite_flac_tags_if_changed(
+                    &mut Cursor::new(&input),
+                    &mut output,
+                    &fields,
+                    cover,
+                    &|| Ok(()),
+                )
+                .unwrap()
+            );
+            assert_eq!(output, expected);
+            assert!(output.ends_with(&input[audio_start..]));
+        }
+    }
+
+    #[test]
+    fn unchanged_flac_still_validates_frames_and_observes_cancellation() {
+        let (input, audio_start, fields) = editable_flac();
+        let bytes_read = Rc::new(Cell::new(0));
+        let mut source = CountingReader {
+            data: Cursor::new(input.clone()),
+            bytes_read: bytes_read.clone(),
+        };
+        let mut output = Vec::new();
+        let error = rewrite_flac_tags_if_changed(&mut source, &mut output, &fields, None, &|| {
+            if bytes_read.get() >= audio_start + 2 {
+                Err("cancelled".into())
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap_err();
+        assert_eq!(error, "cancelled");
+        assert!(output.is_empty());
+
+        let mut invalid = input;
+        invalid[audio_start] = 0;
+        assert!(
+            rewrite_flac_tags_if_changed(
+                &mut Cursor::new(invalid),
+                &mut output,
+                &fields,
+                None,
+                &|| Ok(()),
+            )
+            .unwrap_err()
+            .contains("sync code")
+        );
+        assert!(output.is_empty());
+    }
 
     #[test]
     fn oversized_flac_cover_reencodes_or_omits_invalid_image() {

@@ -4,7 +4,7 @@ use cap_std::fs::{File, OpenOptions};
 use serde_json::{Value, json};
 use spotiflac_core::tags::{
     embed_flac_metadata, rewrite_ac4_config, rewrite_ac4_metadata, rewrite_audio_tags,
-    rewrite_m4a_freeform,
+    rewrite_flac_tags_if_changed, rewrite_m4a_freeform,
 };
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -218,6 +218,15 @@ impl Backend {
                 matches!(format, "wav" | "aiff" | "aif" | "aifc"),
                 &check,
             )?;
+            if format == "flac" {
+                return rewrite_flac_tags_if_changed(
+                    source,
+                    output,
+                    fields,
+                    cover.as_deref(),
+                    &check,
+                );
+            }
             rewrite_audio_tags(source, output, format, fields, cover.as_deref(), &check)?;
             Ok(true)
         })
