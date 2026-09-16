@@ -10,6 +10,54 @@ use std::thread;
 const RECORDING: &str = r#"{"recordings":[{"tags":[{"name":"rock","count":1}],"releases":[{"title":"Album","artist-credit":[{"name":"Album Artist"}]}]}]}"#;
 const CATALOG: &str = r#"{"id":7,"album":{"id":9},"genres":{"data":[{"name":"Jazz"}]},"label":"Label","copyright":"Copyright"}"#;
 
+#[test]
+fn download_preserves_source_artist_credits_in_response_and_embedded_tags() {
+    let manifest = ExtensionManifest {
+        name: "audio-provider".into(),
+        ..Default::default()
+    };
+    for (source, provided, expected) in [
+        (
+            "Lead Artist & Guest Artist",
+            "Lead Artist",
+            "Lead Artist & Guest Artist",
+        ),
+        (
+            "",
+            "Lead Artist & Guest Artist",
+            "Lead Artist & Guest Artist",
+        ),
+        (
+            "   ",
+            "Lead Artist & Guest Artist",
+            "Lead Artist & Guest Artist",
+        ),
+        (
+            "Lead Artist & Guest Artist",
+            "",
+            "Lead Artist & Guest Artist",
+        ),
+    ] {
+        let request = DownloadRequest {
+            track_name: "Track".into(),
+            artist_name: source.into(),
+            ..Default::default()
+        };
+        let result = json!({"artist": provided});
+        for exists in [false, true] {
+            let response = success(&request, &result, "track.flac", exists, &manifest, &|| {
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(response["artist"], expected);
+            assert_eq!(
+                download_metadata_fields(&request, &response)["ARTIST"],
+                expected
+            );
+        }
+    }
+}
+
 fn network() -> (Arc<NetworkService>, Arc<rustls::ServerConfig>) {
     let certificate = rcgen::generate_simple_self_signed(vec!["127.0.0.1".into()]).unwrap();
     let config = rustls::ServerConfig::builder_with_provider(Arc::new(

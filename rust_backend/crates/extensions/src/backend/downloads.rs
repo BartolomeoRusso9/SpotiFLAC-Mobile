@@ -1648,7 +1648,8 @@ fn success(
         "explicit":request.explicit || result["explicit"] == true});
     for (key, requested, prefer_request) in [
         ("title", request.track_name.trim(), true),
-        ("artist", request.artist_name.as_str(), false),
+        // Preserve source credits: an audio provider may list only the lead artist.
+        ("artist", request.artist_name.trim(), true),
         ("album", request.album_name.trim(), true),
         ("album_artist", request.album_artist.as_str(), true),
         ("release_date", request.release_date.trim(), true),
