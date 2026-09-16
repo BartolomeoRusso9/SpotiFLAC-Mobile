@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:audio_service/audio_service.dart';
+import 'package:spotiflac_android/services/discord_presence_service.dart';
 import 'package:audio_session/audio_session.dart'
     show AudioSession, AudioSessionConfiguration, AudioInterruptionType;
 import 'package:audioplayers/audioplayers.dart';
@@ -1545,6 +1546,7 @@ Future<MusicPlayerHandler> _doInitMusicPlayer() async {
       ),
     );
     _handler = handler;
+    DiscordPresenceService.instance.bind(handler);
     _handlerReadyController.add(handler);
     return handler;
   } catch (_) {

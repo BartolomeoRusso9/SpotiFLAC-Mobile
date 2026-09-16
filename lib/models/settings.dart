@@ -31,6 +31,7 @@ class AppSettings {
   final bool embedReplayGain;
   // Apply ReplayGain/R128 tags as volume normalization in the built-in player.
   final bool playbackNormalization;
+  final bool discordRichPresence;
   final bool isFirstLaunch;
   final bool checkForUpdates;
   final String updateChannel;
@@ -138,6 +139,7 @@ class AppSettings {
     this.embedLyrics = true,
     this.embedReplayGain = false,
     this.playbackNormalization = false,
+    this.discordRichPresence = false,
     this.isFirstLaunch = true,
     this.checkForUpdates = true,
     this.updateChannel = 'stable',
@@ -221,6 +223,7 @@ class AppSettings {
     bool? embedLyrics,
     bool? embedReplayGain,
     bool? playbackNormalization,
+    bool? discordRichPresence,
     bool? isFirstLaunch,
     bool? checkForUpdates,
     String? updateChannel,
@@ -300,6 +303,7 @@ class AppSettings {
       embedReplayGain: embedReplayGain ?? this.embedReplayGain,
       playbackNormalization:
           playbackNormalization ?? this.playbackNormalization,
+      discordRichPresence: discordRichPresence ?? this.discordRichPresence,
       isFirstLaunch: isFirstLaunch ?? this.isFirstLaunch,
       checkForUpdates: checkForUpdates ?? this.checkForUpdates,
       updateChannel: updateChannel ?? this.updateChannel,

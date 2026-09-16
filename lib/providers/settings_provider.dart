@@ -551,6 +551,11 @@ class SettingsNotifier extends Notifier<AppSettings> {
     _saveSettings();
   }
 
+  void setDiscordRichPresence(bool enabled) {
+    state = state.copyWith(discordRichPresence: enabled);
+    _saveSettings();
+  }
+
   void setEmbedMetadata(bool enabled) {
     state = state.copyWith(embedMetadata: enabled);
     _saveSettings();

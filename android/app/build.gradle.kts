@@ -15,6 +15,16 @@ if (keystorePropertiesFile.exists()) {
 }
 
 val rustBackendDir = rootProject.file("../rust_backend")
+val discordSdkDir = providers.environmentVariable("SPOTIFLAC_DISCORD_SDK_DIR").orNull
+val discordSdkAar = discordSdkDir?.let { file("$it/lib/release/discord_partner_sdk.aar") }
+if (discordSdkAar != null) {
+    require(discordSdkAar.isFile) { "SPOTIFLAC_DISCORD_SDK_DIR must contain the official Social SDK" }
+}
+val discordNotices = if (discordSdkDir != null) tasks.register<Copy>("copyDiscordNotices") {
+    from(file("$discordSdkDir/License-Notices.txt"))
+    into(layout.buildDirectory.dir("generated/discordAssets"))
+    rename { "discord-sdk-notices.txt" }
+} else null
 val rustAndroidAbis = providers.environmentVariable("SPOTIFLAC_RUST_ANDROID_ABIS")
     .orElse("arm64-v8a,armeabi-v7a")
     .get()
@@ -34,12 +44,16 @@ android {
 
     buildFeatures {
         buildConfig = true
+        prefab = discordSdkAar != null
     }
 
     sourceSets.getByName("main") {
         java.srcDir("src/rust/kotlin")
         java.srcDir(rustBackendDir.resolve("target/bindings/kotlin"))
         jniLibs.srcDir(rustBackendDir.resolve("target/android/jniLibs"))
+        if (discordNotices != null) {
+            assets.srcDir(layout.buildDirectory.dir("generated/discordAssets").get().asFile)
+        }
     }
 
     compileOptions {
@@ -67,6 +81,8 @@ android {
 
     defaultConfig {
         applicationId = "com.zarz.spotiflac"
+        buildConfigField("boolean", "HAS_DISCORD_SDK", (discordSdkAar != null).toString())
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = flutter.minSdkVersion
         targetSdk = 37
         versionCode = flutter.versionCode
@@ -76,6 +92,15 @@ android {
         ndk {
             abiFilters.clear()
             abiFilters += rustAndroidAbis
+        }
+    }
+
+    if (discordSdkAar != null) {
+        externalNativeBuild {
+            cmake {
+                path = file("src/main/cpp/CMakeLists.txt")
+                version = "3.22.1"
+            }
         }
     }
 
@@ -144,12 +169,17 @@ val buildRustBackend = tasks.register<Exec>("buildRustBackend") {
     outputs.dir(rustBackendDir.resolve("target/android/jniLibs"))
 }
 tasks.named("preBuild").configure { dependsOn(buildRustBackend) }
+if (discordNotices != null) tasks.named("preBuild").configure { dependsOn(discordNotices) }
 
 flutter {
     source = "../.."
 }
 
 dependencies {
+    if (discordSdkAar != null) {
+        implementation(files(discordSdkAar))
+        implementation("androidx.browser:browser:1.9.0")
+    }
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     implementation("net.java.dev.jna:jna:5.17.0@aar")
     
@@ -162,4 +192,6 @@ dependencies {
     compileOnly("com.antonkarpenko:ffmpeg-kit-full:2.2.1")
 
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
 }
