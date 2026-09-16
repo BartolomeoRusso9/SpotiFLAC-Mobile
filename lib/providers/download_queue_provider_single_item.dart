@@ -667,6 +667,15 @@ class _DownloadRun {
   }
 
   Future<bool> _handleDownloadSuccess() async {
+    final stageWatch = LogBuffer.loggingEnabled ? (Stopwatch()..start()) : null;
+    void stageCompleted(String stage) {
+      if (stageWatch == null) return;
+      _log.d(
+        'Finalization [${item.id}] $stage: ${stageWatch.elapsedMilliseconds} ms',
+      );
+      stageWatch.reset();
+    }
+
     filePath = result['file_path'] as String?;
     final reportedFileName = result['file_name'] as String?;
     if (effectiveSafMode &&
@@ -728,7 +737,9 @@ class _DownloadRun {
     if (!await _decryptIfNeeded()) {
       return false;
     }
+    stageCompleted('decrypt');
     await _applyFormatHandling(actualService);
+    stageCompleted('format and metadata');
 
     if (await _shouldAbort(
       'during finalization',
@@ -745,6 +756,7 @@ class _DownloadRun {
     if (!deferredSafPublish) {
       await _recoverSafUriIfNeeded();
     }
+    stageCompleted('resolve storage');
 
     final hookInput = filePath;
     if (hookInput != null) {
@@ -776,6 +788,7 @@ class _DownloadRun {
     }
 
     final autoConvertInput = filePath;
+    stageCompleted('extension hooks');
     if (!wasExisting && autoConvertInput != null) {
       final outcome = await n._autoConvertDownloadedFile(
         itemId: item.id,
@@ -795,6 +808,7 @@ class _DownloadRun {
       actualQuality = outcome.quality;
       if (outcome.converted) probedFinalMetadata = null;
     }
+    stageCompleted('automatic conversion');
 
     final variantInput = filePath;
     if (variantInput != null && item.preserveQualityVariant) {
@@ -816,6 +830,7 @@ class _DownloadRun {
         probedFinalMetadata = variantOutcome.metadata;
       }
     }
+    stageCompleted('quality filename');
 
     if (normalizeOptionalString(filePath) == null) {
       throw StateError(
@@ -826,6 +841,7 @@ class _DownloadRun {
     if (deferredSafPublish && !await _publishDeferredSafOutputOnce()) {
       throw StateError('Failed to publish deferred SAF output');
     }
+    stageCompleted('publish audio');
 
     final lrcTarget = filePath;
     if (lrcTarget != null &&
@@ -855,6 +871,7 @@ class _DownloadRun {
     }
 
     final rgPath = filePath;
+    stageCompleted('external lyrics');
     // Album ReplayGain: update the accumulator path to the final file
     // location.  For SAF downloads the metadata was embedded on a temp
     // copy, so the stored path still points there.  Replace it with the
@@ -870,8 +887,10 @@ class _DownloadRun {
     } catch (e) {
       _log.w('Album ReplayGain check failed: $e');
     }
+    stageCompleted('album ReplayGain');
 
     await _persistCompletionAndNotify();
+    stageCompleted('quality probe, history and notification');
     return true;
   }
 

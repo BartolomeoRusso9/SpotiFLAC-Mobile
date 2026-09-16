@@ -171,6 +171,15 @@ object NativeDownloadFinalizer {
         }
     }
 
+    private inline fun <T> timedStage(name: String, block: () -> T): T {
+        val started = System.nanoTime()
+        try {
+            return block()
+        } finally {
+            Log.d(TAG, "Finalization stage $name took ${(System.nanoTime() - started) / 1_000_000}ms")
+        }
+    }
+
     fun finalize(
         context: Context,
         itemId: String,
@@ -230,19 +239,27 @@ object NativeDownloadFinalizer {
                 currentStatus("finalizing")
                 finalizeDecryption(context, effectiveInput, state, shouldCancel)
                 checkCancelled(shouldCancel)
-                finalizeContainerConversion(context, effectiveInput, state, shouldCancel)
+                timedStage("container conversion") {
+                    finalizeContainerConversion(context, effectiveInput, state, shouldCancel)
+                }
                 checkCancelled(shouldCancel)
-                finalizeMetadata(context, effectiveInput, state)
+                timedStage("metadata") {
+                    finalizeMetadata(context, effectiveInput, state)
+                }
                 checkCancelled(shouldCancel)
-                runPostProcessing(context, effectiveInput, state, shouldCancel)
+                timedStage("extension post-processing") {
+                    runPostProcessing(context, effectiveInput, state, shouldCancel)
+                }
                 checkCancelled(shouldCancel)
                 try {
-                    finalizeAutoConversion(
-                        context,
-                        effectiveInput,
-                        state,
-                        shouldCancel,
-                    )
+                    timedStage("automatic conversion") {
+                        finalizeAutoConversion(
+                            context,
+                            effectiveInput,
+                            state,
+                            shouldCancel,
+                        )
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -253,7 +270,9 @@ object NativeDownloadFinalizer {
                 }
                 checkCancelled(shouldCancel)
                 try {
-                    val replayGain = writeReplayGain(context, effectiveInput, state, shouldCancel)
+                    val replayGain = timedStage("ReplayGain") {
+                        writeReplayGain(context, effectiveInput, state, shouldCancel)
+                    }
                     if (replayGain != null) result.put("replaygain", replayGain)
                 } catch (e: CancellationException) {
                     throw e
@@ -265,7 +284,9 @@ object NativeDownloadFinalizer {
                 }
                 checkCancelled(shouldCancel)
                 try {
-                    refreshFinalAudioQualityMetadata(context, result, state)
+                    timedStage("quality probe") {
+                        refreshFinalAudioQualityMetadata(context, result, state)
+                    }
                 } catch (e: Exception) {
                     android.util.Log.w(TAG, "Quality metadata refresh failed (non-fatal): ${e.message}")
                 }
@@ -282,10 +303,12 @@ object NativeDownloadFinalizer {
                     android.util.Log.w(TAG, "External LRC write failed (non-fatal): ${e.message}")
                 }
                 checkCancelled(shouldCancel)
-                if (isDeferredSafPublish(effectiveInput)) {
-                    publishDeferredSafOutput(context, effectiveInput, state)
-                } else {
-                    promoteStagedSafOutputIfNeeded(context, effectiveInput, state)
+                timedStage("publish") {
+                    if (isDeferredSafPublish(effectiveInput)) {
+                        publishDeferredSafOutput(context, effectiveInput, state)
+                    } else {
+                        promoteStagedSafOutputIfNeeded(context, effectiveInput, state)
+                    }
                 }
                 outputPublished = true
             } else {
