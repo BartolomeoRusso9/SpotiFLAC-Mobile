@@ -178,10 +178,10 @@ flutter {
 dependencies {
     if (discordSdkAar != null) {
         implementation(files(discordSdkAar))
-        implementation("androidx.browser:browser:1.9.0")
+        implementation("androidx.browser:browser:1.10.0")
     }
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
-    implementation("net.java.dev.jna:jna:5.17.0@aar")
+    implementation("net.java.dev.jna:jna:5.19.1@aar")
     
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
@@ -192,6 +192,7 @@ dependencies {
     compileOnly("com.antonkarpenko:ffmpeg-kit-full:2.2.1")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20260814")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
 }
