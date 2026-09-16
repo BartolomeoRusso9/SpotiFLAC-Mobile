@@ -22,6 +22,7 @@ import 'package:spotiflac_android/utils/synced_lyrics_scroll.dart';
 import 'package:spotiflac_android/widgets/app_bottom_sheet.dart';
 import 'package:spotiflac_android/widgets/audio_quality_badges.dart';
 import 'package:spotiflac_android/widgets/player_artwork.dart';
+import 'package:spotiflac_android/widgets/playback_seek_slider.dart';
 import 'package:spotiflac_android/widgets/settings_group.dart';
 
 final _log = AppLogger('NowPlaying');
@@ -661,6 +662,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
       ),
       const SizedBox(height: 24),
       _PlaybackControls(
+        key: ValueKey(mediaItem.id),
         duration: mediaItem.duration ?? Duration.zero,
         controller: controller,
         colorScheme: colorScheme,
@@ -1195,6 +1197,7 @@ class _PlaybackControls extends ConsumerWidget {
   final String? qualityLabel;
 
   const _PlaybackControls({
+    super.key,
     required this.duration,
     required this.controller,
     required this.colorScheme,
@@ -1216,13 +1219,6 @@ class _PlaybackControls extends ConsumerWidget {
         (s) => s.value?.repeatMode ?? AudioServiceRepeatMode.none,
       ),
     );
-    final maxMs = duration.inMilliseconds > 0
-        ? duration.inMilliseconds.toDouble()
-        : 1.0;
-    final posMs = position.inMilliseconds
-        .clamp(0, duration.inMilliseconds > 0 ? duration.inMilliseconds : 0)
-        .toDouble();
-
     return Column(
       children: [
         Padding(
@@ -1246,14 +1242,10 @@ class _PlaybackControls extends ConsumerWidget {
                     overlayRadius: 24,
                   ),
                 ),
-                child: Slider(
-                  value: posMs.clamp(0, maxMs),
-                  max: maxMs,
-                  onChanged: duration.inMilliseconds > 0
-                      ? (value) => controller.seek(
-                          Duration(milliseconds: value.round()),
-                        )
-                      : null,
+                child: PlaybackSeekSlider(
+                  position: position,
+                  duration: duration,
+                  onSeek: controller.seek,
                 ),
               ),
               Padding(
