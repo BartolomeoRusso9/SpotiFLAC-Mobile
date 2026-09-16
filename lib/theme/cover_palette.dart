@@ -14,6 +14,7 @@ class CoverPalette {
   /// URL+brightness. Bounded because a long library-browsing session would
   /// otherwise keep every visited album's scheme alive.
   static final Map<String, ColorScheme> _cache = <String, ColorScheme>{};
+  static final Map<String, Future<ColorScheme?>> _pending = {};
   static final List<String> _cacheOrder = <String>[];
   static const int _maxEntries = 32;
 
@@ -50,11 +51,23 @@ class CoverPalette {
     String source,
     Brightness brightness, {
     String? cacheKey,
-  }) async {
+  }) {
     final key = cacheKey ?? cacheKeyFor(source, brightness);
     final cached = _cache[key];
-    if (cached != null) return cached;
+    if (cached != null) return Future.value(cached);
+    return _pending.putIfAbsent(
+      key,
+      () => _resolve(source, brightness, key).whenComplete(() {
+        _pending.remove(key);
+      }),
+    );
+  }
 
+  static Future<ColorScheme?> _resolve(
+    String source,
+    Brightness brightness,
+    String key,
+  ) async {
     final ImageProvider provider;
     if (_isNetworkSource(source)) {
       provider = cachedCoverImageProvider(source);
@@ -66,7 +79,14 @@ class CoverPalette {
 
     try {
       final scheme = await ColorScheme.fromImageProvider(
-        provider: provider,
+        // Palette extraction only samples a small image. Bound decoding too,
+        // instead of decoding the original before Flutter downsamples it.
+        provider: ResizeImage(
+          provider,
+          width: 112,
+          height: 112,
+          policy: ResizeImagePolicy.fit,
+        ),
         brightness: brightness,
       );
       _cache[key] = scheme;
