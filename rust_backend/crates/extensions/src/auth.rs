@@ -1,6 +1,5 @@
 //! Shared OAuth state and one-time callback ownership for managed runtimes.
 
-use aes_gcm::aead::{OsRng, rand_core::RngCore};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -297,8 +296,7 @@ impl AuthRegistry {
 
 pub fn callback_state() -> Result<String, String> {
     let mut random = Zeroizing::new([0_u8; 32]);
-    OsRng
-        .try_fill_bytes(random.as_mut())
+    getrandom::fill(random.as_mut())
         .map_err(|error| format!("generate callback state: {error}"))?;
     Ok(URL_SAFE_NO_PAD.encode(random.as_ref()))
 }
@@ -306,9 +304,7 @@ pub fn callback_state() -> Result<String, String> {
 pub fn pkce_verifier(length: usize) -> Result<String, String> {
     let length = length.clamp(43, 128);
     let mut random = Zeroizing::new(vec![0; length]);
-    OsRng
-        .try_fill_bytes(&mut random)
-        .map_err(|error| error.to_string())?;
+    getrandom::fill(&mut random).map_err(|error| error.to_string())?;
     let mut verifier = URL_SAFE_NO_PAD.encode(random.as_slice());
     verifier.truncate(length);
     Ok(verifier)

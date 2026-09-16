@@ -646,8 +646,12 @@ impl Backend {
         // Reclaim only that namespace after a process restart, including when
         // a complete file already exists but its finalizer still needs to run.
         let staging_prefix = format!(
-            ".spotiflac-download-{:x}-",
-            Sha256::digest(output.display().to_lowercase().as_bytes())
+            ".spotiflac-download-{}-",
+            crate::binary::encode(
+                &Sha256::digest(output.display().to_lowercase().as_bytes()),
+                "hex"
+            )
+            .expect("hex encoding")
         );
         if directory.exists() {
             for entry in directory.read_dir().map_err(|error| error.to_string())? {

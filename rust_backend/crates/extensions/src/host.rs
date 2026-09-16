@@ -3,7 +3,7 @@ use crate::storage::{StorageError, StoreKind};
 use base64::Engine;
 use base64::alphabet;
 use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig, STANDARD};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use md5::Md5;
 use rquickjs::{Ctx, Function, Object};
 use sha1::Sha1;
@@ -174,13 +174,13 @@ pub(crate) fn register<'js>(
     host.set(
         "md5",
         Function::new(ctx.clone(), |value: String| {
-            format!("{:x}", Md5::digest(value))
+            crate::binary::encode(&Md5::digest(value), "hex").expect("hex encoding")
         })?,
     )?;
     host.set(
         "sha256",
         Function::new(ctx.clone(), |value: String| {
-            format!("{:x}", Sha256::digest(value))
+            crate::binary::encode(&Sha256::digest(value), "hex").expect("hex encoding")
         })?,
     )?;
     host.set(
@@ -189,7 +189,7 @@ pub(crate) fn register<'js>(
             let mut mac = Hmac::<Sha256>::new_from_slice(key.as_bytes())
                 .expect("HMAC accepts any key length");
             mac.update(message.as_bytes());
-            format!("{:x}", mac.finalize().into_bytes())
+            crate::binary::encode(&mac.finalize().into_bytes(), "hex").expect("hex encoding")
         })?,
     )?;
     host.set(
@@ -268,4 +268,30 @@ pub(crate) fn decode_go_utf8(mut bytes: &[u8]) -> String {
         }
     }
     decoded
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn digest_upgrade_preserves_extension_hash_and_hmac_encodings() {
+        let runtime = crate::ExtensionRuntime::load(
+            r#"registerExtension({run() { return [
+                utils.md5('abc'), utils.sha256('abc'), utils.hmacSHA256('message', 'key')
+            ]; }});"#,
+            "{}",
+            crate::RuntimeLimits::default(),
+        )
+        .unwrap();
+        let result: serde_json::Value =
+            serde_json::from_str(&runtime.call("run", "[]", None, 1000).unwrap()).unwrap();
+        assert_eq!(
+            result,
+            serde_json::json!([
+                "900150983cd24fb0d6963f7d28e17f72",
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+                "6e9ef29b75fffc5b7abae527d58fdadb2fe42e7219011976917343065f58ed4a",
+            ])
+        );
+        runtime.shutdown();
+    }
 }

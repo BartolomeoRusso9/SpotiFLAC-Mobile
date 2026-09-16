@@ -1,6 +1,6 @@
 //! Go-compatible extension persistence. Each file is serialized across runtimes.
 
-use aes_gcm::aead::{Aead, KeyInit, OsRng, rand_core::RngCore};
+use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use base64::Engine;
 use base64::alphabet;
@@ -64,7 +64,7 @@ impl StorageMasterKey {
     }
 
     pub fn derive(&self, extension_id: &str, purpose: &str) -> Zeroizing<[u8; 32]> {
-        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(self.0.as_ref())
+        let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(self.0.as_ref())
             .expect("HMAC accepts any key length");
         mac.update(b"SpotiFLAC Mobile extension storage v2\0");
         mac.update(purpose.as_bytes());
@@ -77,12 +77,10 @@ impl StorageMasterKey {
 /// Go's wire format: 12-byte nonce, ciphertext, then the 16-byte authentication tag.
 pub fn encrypt(plaintext: &[u8], key: &[u8; 32]) -> Result<Vec<u8>, StorageError> {
     let mut nonce = [0u8; 12];
-    OsRng
-        .try_fill_bytes(&mut nonce)
-        .map_err(|error| StorageError::Random(error.to_string()))?;
+    getrandom::fill(&mut nonce).map_err(|error| StorageError::Random(error.to_string()))?;
     let cipher = Aes256Gcm::new(key.into());
     let ciphertext = cipher
-        .encrypt(Nonce::from_slice(&nonce), plaintext)
+        .encrypt(&Nonce::from(nonce), plaintext)
         .map_err(|_| StorageError::Authentication)?;
     let mut result = Vec::with_capacity(nonce.len() + ciphertext.len());
     result.extend_from_slice(&nonce);
@@ -96,7 +94,10 @@ pub fn decrypt(ciphertext: &[u8], key: &[u8; 32]) -> Result<Zeroizing<Vec<u8>>, 
     }
     let cipher = Aes256Gcm::new(key.into());
     let plaintext = cipher
-        .decrypt(Nonce::from_slice(&ciphertext[..12]), &ciphertext[12..])
+        .decrypt(
+            ciphertext[..12].try_into().expect("checked nonce length"),
+            &ciphertext[12..],
+        )
         .map_err(|_| StorageError::Authentication)?;
     Ok(Zeroizing::new(plaintext))
 }
@@ -282,8 +283,7 @@ impl ExtensionStore {
             Some(salt) if salt.len() == 32 => salt,
             _ => {
                 let mut salt = vec![0u8; 32];
-                OsRng
-                    .try_fill_bytes(&mut salt)
+                getrandom::fill(&mut salt)
                     .map_err(|error| StorageError::Random(error.to_string()))?;
                 atomic_write(&path, &salt)?;
                 salt
@@ -449,6 +449,29 @@ pub(crate) fn atomic_write(path: &Path, data: &[u8]) -> Result<(), StorageError>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn aes_gcm_upgrade_reads_existing_wire_format_and_rejects_tampering() {
+        let mut stored = vec![0; 12];
+        stored.extend(
+            crate::binary::decode_string(
+                "cea7403d4d606b6e074ec5d3baf39d18d0d1c8a799996bf0265b98b5d48ab919",
+                "hex",
+            )
+            .unwrap(),
+        );
+        assert_eq!(&*decrypt(&stored, &[0; 32]).unwrap(), &[0; 16]);
+        stored[15] ^= 1;
+        assert!(matches!(
+            decrypt(&stored, &[0; 32]),
+            Err(StorageError::Authentication)
+        ));
+        let generated = encrypt(b"example persisted settings", &[7; 32]).unwrap();
+        assert_eq!(
+            &*decrypt(&generated, &[7; 32]).unwrap(),
+            b"example persisted settings"
+        );
+    }
 
     #[test]
     fn retired_store_cannot_read_or_overwrite_a_reinstalled_extension() {

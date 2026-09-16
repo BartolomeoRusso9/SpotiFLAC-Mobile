@@ -27,9 +27,8 @@ fi
 
 cd "$RUST_BACKEND_DIR"
 export CARGO_TARGET_DIR="$RUST_BACKEND_DIR/target"
-# AES 0.8 requires this opt-in on ARM64. Runtime detection retains the software
-# fallback on CPUs without AES; do not force target-feature=+aes on Android.
-export RUSTFLAGS="${RUSTFLAGS:-} --cfg aes_armv8"
+# AES 0.9 detects ARM64 AES at runtime and retains the software fallback;
+# do not force target-feature=+aes on Android.
 
 case "$(uname -s)" in
   Darwin)
@@ -44,10 +43,10 @@ esac
 # Build separately from bindgen so CLI and cargo-metadata features are not
 # enabled in the shipped library through Cargo's workspace feature unification.
 cargo build --locked --release -p spotiflac-mobile
+# Bindgen discovers each crate's uniffi.toml through Cargo metadata.
 for language in kotlin swift; do
   cargo run --locked -p spotiflac-bindgen -- generate \
     --library "$HOST_LIBRARY" \
-    --config crates/mobile/uniffi.toml \
     --language "$language" \
     --out-dir "$CARGO_TARGET_DIR/bindings/$language" \
     --no-format

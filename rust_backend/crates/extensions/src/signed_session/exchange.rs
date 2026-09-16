@@ -317,7 +317,8 @@ impl SignedSessionClient {
     }
 
     fn exchange_owned(&self, grant: &str, generation: u64, check: Check<'_>) -> Result<(), String> {
-        let grant_hash = format!("{:x}", Sha256::digest(grant));
+        let grant_hash =
+            crate::binary::encode(&Sha256::digest(grant), "hex").expect("hex encoding");
         let record = {
             let mut state = self.scope.lock().expect("signed session coordinator lock");
             if state.clear_generation != generation {

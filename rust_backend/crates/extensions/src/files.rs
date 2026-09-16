@@ -491,7 +491,6 @@ impl FilePath {
         create_parent: bool,
         source: Option<(&Self, &File)>,
     ) -> io::Result<(StagedFile, bool)> {
-        use aes_gcm::aead::{OsRng, rand_core::RngCore};
         if create_parent {
             self.mkdir_parent()?;
         }
@@ -503,9 +502,7 @@ impl FilePath {
             .to_owned();
         for _ in 0..8 {
             let mut nonce = [0; 16];
-            OsRng
-                .try_fill_bytes(&mut nonce)
-                .map_err(|error| io::Error::other(error.to_string()))?;
+            getrandom::fill(&mut nonce).map_err(|error| io::Error::other(error.to_string()))?;
             let name = format!(
                 ".spotiflac-{}.partial",
                 crate::binary::encode(&nonce, "hex").expect("hex encoding")

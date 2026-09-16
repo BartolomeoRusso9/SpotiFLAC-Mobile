@@ -24,6 +24,7 @@ aes-gcm.workspace = true
 aes.workspace = true
 blowfish.workspace = true
 zeroize.workspace = true
+getrandom.workspace = true
 tempfile.workspace = true
 zip.workspace = true
 regex.workspace = true

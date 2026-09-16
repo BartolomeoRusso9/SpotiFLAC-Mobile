@@ -1,7 +1,6 @@
 use crate::manifest::SignedSession;
-use aes_gcm::aead::{OsRng, rand_core::RngCore};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -371,9 +370,7 @@ impl Record {
 
 pub fn random_hex(count: usize) -> Result<String, String> {
     let mut bytes = Zeroizing::new(vec![0; count]);
-    OsRng
-        .try_fill_bytes(&mut bytes)
-        .map_err(|error| error.to_string())?;
+    getrandom::fill(&mut bytes).map_err(|error| error.to_string())?;
     Ok(hex(&bytes))
 }
 

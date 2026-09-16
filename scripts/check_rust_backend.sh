@@ -35,8 +35,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_DIR/rust_backend"
-# Exercise the same runtime-detected AES backend as the release build.
-export RUSTFLAGS="${RUSTFLAGS:-} --cfg aes_armv8"
+# AES 0.9 uses the same runtime-detected backend as the release build.
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked

@@ -43,7 +43,7 @@ pub(crate) fn download(
     }
     let mut output = SegmentOutput::open(
         path,
-        format!("{:x}", hash.finalize()),
+        crate::binary::encode(&hash.finalize(), "hex").expect("hex encoding"),
         segments.len(),
         options.persistent,
     )

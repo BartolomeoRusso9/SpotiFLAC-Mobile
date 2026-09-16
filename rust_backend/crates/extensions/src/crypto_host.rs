@@ -5,7 +5,6 @@ use crate::{
     runtime::Control,
     storage,
 };
-use aes_gcm::aead::{OsRng, rand_core::RngCore};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use rquickjs::{ArrayBuffer, Ctx, Function, Object, Value};
 use sha2::{Digest, Sha256};
@@ -61,9 +60,7 @@ pub(crate) fn register<'js>(
                     return Err("key length must be an integer between 1 and 4096 bytes".to_owned());
                 }
                 let mut bytes = Zeroizing::new(vec![0; length as usize]);
-                OsRng
-                    .try_fill_bytes(&mut bytes)
-                    .map_err(|error| error.to_string())?;
+                getrandom::fill(&mut bytes).map_err(|error| error.to_string())?;
                 Ok(bytes)
             })();
             let object = result_object(&ctx, result.as_ref().err())?;

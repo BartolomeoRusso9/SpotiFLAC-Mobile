@@ -1,6 +1,6 @@
 //! Block modes retained for the existing extension API and media transforms.
 
-use aes::cipher::{Block, BlockDecrypt, BlockEncrypt, KeyInit};
+use aes::cipher::{Block, BlockCipherDecrypt, BlockCipherEncrypt, KeyInit};
 use zeroize::Zeroizing;
 
 pub enum BlockCipher {
@@ -81,7 +81,7 @@ impl BlockCipher {
     }
 }
 
-fn transform<C: BlockEncrypt + BlockDecrypt>(
+fn transform<C: BlockCipherEncrypt + BlockCipherDecrypt>(
     cipher: &C,
     data: &mut [u8],
     iv: &[u8],
@@ -89,7 +89,7 @@ fn transform<C: BlockEncrypt + BlockDecrypt>(
     decrypt: bool,
     check: &dyn Fn() -> Result<(), String>,
 ) -> Result<(), String> {
-    let mut state = Block::<C>::clone_from_slice(iv);
+    let mut state = Block::<C>::try_from(iv).expect("validated IV length");
     for (index, chunk) in data.chunks_mut(iv.len()).enumerate() {
         if index % 1024 == 0 {
             check()?;
@@ -107,7 +107,7 @@ fn transform<C: BlockEncrypt + BlockDecrypt>(
                 }
             }
         } else if decrypt {
-            let encrypted = Block::<C>::clone_from_slice(chunk);
+            let encrypted = Block::<C>::try_from(&*chunk).expect("aligned encrypted block");
             let mut block = encrypted.clone();
             cipher.decrypt_block(&mut block);
             for ((byte, plain), previous) in chunk.iter_mut().zip(block.iter()).zip(state.iter()) {
@@ -118,7 +118,7 @@ fn transform<C: BlockEncrypt + BlockDecrypt>(
             for (byte, previous) in chunk.iter_mut().zip(state.iter()) {
                 *byte ^= previous;
             }
-            let block = Block::<C>::from_mut_slice(chunk);
+            let block = <&mut Block<C>>::try_from(chunk).expect("aligned plaintext block");
             cipher.encrypt_block(block);
             state.clone_from(block);
         }
@@ -147,4 +147,33 @@ pub fn unpad(data: &mut Vec<u8>, block_size: usize) -> Result<(), String> {
     }
     data.truncate(data.len() - count);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn block_cipher_upgrade_preserves_known_ciphertexts_and_inverse() {
+        for (algorithm, key, expected) in [
+            ("aes", vec![0; 16], "66e94bd4ef8a2c3b884cfa59ca342b2e"),
+            ("aes", vec![0; 24], "aae06992acbf52a3e8f4a96ec9300bd7"),
+            ("aes", vec![0; 32], "dc95c078a2408989ad48a21492842087"),
+            ("blowfish", vec![0; 8], "4ef997456198dd78"),
+        ] {
+            let cipher = BlockCipher::new(algorithm, &key).unwrap();
+            let iv = vec![0; cipher.block_size()];
+            for mode in ["cbc", "ctr"] {
+                let mut data = iv.clone();
+                cipher
+                    .transform(&mut data, &iv, mode, false, &|| Ok(()))
+                    .unwrap();
+                assert_eq!(crate::binary::encode(&data, "hex").unwrap(), expected);
+                cipher
+                    .transform(&mut data, &iv, mode, true, &|| Ok(()))
+                    .unwrap();
+                assert_eq!(data, iv);
+            }
+        }
+    }
 }

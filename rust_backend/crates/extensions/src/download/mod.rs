@@ -6,7 +6,6 @@ mod store;
 
 use crate::files::{ExtensionFiles, FilePath};
 use crate::transfer_policy::DownloadTransferPolicy;
-use aes_gcm::aead::{OsRng, rand_core::RngCore};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use spotiflac_core::app_version::AppVersion;
@@ -419,15 +418,16 @@ fn validator(response: &HttpResponse) -> String {
 
 fn fingerprint(url: &str) -> String {
     UrlParts::parse(url).map_or(String::new(), |url| {
-        format!(
-            "{:x}",
-            Sha256::digest(format!(
+        crate::binary::encode(
+            &Sha256::digest(format!(
                 "{}://{}{}",
                 url.scheme.to_lowercase(),
                 url.authority().to_lowercase(),
                 url.escaped_path()
-            ))
+            )),
+            "hex",
         )
+        .expect("hex encoding")
     })
 }
 
@@ -483,7 +483,7 @@ fn next_delay(current: Duration, policy: &DownloadTransferPolicy) -> Duration {
         return ceiling;
     }
     let mut random = [0; 8];
-    if OsRng.try_fill_bytes(&mut random).is_err() {
+    if getrandom::fill(&mut random).is_err() {
         return ceiling;
     }
     floor

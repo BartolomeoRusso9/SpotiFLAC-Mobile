@@ -81,7 +81,7 @@ pub fn write_verified_package(
         ));
     }
     if !normalized.is_empty() {
-        let actual = format!("{:x}", hasher.finalize());
+        let actual = crate::binary::encode(&hasher.finalize(), "hex").expect("hex encoding");
         // The checksum is public, but keep the comparison independent of its
         // first mismatching byte, matching the Go implementation.
         if actual
