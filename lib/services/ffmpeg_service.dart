@@ -1458,14 +1458,15 @@ class FFmpegService {
       final file = File(mp3Path);
       if (!await file.exists()) return;
 
-      final bytes = await file.readAsBytes();
-      final updated = Id3v23Lyrics.writeUnsyncedLyrics(bytes, lyrics);
-      if (updated == null) {
+      final written = await Id3v23Lyrics.writeUnsyncedLyricsToFile(
+        file,
+        lyrics,
+      );
+      if (!written) {
         _log.w('Skipping MP3 USLT lyrics frame update: unsupported ID3 tag');
         return;
       }
 
-      await file.writeAsBytes(updated, flush: true);
       _log.d('MP3 USLT lyrics frame written (${lyrics.length} chars)');
     } catch (e) {
       _log.w('Failed to write MP3 USLT lyrics frame: $e');

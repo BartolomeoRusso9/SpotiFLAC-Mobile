@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 /// Minimal ID3v2.3 USLT writer used after FFmpeg metadata embedding.
@@ -7,6 +8,62 @@ import 'dart:typed_data';
 /// compressed, or unsynchronized headers. Unsupported tags are left unchanged.
 class Id3v23Lyrics {
   const Id3v23Lyrics._();
+
+  // Artwork can make tags large, but never allocate an audio-sized buffer for
+  // a malformed size field. Unsupported/oversized tags leave the file intact.
+  static const int _maxTagBytes = 32 << 20;
+
+  /// Replaces lyrics while streaming the audio tail to a sibling temporary
+  /// file. The original is replaced only after all output has been flushed.
+  static Future<bool> writeUnsyncedLyricsToFile(
+    File file,
+    String lyrics,
+  ) async {
+    final input = await file.open();
+    late final Uint8List updatedTag;
+    var audioOffset = 0;
+    try {
+      final header = await input.read(10);
+      if (_hasId3Header(header)) {
+        final tagSize = _readSynchsafeInt(header, 6);
+        if (header[3] != 3 ||
+            (header[5] & (0x80 | 0x40 | 0x20)) != 0 ||
+            tagSize == null ||
+            tagSize > _maxTagBytes ||
+            tagSize + 10 > await input.length()) {
+          return false;
+        }
+        await input.setPosition(0);
+        final tag = await input.read(tagSize + 10);
+        if (tag.length != tagSize + 10) return false;
+        final updated = writeUnsyncedLyrics(tag, lyrics);
+        if (updated == null) return false;
+        updatedTag = updated;
+        audioOffset = tagSize + 10;
+      } else {
+        updatedTag = _buildTag(_buildUnsyncedLyricsFrame(lyrics));
+      }
+    } finally {
+      await input.close();
+    }
+
+    final staging = await file.parent.createTemp('.spotiflac-lyrics-');
+    try {
+      final output = File('${staging.path}${Platform.pathSeparator}audio.mp3');
+      final sink = output.openWrite();
+      try {
+        sink.add(updatedTag);
+        await sink.addStream(file.openRead(audioOffset));
+        await sink.flush();
+      } finally {
+        await sink.close();
+      }
+      await output.rename(file.path);
+      return true;
+    } finally {
+      await staging.delete(recursive: true);
+    }
+  }
 
   static Uint8List? writeUnsyncedLyrics(Uint8List bytes, String lyrics) {
     final lyricsFrame = _buildUnsyncedLyricsFrame(lyrics);
