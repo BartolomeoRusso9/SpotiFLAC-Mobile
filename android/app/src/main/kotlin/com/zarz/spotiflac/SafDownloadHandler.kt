@@ -25,12 +25,32 @@ object SafDownloadHandler {
     // the exists check and reports already_exists.
     private val safNameLocks = KeyedLockPool<String>()
 
-    data class UniqueWriteResult(val uri: String, val fileName: String)
+    data class UniqueWriteResult(
+        val uri: String,
+        val fileName: String,
+        val publishTimingsMs: Map<String, Long> = emptyMap(),
+    )
     data class ExistingAwareWriteResult(
         val uri: String,
         val fileName: String,
         val alreadyExists: Boolean,
+        val publishTimingsMs: Map<String, Long> = emptyMap(),
     )
+
+    private class PublishTrace {
+        private val started = System.nanoTime()
+        private var previous = started
+        private val stages = linkedMapOf<String, Long>()
+
+        fun mark(stage: String) {
+            val now = System.nanoTime()
+            stages[stage] = (now - previous) / 1_000_000
+            previous = now
+        }
+
+        fun finish(): Map<String, Long> = stages.toMap() +
+            ("total" to (System.nanoTime() - started) / 1_000_000)
+    }
 
     private fun <T> withSafNameLock(
         treeUriStr: String,
@@ -96,9 +116,9 @@ object SafDownloadHandler {
 
         val existingDir = findDocumentDir(context, treeUri, relativeDir)
         if (existingDir != null && req.optString("album_folder_template", "").isBlank()) {
-            val existing = existingDir.findFile(fileName)
+            val existing = findSafChild(context, existingDir, fileName)
             if (existing != null && existing.isFile && existing.length() > 0) {
-                deleteStaleStagedFiles(existingDir, fileName, outputExt)
+                deleteStaleStagedFiles(context, existingDir, fileName, outputExt)
                 val obj = JSONObject()
                 obj.put("success", true)
                 obj.put("message", "File already exists")
@@ -110,7 +130,7 @@ object SafDownloadHandler {
         }
 
         if (deferSafPublish) {
-            existingDir?.let { deleteStaleStagedFiles(it, fileName, outputExt) }
+            existingDir?.let { deleteStaleStagedFiles(context, it, fileName, outputExt) }
             val workingExt = outputExt.ifBlank { ".tmp" }
             val workingFile = backend.createTemporaryMediaFile(context, "native_saf_work_", workingExt)
             return try {
@@ -158,8 +178,8 @@ object SafDownloadHandler {
         // creating the staged document: reusing it would let a shorter new
         // write leave the old tail bytes in place (fd truncation is
         // best-effort on some providers).
-        deleteStaleStagedFiles(targetDir, fileName, outputExt)
-        var document = createOrReuseDocumentFile(targetDir, stagedMimeType, stagedFileName)
+        deleteStaleStagedFiles(context, targetDir, fileName, outputExt)
+        var document = createOrReuseDocumentFile(context, targetDir, stagedMimeType, stagedFileName)
             ?: return errorJson("Failed to create SAF file")
 
         var pfd: android.os.ParcelFileDescriptor? = null
@@ -224,6 +244,7 @@ object SafDownloadHandler {
                             }
                             val actualMimeType = mimeTypeForExt(actualExt)
                             val replacement = createOrReuseDocumentFile(
+                                context,
                                 targetDir,
                                 if (useStagedOutput) STAGED_SAF_MIME_TYPE else actualMimeType,
                                 actualStagedFileName
@@ -260,7 +281,7 @@ object SafDownloadHandler {
                 } else if (useStagedOutput) {
                     // Legacy caller (foreground Dart queue): publish here by
                     // renaming the staged file to its final name.
-                    val published = replaceFinalDocument(targetDir, document, finalFileName)
+                    val published = replaceFinalDocument(context, targetDir, document, finalFileName)
                     if (published == null) {
                         document.delete()
                         return errorJson("Failed to publish SAF download")
@@ -294,29 +315,32 @@ object SafDownloadHandler {
      * document, or null when the swap failed (the caller owns [document]).
      */
     private fun replaceFinalDocument(
+        context: Context,
         targetDir: DocumentFile,
         document: DocumentFile,
         finalName: String
     ): DocumentFile? {
-        val existingFinal = targetDir.findFile(finalName)
+        val existingFinal = findSafChild(context, targetDir, finalName)
         var aside: DocumentFile? = null
         if (existingFinal != null && existingFinal.uri != document.uri) {
             val asideName = buildReplacedSafFileName(finalName)
             try {
-                targetDir.findFile(asideName)?.delete()
+                findSafChild(context, targetDir, asideName)?.delete()
             } catch (_: Exception) {
             }
             if (!existingFinal.renameTo(asideName)) {
                 return null
             }
-            aside = targetDir.findFile(asideName) ?: existingFinal
+            // TreeDocumentFile.renameTo updates this object's URI, including
+            // providers whose document IDs change with the display name.
+            aside = existingFinal
         }
         if (!document.renameTo(finalName)) {
             aside?.renameTo(finalName)
             return null
         }
         aside?.delete()
-        return targetDir.findFile(finalName) ?: document
+        return document
     }
 
     private fun buildReplacedSafFileName(fileName: String): String {
@@ -361,7 +385,14 @@ object SafDownloadHandler {
     ): String? {
         val finalName = sanitizeFilename(fileName)
         return withSafNameLock(treeUriStr, sanitizeRelativeDir(relativeDir), finalName) {
-            writeFileToSafLocked(context, treeUriStr, relativeDir, finalName, srcPath)
+            try {
+                val targetDir = ensureDocumentDir(context, Uri.parse(treeUriStr), relativeDir)
+                    ?: return@withSafNameLock null
+                writeFileToSafLocked(context, targetDir, finalName, srcPath)
+            } catch (e: Exception) {
+                android.util.Log.w("SpotiFLAC", "Failed to write file to SAF: ${e.message}")
+                null
+            }
         }
     }
 
@@ -376,22 +407,27 @@ object SafDownloadHandler {
     ): UniqueWriteResult? {
         val safeRelativeDir = sanitizeRelativeDir(relativeDir)
         val preferredName = sanitizeFilenamePreservingSuffix(fileName, preservedSuffix)
+        val trace = PublishTrace()
         return withSafNameLock(treeUriStr, safeRelativeDir, preferredName) {
+            trace.mark("lock_wait")
             val treeUri = Uri.parse(treeUriStr)
             val targetDir = ensureDocumentDir(context, treeUri, safeRelativeDir) ?: return@withSafNameLock null
+            trace.mark("directory")
             val availableName = findAvailableFileName(
+                context,
                 targetDir,
                 preferredName,
                 preservedSuffix,
             )
+            trace.mark("existing_check")
             val uri = writeFileToSafLocked(
                 context,
-                treeUriStr,
-                safeRelativeDir,
+                targetDir,
                 availableName,
                 srcPath,
+                trace,
             ) ?: return@withSafNameLock null
-            UniqueWriteResult(uri = uri, fileName = availableName)
+            UniqueWriteResult(uri = uri, fileName = availableName, publishTimingsMs = trace.finish())
         }
     }
 
@@ -411,23 +447,27 @@ object SafDownloadHandler {
             variantFileName,
             preservedSuffix,
         )
+        val trace = PublishTrace()
         return withSafNameLock(treeUriStr, safeRelativeDir, cleanName) {
+            trace.mark("lock_wait")
             val treeUri = Uri.parse(treeUriStr)
             val targetDir = ensureDocumentDir(context, treeUri, safeRelativeDir)
                 ?: return@withSafNameLock null
-            val selectedName = if (targetDir.findFile(cleanName) == null) {
+            trace.mark("directory")
+            val selectedName = if (findSafChild(context, targetDir, cleanName) == null) {
                 cleanName
             } else {
-                findAvailableFileName(targetDir, preferredVariant, preservedSuffix)
+                findAvailableFileName(context, targetDir, preferredVariant, preservedSuffix)
             }
+            trace.mark("existing_check")
             val uri = writeFileToSafLocked(
                 context,
-                treeUriStr,
-                safeRelativeDir,
+                targetDir,
                 selectedName,
                 srcPath,
+                trace,
             ) ?: return@withSafNameLock null
-            UniqueWriteResult(uri = uri, fileName = selectedName)
+            UniqueWriteResult(uri = uri, fileName = selectedName, publishTimingsMs = trace.finish())
         }
     }
 
@@ -441,29 +481,35 @@ object SafDownloadHandler {
     ): ExistingAwareWriteResult? {
         val safeRelativeDir = sanitizeRelativeDir(relativeDir)
         val finalName = sanitizeFilename(fileName)
+        val trace = PublishTrace()
         return withSafNameLock(treeUriStr, safeRelativeDir, finalName) {
+            trace.mark("lock_wait")
             val treeUri = Uri.parse(treeUriStr)
             val targetDir = ensureDocumentDir(context, treeUri, safeRelativeDir)
                 ?: return@withSafNameLock null
-            val existing = targetDir.findFile(finalName)
+            trace.mark("directory")
+            val existing = findSafChild(context, targetDir, finalName)
+            trace.mark("existing_check")
             if (existing != null && existing.isFile && existing.length() > 0L) {
                 return@withSafNameLock ExistingAwareWriteResult(
                     uri = existing.uri.toString(),
                     fileName = existing.name ?: finalName,
                     alreadyExists = true,
+                    publishTimingsMs = trace.finish(),
                 )
             }
             val uri = writeFileToSafLocked(
                 context,
-                treeUriStr,
-                safeRelativeDir,
+                targetDir,
                 finalName,
                 srcPath,
+                trace,
             ) ?: return@withSafNameLock null
             ExistingAwareWriteResult(
                 uri = uri,
                 fileName = finalName,
                 alreadyExists = false,
+                publishTimingsMs = trace.finish(),
             )
         }
     }
@@ -490,18 +536,19 @@ object SafDownloadHandler {
     }
 
     private fun findAvailableFileName(
+        context: Context,
         parent: DocumentFile,
         preferredName: String,
         preservedSuffix: String,
     ): String {
-        if (parent.findFile(preferredName) == null) return preferredName
+        if (findSafChild(context, parent, preferredName) == null) return preferredName
         for (counter in 2..9999) {
             val candidate = appendFilenameCounter(
                 preferredName,
                 counter.toLong(),
                 preservedSuffix,
             )
-            if (parent.findFile(candidate) == null) return candidate
+            if (findSafChild(context, parent, candidate) == null) return candidate
         }
         return appendFilenameCounter(
             preferredName,
@@ -540,20 +587,20 @@ object SafDownloadHandler {
 
     private fun writeFileToSafLocked(
         context: Context,
-        treeUriStr: String,
-        relativeDir: String,
+        targetDir: DocumentFile,
         finalName: String,
-        srcPath: String
+        srcPath: String,
+        trace: PublishTrace = PublishTrace(),
     ): String? {
         var stagedDocument: DocumentFile? = null
         return try {
-            val treeUri = Uri.parse(treeUriStr)
-            val targetDir = ensureDocumentDir(context, treeUri, relativeDir) ?: return null
             val ext = normalizeExt(finalName.substringAfterLast('.', ""))
             val stagedName = buildStagedSafFileName(finalName)
-            deleteStaleStagedFiles(targetDir, finalName, ext)
-            val document = createOrReuseDocumentFile(targetDir, STAGED_SAF_MIME_TYPE, stagedName)
+            deleteStaleStagedFiles(context, targetDir, finalName, ext)
+            trace.mark("cleanup")
+            val document = createOrReuseDocumentFile(context, targetDir, STAGED_SAF_MIME_TYPE, stagedName)
                 ?: return null
+            trace.mark("create")
             stagedDocument = document
             val outputStream = context.contentResolver.openOutputStream(document.uri, "wt")
             if (outputStream == null) {
@@ -561,14 +608,19 @@ object SafDownloadHandler {
                 stagedDocument = null
                 return null
             }
+            trace.mark("open")
             outputStream.use { output ->
                 File(srcPath).inputStream().use { input ->
-                    input.copyTo(output)
+                    input.copyTo(output, bufferSize = 64 * 1024)
                 }
+                trace.mark("copy")
                 syncOutputStream(output)
+                trace.mark("sync")
             }
+            trace.mark("close")
 
-            val published = replaceFinalDocument(targetDir, document, finalName)
+            val published = replaceFinalDocument(context, targetDir, document, finalName)
+            trace.mark("replace")
             if (published == null) {
                 document.delete()
                 return null
@@ -644,15 +696,20 @@ object SafDownloadHandler {
         return "$safeName.partial"
     }
 
-    private fun deleteStaleStagedFiles(parent: DocumentFile, fileName: String, outputExt: String) {
+    private fun deleteStaleStagedFiles(context: Context, parent: DocumentFile, fileName: String, outputExt: String) {
         val stagedNames = linkedSetOf(
             buildStagedSafFileName(fileName),
             buildLegacyStagedSafFileName(fileName, outputExt),
             buildReplacedSafFileName(fileName)
         )
-        for (stagedName in stagedNames) {
+        val staleDocuments = try {
+            findSafChildren(context, parent, stagedNames)
+        } catch (_: Exception) {
+            return
+        }
+        for (document in staleDocuments.values) {
             try {
-                parent.findFile(stagedName)?.delete()
+                document.delete()
             } catch (_: Exception) {
             }
         }
@@ -740,7 +797,7 @@ object SafDownloadHandler {
             var current = DocumentFile.fromTreeUri(context, treeUri) ?: return null
             val parts = safeRelativeDir.split("/").filter { it.isNotBlank() }
             for (part in parts) {
-                val existing = current.findFile(part)
+                val existing = findSafChild(context, current, part)
                 current = if (existing != null && existing.isDirectory) {
                     existing
                 } else {
@@ -748,7 +805,7 @@ object SafDownloadHandler {
                     val createdName = created.name ?: part
                     if (createdName != part) {
                         created.delete()
-                        current.findFile(part) ?: return null
+                        findSafChild(context, current, part) ?: return null
                     } else {
                         created
                     }
@@ -769,7 +826,7 @@ object SafDownloadHandler {
 
         val parts = safeRelativeDir.split("/").filter { it.isNotBlank() }
         for (part in parts) {
-            val existing = current.findFile(part)
+            val existing = findSafChild(context, current, part)
             if (existing == null || !existing.isDirectory) return null
             current = existing
         }
@@ -777,6 +834,7 @@ object SafDownloadHandler {
     }
 
     internal fun createOrReuseDocumentFile(
+        context: Context,
         parent: DocumentFile,
         mimeType: String,
         fileName: String
@@ -785,7 +843,7 @@ object SafDownloadHandler {
         if (safeFileName.isBlank()) return null
 
         synchronized(safDirLock) {
-            val existing = parent.findFile(safeFileName)
+            val existing = findSafChild(context, parent, safeFileName)
             if (existing != null && existing.isFile) {
                 return existing
             }
@@ -796,7 +854,7 @@ object SafDownloadHandler {
                 return created
             }
 
-            val winner = parent.findFile(safeFileName)
+            val winner = findSafChild(context, parent, safeFileName)
             if (winner != null && winner.isFile) {
                 if (winner.uri != created.uri) {
                     try {

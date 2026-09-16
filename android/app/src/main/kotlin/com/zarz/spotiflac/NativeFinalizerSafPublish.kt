@@ -128,11 +128,13 @@ internal fun NativeDownloadFinalizer.publishDeferredSafOutput(
             srcPath = outputFile.absolutePath,
         )?.let { result ->
             alreadyExists = result.alreadyExists
-            SafDownloadHandler.UniqueWriteResult(result.uri, result.fileName)
+            SafDownloadHandler.UniqueWriteResult(result.uri, result.fileName, result.publishTimingsMs)
         }
     } ?: throw IllegalStateException("failed to publish deferred SAF output")
     val newUri = published.uri
     val publishedName = published.fileName
+    input.result.put("publish_timings_ms", JSONObject(published.publishTimingsMs))
+    Log.d(TAG, "SAF publish timings (ms): ${published.publishTimingsMs}")
 
     outputFile.delete()
     state.filePath = newUri

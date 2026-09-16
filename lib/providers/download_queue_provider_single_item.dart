@@ -1040,9 +1040,10 @@ class _DownloadRun {
     final localPath = filePath;
     if (localPath == null || isContentUri(localPath)) return true;
     final localFile = File(localPath);
-    if (!await localFile.exists() || await localFile.length() <= 0) {
-      return false;
-    }
+    if (!await localFile.exists()) return false;
+    final localSize = await localFile.length();
+    if (localSize <= 0) return false;
+    _log.d('Publishing finalized SAF output ($localSize bytes)');
 
     var finalName =
         normalizeOptionalString(finalSafFileName) ??

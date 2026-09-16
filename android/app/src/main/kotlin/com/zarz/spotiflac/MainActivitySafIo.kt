@@ -367,6 +367,7 @@ internal fun MainActivity.writeSafSidecarLrc(audioUri: Uri, lrcContent: String):
             val lrcName = "$baseName.lrc"
 
             val target = SafDownloadHandler.createOrReuseDocumentFile(
+                this,
                 parent,
                 "application/octet-stream",
                 lrcName

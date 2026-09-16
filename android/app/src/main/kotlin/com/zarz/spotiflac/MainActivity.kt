@@ -1234,9 +1234,9 @@ class MainActivity: FlutterFragmentActivity() {
                                 if (treeUriStr.isBlank()) return@withContext null
                                 if (fileName.isBlank()) return@withContext null
                                 val dir = SafDownloadHandler.ensureDocumentDir(this@MainActivity, Uri.parse(treeUriStr), relativeDir) ?: return@withContext null
-                                val existing = dir.findFile(fileName)
+                                val existing = findSafChild(this@MainActivity, dir, fileName)
                                 val createdNew = existing == null
-                                val doc = SafDownloadHandler.createOrReuseDocumentFile(dir, mimeType, fileName)
+                                val doc = SafDownloadHandler.createOrReuseDocumentFile(this@MainActivity, dir, mimeType, fileName)
                                     ?: return@withContext null
                                 if (!writeUriFromPath(doc.uri, srcPath)) {
                                     if (createdNew) {
@@ -1268,6 +1268,7 @@ class MainActivity: FlutterFragmentActivity() {
                                         .put("uri", writeResult.uri)
                                         .put("file_name", writeResult.fileName)
                                         .put("already_exists", writeResult.alreadyExists)
+                                        .put("publish_timings_ms", JSONObject(writeResult.publishTimingsMs))
                                         .toString()
                                 }
                             }
@@ -1294,6 +1295,7 @@ class MainActivity: FlutterFragmentActivity() {
                                     JSONObject()
                                         .put("uri", writeResult.uri)
                                         .put("file_name", writeResult.fileName)
+                                        .put("publish_timings_ms", JSONObject(writeResult.publishTimingsMs))
                                         .toString()
                                 }
                             }
@@ -1326,6 +1328,7 @@ class MainActivity: FlutterFragmentActivity() {
                                     JSONObject()
                                         .put("uri", writeResult.uri)
                                         .put("file_name", writeResult.fileName)
+                                        .put("publish_timings_ms", JSONObject(writeResult.publishTimingsMs))
                                         .toString()
                                 }
                             }

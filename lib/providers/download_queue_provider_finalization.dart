@@ -447,6 +447,7 @@ extension _DownloadQueueFinalization on DownloadQueueNotifier {
         mimeType: mimeType,
         srcPath: srcPath,
       );
+      _logSafPublishTimings(result);
       final uri = (result['uri'] as String? ?? '').trim();
       final publishedName = (result['file_name'] as String? ?? '').trim();
       if (uri.isEmpty || publishedName.isEmpty) return null;
@@ -458,6 +459,13 @@ extension _DownloadQueueFinalization on DownloadQueueNotifier {
     } catch (e) {
       _log.w('Failed to publish deferred SAF file: $e');
       return null;
+    }
+  }
+
+  void _logSafPublishTimings(Map<String, dynamic> result) {
+    final timings = result['publish_timings_ms'];
+    if (timings is Map && timings.isNotEmpty) {
+      _log.d('SAF publish timings (ms): $timings');
     }
   }
 
@@ -478,6 +486,7 @@ extension _DownloadQueueFinalization on DownloadQueueNotifier {
         srcPath: srcPath,
         preservedSuffix: preservedSuffix,
       );
+      _logSafPublishTimings(result);
       final uri = (result['uri'] as String? ?? '').trim();
       final publishedName = (result['file_name'] as String? ?? '').trim();
       if (uri.isEmpty || publishedName.isEmpty) return null;
@@ -507,6 +516,7 @@ extension _DownloadQueueFinalization on DownloadQueueNotifier {
         srcPath: srcPath,
         preservedSuffix: preservedSuffix,
       );
+      _logSafPublishTimings(result);
       final uri = (result['uri'] as String? ?? '').trim();
       final publishedName = (result['file_name'] as String? ?? '').trim();
       if (uri.isEmpty || publishedName.isEmpty) return null;
