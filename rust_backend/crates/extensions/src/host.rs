@@ -160,17 +160,14 @@ pub(crate) fn register<'js>(
                     }
                 })
                 .unwrap_or_default();
-            decode_go_utf8(&decoded)
+            decode_go_utf8_owned(decoded)
         })?,
     )?;
     host.set(
         "encode",
         Function::new(ctx.clone(), |value: String| value.into_bytes())?,
     )?;
-    host.set(
-        "decode",
-        Function::new(ctx.clone(), |value: Vec<u8>| decode_go_utf8(&value))?,
-    )?;
+    host.set("decode", Function::new(ctx.clone(), decode_go_utf8_owned)?)?;
     host.set(
         "md5",
         Function::new(ctx.clone(), |value: String| {
@@ -250,6 +247,15 @@ fn storage_result(result: Result<(), StorageError>) -> String {
 
 // Go's UTF-8 decoder consumes one byte for every invalid rune. Rust's lossy
 // conversion groups some invalid prefixes, which would change extension text.
+pub(crate) fn decode_go_utf8_owned(bytes: Vec<u8>) -> String {
+    // Text responses/files already own their buffer. Reuse it for valid UTF-8
+    // instead of holding a second full copy while QuickJS creates its string.
+    match String::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(error) => decode_go_utf8(error.as_bytes()),
+    }
+}
+
 pub(crate) fn decode_go_utf8(mut bytes: &[u8]) -> String {
     let mut decoded = String::with_capacity(bytes.len());
     while !bytes.is_empty() {
@@ -272,6 +278,54 @@ pub(crate) fn decode_go_utf8(mut bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    #[ignore = "manual release-process peak-memory measurement"]
+    fn benchmark_owned_text_memory() {
+        let bytes = vec![b'x'; spotiflac_network::MAX_RESPONSE_BYTES];
+        match std::env::var("SPOTIFLAC_TEXT_MEMORY_MODE").as_deref() {
+            Ok("copy") => {
+                let text = super::decode_go_utf8(&bytes);
+                assert_eq!(text.len(), bytes.len());
+                std::hint::black_box((&bytes, &text));
+            }
+            Ok("reuse") => {
+                let pointer = bytes.as_ptr();
+                let text = super::decode_go_utf8_owned(bytes);
+                assert_eq!(text.as_ptr(), pointer);
+                assert_eq!(text.len(), spotiflac_network::MAX_RESPONSE_BYTES);
+                std::hint::black_box(&text);
+            }
+            _ => panic!("set SPOTIFLAC_TEXT_MEMORY_MODE to copy or reuse"),
+        }
+    }
+
+    #[test]
+    fn owned_text_reuses_large_buffers_and_preserves_invalid_byte_decoding() {
+        let bytes = "Music 音楽 🎵\0".repeat(128 * 1024).into_bytes();
+        let pointer = bytes.as_ptr();
+        let capacity = bytes.capacity();
+        let text = super::decode_go_utf8_owned(bytes);
+        assert_eq!(text.as_ptr(), pointer);
+        assert_eq!(text.capacity(), capacity);
+        assert_eq!(text, "Music 音楽 🎵\0".repeat(128 * 1024));
+        for bytes in [
+            &b""[..],
+            b"a\xffb",
+            b"\xe2\x82",
+            b"\xed\xa0\x80",
+            b"\xf0\x9f\x8e\xb5\0\xff",
+        ] {
+            assert_eq!(
+                super::decode_go_utf8_owned(bytes.to_vec()),
+                super::decode_go_utf8(bytes),
+            );
+        }
+        assert_eq!(
+            super::decode_go_utf8_owned(vec![0xe2, 0x82]),
+            "\u{fffd}\u{fffd}"
+        );
+    }
+
     #[test]
     fn digest_upgrade_preserves_extension_hash_and_hmac_encodings() {
         let runtime = crate::ExtensionRuntime::load(

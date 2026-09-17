@@ -107,7 +107,7 @@ fn call<'js>(
                     return Err(READ_LIMIT_ERROR.into());
                 }
                 result
-                    .set("data", crate::host::decode_go_utf8(&bytes))
+                    .set("data", crate::host::decode_go_utf8_owned(bytes))
                     .map_err(js_error)?;
             } else {
                 input

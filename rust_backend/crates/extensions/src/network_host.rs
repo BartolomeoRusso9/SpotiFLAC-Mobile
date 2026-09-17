@@ -172,7 +172,7 @@ fn response_object<'js>(
         object.set("bytes", TypedArray::new_copy(ctx.clone(), response.body)?)?;
     } else {
         object.set("statusCode", response.status)?;
-        object.set("body", decode_go_utf8(&response.body))?;
+        object.set("body", crate::host::decode_go_utf8_owned(response.body))?;
     }
     Ok(object)
 }
@@ -191,4 +191,48 @@ fn encode_buffer(bytes: &TypedArray<'_, u8>) -> String {
     // SAFETY: same single-worker, no-engine-call borrowing rule as decode_buffer.
     let bytes = unsafe { bytes.as_bytes() }.unwrap_or_default();
     base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_response_preserves_status_headers_unicode_and_invalid_bytes() {
+        let runtime = rquickjs::Runtime::new().unwrap();
+        let context = rquickjs::Context::full(&runtime).unwrap();
+        context.with(|ctx| {
+            for body in ["Music 音楽 🎵\0".as_bytes(), &b"a\xe2\x82b"[..]] {
+                let response = response_object(
+                    &ctx,
+                    HttpResponse {
+                        status: 201,
+                        status_text: "Created".into(),
+                        url: "https://example.invalid/metadata".into(),
+                        headers: BTreeMap::from([(
+                            "Content-Type".into(),
+                            vec!["text/plain".into()],
+                        )]),
+                        body: body.to_vec(),
+                    },
+                    false,
+                )
+                .unwrap();
+                assert_eq!(
+                    response.get::<_, String>("body").unwrap(),
+                    decode_go_utf8(body)
+                );
+                assert_eq!(response.get::<_, u16>("statusCode").unwrap(), 201);
+                assert!(response.get::<_, bool>("ok").unwrap());
+                assert_eq!(
+                    response
+                        .get::<_, Object>("headers")
+                        .unwrap()
+                        .get::<_, String>("Content-Type")
+                        .unwrap(),
+                    "text/plain",
+                );
+            }
+        });
+    }
 }
