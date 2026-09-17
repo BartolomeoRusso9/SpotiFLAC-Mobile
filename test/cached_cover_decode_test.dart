@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:io';
+import 'dart:ui' as ui;
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:spotiflac_android/widgets/cached_cover_image.dart';
@@ -39,5 +43,284 @@ void main() {
         await tester.pumpWidget(const SizedBox());
       },
     );
+  }
+
+  for (final scenario in [
+    (
+      name: 'explicit row size',
+      width: 64.0,
+      height: 64.0,
+      bound: 64.0,
+      dpr: 2.0,
+      override: null,
+      fit: BoxFit.cover,
+      source: const Size(2048, 1024),
+      expected: const Size(256, 128),
+    ),
+    (
+      name: 'grid constraints',
+      width: null,
+      height: null,
+      bound: 96.0,
+      dpr: 3.0,
+      override: null,
+      fit: BoxFit.cover,
+      source: const Size(2048, 1024),
+      expected: const Size(576, 288),
+    ),
+    (
+      name: 'explicit decode override',
+      width: 64.0,
+      height: 64.0,
+      bound: 64.0,
+      dpr: 2.0,
+      override: 640,
+      fit: BoxFit.cover,
+      source: const Size(2048, 1024),
+      expected: const Size(640, 320),
+    ),
+    (
+      name: 'tight constraints override requested height',
+      width: null,
+      height: 48.0,
+      bound: 96.0,
+      dpr: 2.0,
+      override: null,
+      fit: BoxFit.cover,
+      source: const Size(2048, 1024),
+      expected: const Size(384, 192),
+    ),
+    (
+      name: 'unbounded artwork',
+      width: null,
+      height: null,
+      bound: null,
+      dpr: 2.0,
+      override: null,
+      fit: BoxFit.cover,
+      source: const Size(2048, 1024),
+      expected: const Size(2048, 1024),
+    ),
+    for (final fit in [BoxFit.contain, BoxFit.fitWidth, BoxFit.scaleDown])
+      (
+        name: '$fit uses visible source detail',
+        width: 64.0,
+        height: 64.0,
+        bound: 64.0,
+        dpr: 2.0,
+        override: null,
+        fit: fit,
+        source: const Size(2048, 1024),
+        expected: const Size(128, 64),
+      ),
+    for (final fit in [BoxFit.fill, BoxFit.fitHeight])
+      (
+        name: '$fit retains detail along both axes',
+        width: 64.0,
+        height: 64.0,
+        bound: 64.0,
+        dpr: 2.0,
+        override: null,
+        fit: fit,
+        source: const Size(2048, 1024),
+        expected: const Size(256, 128),
+      ),
+    (
+      name: 'none keeps original pixel scale',
+      width: 64.0,
+      height: 64.0,
+      bound: 64.0,
+      dpr: 2.0,
+      override: null,
+      fit: BoxFit.none,
+      source: const Size(2048, 1024),
+      expected: const Size(2048, 1024),
+    ),
+    (
+      name: 'portrait cover',
+      width: 64.0,
+      height: 64.0,
+      bound: 64.0,
+      dpr: 2.0,
+      override: null,
+      fit: BoxFit.cover,
+      source: const Size(1024, 2048),
+      expected: const Size(128, 256),
+    ),
+    (
+      name: 'small source is never upscaled during decode',
+      width: 64.0,
+      height: 64.0,
+      bound: 64.0,
+      dpr: 2.0,
+      override: null,
+      fit: BoxFit.cover,
+      source: const Size(32, 16),
+      expected: const Size(32, 16),
+    ),
+  ]) {
+    testWidgets(
+      'local ${scenario.name} retains only the expected decoded bitmap',
+      (tester) async {
+        final cache = PaintingBinding.instance.imageCache;
+        cache.clear();
+        cache.clearLiveImages();
+        final directory = await tester.runAsync(() async {
+          final directory = await Directory.systemTemp.createTemp(
+            'local-cover-decode-',
+          );
+          await _writeCover(directory, scenario.source);
+          return directory;
+        });
+        try {
+          final cover = LocalOrNetworkCoverImage(
+            url: '${directory!.path}/cover.png',
+            width: scenario.width,
+            height: scenario.height,
+            fit: scenario.fit,
+            localCacheWidth: scenario.override,
+            placeholder: (_) => const SizedBox(),
+          );
+          final decoded = await tester.runAsync(() async {
+            await tester.pumpWidget(
+              MaterialApp(
+                home: MediaQuery(
+                  data: MediaQueryData(devicePixelRatio: scenario.dpr),
+                  child: Center(
+                    child: scenario.bound == null
+                        ? OverflowBox(
+                            maxWidth: double.infinity,
+                            maxHeight: double.infinity,
+                            child: cover,
+                          )
+                        : SizedBox.square(
+                            dimension: scenario.bound,
+                            child: cover,
+                          ),
+                  ),
+                ),
+              ),
+            );
+            final imageWidget = tester.widget<Image>(find.byType(Image));
+            return _decodedImageSize(imageWidget.image);
+          });
+          expect(decoded, scenario.expected);
+          expect(
+            cache.currentSizeBytes,
+            scenario.expected.width.toInt() *
+                scenario.expected.height.toInt() *
+                4,
+          );
+          expect(
+            decoded!.width / decoded.height,
+            scenario.source.width / scenario.source.height,
+          );
+          await tester.pump();
+          expect(tester.takeException(), isNull);
+        } finally {
+          await tester.pumpWidget(const SizedBox());
+          cache.clear();
+          cache.clearLiveImages();
+          await tester.runAsync(() => directory!.delete(recursive: true));
+        }
+      },
+    );
+  }
+
+  testWidgets('local cache keys distinguish bounds and fit symmetrically', (
+    tester,
+  ) async {
+    final cache = PaintingBinding.instance.imageCache;
+    cache.clear();
+    cache.clearLiveImages();
+    final directory = await tester.runAsync(() async {
+      final directory = await Directory.systemTemp.createTemp(
+        'local-cover-key-',
+      );
+      await _writeCover(directory, const Size(2048, 1024));
+      return directory;
+    });
+    try {
+      final keys = <Object>[];
+      for (final scenario in [
+        (bound: 64.0, fit: BoxFit.cover, expected: const Size(256, 128)),
+        (bound: 64.0, fit: BoxFit.cover, expected: const Size(256, 128)),
+        (bound: 96.0, fit: BoxFit.cover, expected: const Size(384, 192)),
+        (bound: 64.0, fit: BoxFit.contain, expected: const Size(128, 64)),
+      ]) {
+        final decoded = await tester.runAsync(() async {
+          await tester.pumpWidget(
+            MaterialApp(
+              home: MediaQuery(
+                data: const MediaQueryData(devicePixelRatio: 2),
+                child: Center(
+                  child: SizedBox.square(
+                    dimension: scenario.bound,
+                    child: LocalOrNetworkCoverImage(
+                      url: '${directory!.path}/cover.png',
+                      fit: scenario.fit,
+                      placeholder: (_) => const SizedBox(),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          final provider = tester.widget<Image>(find.byType(Image)).image;
+          keys.add(await provider.obtainKey(ImageConfiguration.empty));
+          return _decodedImageSize(provider);
+        });
+        expect(decoded, scenario.expected);
+      }
+      expect(keys[0], keys[1]);
+      expect(keys[0].hashCode, keys[1].hashCode);
+      expect(keys.toSet(), hasLength(3));
+      final original = FileImage(File('${directory!.path}/cover.png'));
+      for (final key in keys) {
+        expect(key == original, isFalse);
+        expect(original == key, isFalse);
+      }
+      expect(cache.currentSize, 3);
+      expect(cache.currentSizeBytes, (256 * 128 + 384 * 192 + 128 * 64) * 4);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    } finally {
+      await tester.pumpWidget(const SizedBox());
+      cache.clear();
+      cache.clearLiveImages();
+      await tester.runAsync(() => directory!.delete(recursive: true));
+    }
+  });
+}
+
+Future<void> _writeCover(Directory directory, Size size) async {
+  final recorder = ui.PictureRecorder();
+  Canvas(recorder).drawRect(Offset.zero & size, Paint()..color = Colors.blue);
+  final picture = recorder.endRecording();
+  final image = await picture.toImage(size.width.toInt(), size.height.toInt());
+  final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+  image.dispose();
+  picture.dispose();
+  await File(
+    '${directory.path}/cover.png',
+  ).writeAsBytes(bytes!.buffer.asUint8List());
+}
+
+Future<Size> _decodedImageSize(ImageProvider provider) async {
+  final result = Completer<Size>();
+  final stream = provider.resolve(ImageConfiguration.empty);
+  final listener = ImageStreamListener((info, _) {
+    if (!result.isCompleted) {
+      result.complete(
+        Size(info.image.width.toDouble(), info.image.height.toDouble()),
+      );
+    }
+    info.dispose();
+  }, onError: result.completeError);
+  stream.addListener(listener);
+  try {
+    return await result.future.timeout(const Duration(seconds: 10));
+  } finally {
+    stream.removeListener(listener);
   }
 }

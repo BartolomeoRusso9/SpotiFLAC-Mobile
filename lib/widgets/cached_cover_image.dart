@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -151,39 +153,10 @@ class LocalOrNetworkCoverImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (_isLocal) {
-      final image = Image.file(
-        File(url),
-        width: width,
-        height: height,
-        fit: fit,
-        cacheWidth: localCacheWidth,
-        gaplessPlayback: true,
-        filterQuality: FilterQuality.low,
-        frameBuilder: fadeInDuration == null
-            ? null
-            : (context, child, frame, wasSynchronouslyLoaded) {
-                final ready = wasSynchronouslyLoaded || frame != null;
-                if (fadeInDuration == Duration.zero) {
-                  return ready ? child : placeholder(context);
-                }
-                return Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    placeholder(context),
-                    AnimatedOpacity(
-                      opacity: ready ? 1.0 : 0.0,
-                      duration: fadeInDuration!,
-                      curve: Curves.easeOutCubic,
-                      child: child,
-                    ),
-                  ],
-                );
-              },
-        errorBuilder: (_, _, _) => placeholder(context),
-      );
-      return borderRadius == null
-          ? image
-          : ClipRRect(borderRadius: borderRadius!, child: image);
+      if (localCacheWidth != null) {
+        return _buildLocalImage(context, const BoxConstraints());
+      }
+      return LayoutBuilder(builder: _buildLocalImage);
     }
 
     return CachedCoverImage(
@@ -199,6 +172,130 @@ class LocalOrNetworkCoverImage extends StatelessWidget {
       errorWidget: (_, _, _) => placeholder(context),
     );
   }
+
+  Widget _buildLocalImage(BuildContext context, BoxConstraints constraints) {
+    final file = File(url);
+    final ImageProvider provider;
+    if (localCacheWidth != null) {
+      provider = ResizeImage(FileImage(file), width: localCacheWidth);
+    } else {
+      final decodeWidth = _localDecodeExtent(
+        context,
+        constraints.constrainWidth(width ?? double.infinity),
+      );
+      final decodeHeight = _localDecodeExtent(
+        context,
+        constraints.constrainHeight(height ?? double.infinity),
+      );
+      provider = decodeWidth == null && decodeHeight == null
+          ? FileImage(file)
+          : _FittedLocalFileImage(
+              file,
+              width: decodeWidth,
+              height: decodeHeight,
+              fit: fit,
+            );
+    }
+    final image = Image(
+      image: provider,
+      width: width,
+      height: height,
+      fit: fit,
+      gaplessPlayback: true,
+      filterQuality: FilterQuality.low,
+      frameBuilder: fadeInDuration == null
+          ? null
+          : (context, child, frame, wasSynchronouslyLoaded) {
+              final ready = wasSynchronouslyLoaded || frame != null;
+              if (fadeInDuration == Duration.zero) {
+                return ready ? child : placeholder(context);
+              }
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  placeholder(context),
+                  AnimatedOpacity(
+                    opacity: ready ? 1.0 : 0.0,
+                    duration: fadeInDuration!,
+                    curve: Curves.easeOutCubic,
+                    child: child,
+                  ),
+                ],
+              );
+            },
+      errorBuilder: (_, _, _) => placeholder(context),
+    );
+    return borderRadius == null
+        ? image
+        : ClipRRect(borderRadius: borderRadius!, child: image);
+  }
+
+  static int? _localDecodeExtent(BuildContext context, double? size) {
+    if (size == null || !size.isFinite || size <= 0) return null;
+    return (size * MediaQuery.devicePixelRatioOf(context)).ceil();
+  }
+}
+
+/// Lets Flutter read intrinsic dimensions before choosing the decode size.
+/// FileImage still owns file loading, codec creation and image lifecycle.
+class _FittedLocalFileImage extends FileImage {
+  final int? width;
+  final int? height;
+  final BoxFit fit;
+
+  const _FittedLocalFileImage(
+    super.file, {
+    required this.width,
+    required this.height,
+    required this.fit,
+  });
+
+  @override
+  ImageStreamCompleter loadImage(FileImage key, ImageDecoderCallback decode) {
+    return super.loadImage(key, (buffer, {getTargetSize}) {
+      return decode(
+        buffer,
+        getTargetSize: (intrinsicWidth, intrinsicHeight) {
+          final double ratio;
+          if (width != null && height != null) {
+            final fitted = applyBoxFit(
+              fit,
+              Size(intrinsicWidth.toDouble(), intrinsicHeight.toDouble()),
+              Size(width!.toDouble(), height!.toDouble()),
+            );
+            ratio = math.max(
+              fitted.destination.width / fitted.source.width,
+              fitted.destination.height / fitted.source.height,
+            );
+          } else if (fit == BoxFit.none) {
+            ratio = 1;
+          } else {
+            ratio = width != null
+                ? width! / intrinsicWidth
+                : height! / intrinsicHeight;
+          }
+          // Never enlarge the decoded source. Cover uses the cropped source
+          // dimensions above, retaining enough pixels along both display axes.
+          final scale = ratio.clamp(0.0, 1.0);
+          return ui.TargetImageSize(
+            width: (intrinsicWidth * scale).ceil().clamp(1, intrinsicWidth),
+            height: (intrinsicHeight * scale).ceil().clamp(1, intrinsicHeight),
+          );
+        },
+      );
+    });
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is _FittedLocalFileImage &&
+      super == other &&
+      width == other.width &&
+      height == other.height &&
+      fit == other.fit;
+
+  @override
+  int get hashCode => Object.hash(super.hashCode, width, height, fit);
 }
 
 CachedNetworkImageProvider cachedCoverImageProvider(String url) {
