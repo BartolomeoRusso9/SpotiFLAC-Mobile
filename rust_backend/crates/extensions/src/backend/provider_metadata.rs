@@ -6,6 +6,9 @@ use spotiflac_providers::resolver::{Check, ResolverError};
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
+#[cfg(test)]
+mod value_tests;
+
 impl Backend {
     pub fn enrich_track_json(&self, id: &str, track_json: &str) -> Result<String, String> {
         let _operation = self.enter()?;
@@ -186,7 +189,10 @@ impl Backend {
                 }
             };
             let arguments = json!([resource_id]).to_string();
-            let result = self.provider_metadata_call(id, method, &arguments, check)?;
+            let result = self.metadata_provider_work_result(check, |lease| {
+                self.manager
+                    .provider_call_value(id, method, &arguments, Some(lease), 30_000)
+            })?;
             let result = response(kind, &result, check)?;
             serde_json::to_string(&result).map_err(|error| ResolverError::Failed(error.to_string()))
         })
@@ -210,6 +216,15 @@ impl Backend {
         check: &Check<'_>,
         work: impl FnOnce(Arc<RequestLease>) -> Result<String, ManagerError> + Send,
     ) -> Result<Value, ResolverError> {
+        let result = self.metadata_provider_work_result(check, work)?;
+        serde_json::from_str(&result).map_err(|error| ResolverError::Failed(error.to_string()))
+    }
+
+    fn metadata_provider_work_result<T: Send>(
+        &self,
+        check: &Check<'_>,
+        work: impl FnOnce(Arc<RequestLease>) -> Result<T, ManagerError> + Send,
+    ) -> Result<T, ResolverError> {
         let cancellation = CancellationRegistry::new(CancellationDomain::ExtensionRequest);
         let lease = Arc::new(
             cancellation
@@ -248,8 +263,7 @@ impl Backend {
                 return Err(ResolverError::Cancelled(message));
             }
             check().map_err(ResolverError::Cancelled)?;
-            let result = result.map_err(|error| ResolverError::Failed(error.to_string()))?;
-            serde_json::from_str(&result).map_err(|error| ResolverError::Failed(error.to_string()))
+            result.map_err(|error| ResolverError::Failed(error.to_string()))
         })
     }
 }

@@ -175,6 +175,19 @@ impl ExtensionManager {
         self.provider_operation(id, method, arguments, lease, timeout_ms, "")
     }
 
+    /// Internal native callers keep the already validated provider value;
+    /// only public string boundaries need to serialize it again.
+    pub(crate) fn provider_call_value(
+        &self,
+        id: &str,
+        method: &str,
+        arguments: &str,
+        lease: Option<Arc<RequestLease>>,
+        timeout_ms: u64,
+    ) -> Result<Value, ManagerError> {
+        self.provider_operation_value(id, method, arguments, lease, timeout_ms, "")
+    }
+
     pub(super) fn provider_operation(
         &self,
         id: &str,
@@ -184,6 +197,19 @@ impl ExtensionManager {
         timeout_ms: u64,
         item_id: &str,
     ) -> Result<String, ManagerError> {
+        self.provider_operation_value(id, method, arguments, lease, timeout_ms, item_id)
+            .map(|value| value.to_string())
+    }
+
+    fn provider_operation_value(
+        &self,
+        id: &str,
+        method: &str,
+        arguments: &str,
+        lease: Option<Arc<RequestLease>>,
+        timeout_ms: u64,
+        item_id: &str,
+    ) -> Result<Value, ManagerError> {
         let entry = self.get(id)?;
         let manifest = &entry.manifest;
         let requirement =
@@ -300,12 +326,12 @@ impl ExtensionManager {
                 return Err(verification_error(id));
             }
             if value.is_null() {
-                return Ok(json!({"available":false,"reason":"not implemented"}).to_string());
+                return Ok(json!({"available":false,"reason":"not implemented"}));
             }
         }
         if value.is_null() {
             return if method == "customSearch" {
-                Ok("[]".into())
+                Ok(json!([]))
             } else if method == "handleUrl" {
                 Err(error("handleUrl returned null - URL not recognized"))
             } else {
@@ -374,7 +400,7 @@ impl ExtensionManager {
             }
             _ => {}
         }
-        Ok(value.to_string())
+        Ok(value)
     }
 }
 

@@ -1,0 +1,191 @@
+use super::*;
+use crate::RuntimeLimits;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+const ID: &str = "example.metadata";
+const SOURCE: &str = r#"
+function collection(id) {
+    if (id === "null") return null;
+    if (id === "bad") return {id: "bad", tracks: {}};
+    if (id === "scalar") return {id: "scalar", tracks: "not an array"};
+    if (id === "throw") throw new Error("fixture failure");
+    const count = Number(id);
+    return {id, name: "Album 音楽 🎵", artists: "Artist Café", provider_id: "supplied",
+        cover_url: "https://example.invalid/cover.jpg", total_tracks: count,
+        tracks: Array.from({length: count}, (_, i) => ({id: "track-" + i,
+            name: "歌 🎵 " + i, artists: "Artist Café", album_name: "Album 音楽 🎵",
+            provider_id: "supplied-track", duration_ms: 123456, track_number: i + 1,
+            explicit: i % 2 === 0, external_links: {example: "https://example.invalid/track/" + i}}))};
+}
+registerExtension({getAlbum: collection, getPlaylist: collection});
+"#;
+
+fn fixture() -> (tempfile::TempDir, Backend) {
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("sources").join(ID);
+    std::fs::create_dir_all(&source).unwrap();
+    std::fs::write(
+        source.join("manifest.json"),
+        json!({"name":ID,"displayName":"Example Metadata","version":"1",
+            "description":"Generic metadata fixture","type":["metadata_provider"]})
+        .to_string(),
+    )
+    .unwrap();
+    std::fs::write(source.join("index.js"), SOURCE).unwrap();
+    let backend = Backend::new(
+        &root.path().join("sources"),
+        &root.path().join("data"),
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "1",
+        RuntimeLimits::default(),
+    )
+    .unwrap();
+    backend.load_all().unwrap();
+    backend.set_enabled(ID, true).unwrap();
+    (root, backend)
+}
+
+#[test]
+fn metadata_value_bridge_preserves_album_playlist_and_public_json() {
+    let (_root, backend) = fixture();
+    for (kind, method) in [("album", "getAlbum"), ("playlist", "getPlaylist")] {
+        let arguments = r#"["100"]"#;
+        let legacy = backend
+            .manager
+            .provider_call(ID, method, arguments, None, 30_000)
+            .unwrap();
+        let legacy_value: Value = serde_json::from_str(&legacy).unwrap();
+        let value = backend
+            .manager
+            .provider_call_value(ID, method, arguments, None, 30_000)
+            .unwrap();
+        assert_eq!(value, legacy_value);
+        assert_eq!(value.to_string(), legacy);
+        assert_eq!(value["provider_id"], ID);
+        assert_eq!(value["tracks"][99]["provider_id"], ID);
+        assert_eq!(value["tracks"][99]["name"], "歌 🎵 99");
+        let expected = response(kind, &legacy_value, &|| Ok(())).unwrap();
+        let actual = backend
+            .get_provider_metadata_json(ID, kind, "100", &|| Ok(()))
+            .unwrap();
+        assert_eq!(actual, expected.to_string());
+        // Legacy array-like coercion accepts a string as one default track per
+        // character. Keep that compatibility rather than tightening decoding.
+        let scalar = backend
+            .manager
+            .provider_call(ID, method, r#"["scalar"]"#, None, 30_000)
+            .unwrap();
+        let scalar_value = backend
+            .manager
+            .provider_call_value(ID, method, r#"["scalar"]"#, None, 30_000)
+            .unwrap();
+        assert_eq!(scalar_value.to_string(), scalar);
+        assert_eq!(scalar_value["tracks"].as_array().unwrap().len(), 12);
+    }
+    if std::env::var_os("SPOTIFLAC_METADATA_BRIDGE_BENCH").is_some() {
+        measure_removed_roundtrip(&backend);
+    }
+    backend.shutdown();
+}
+
+#[test]
+fn metadata_value_bridge_preserves_provider_errors_and_cancelled_leases() {
+    let (_root, backend) = fixture();
+    for (kind, method) in [("album", "getAlbum"), ("playlist", "getPlaylist")] {
+        for id in ["null", "bad", "throw"] {
+            let arguments = json!([id]).to_string();
+            let legacy = backend
+                .manager
+                .provider_call(ID, method, &arguments, None, 30_000)
+                .unwrap_err();
+            let typed = backend
+                .manager
+                .provider_call_value(ID, method, &arguments, None, 30_000)
+                .unwrap_err();
+            assert_eq!(typed.to_string(), legacy.to_string());
+            let facade = backend
+                .get_provider_metadata_json(ID, kind, id, &|| Ok(()))
+                .unwrap_err();
+            assert!(facade.contains(&legacy.to_string()), "{facade}");
+        }
+    }
+    let registry = CancellationRegistry::new(CancellationDomain::ExtensionRequest);
+    let lease = Arc::new(registry.acquire("metadata-fixture").unwrap());
+    lease.release();
+    let legacy = backend
+        .manager
+        .provider_call(ID, "getAlbum", r#"["1"]"#, Some(lease.clone()), 30_000)
+        .unwrap_err();
+    let typed = backend
+        .manager
+        .provider_call_value(ID, "getAlbum", r#"["1"]"#, Some(lease), 30_000)
+        .unwrap_err();
+    assert_eq!(typed.to_string(), legacy.to_string());
+    backend.shutdown();
+}
+
+#[test]
+fn metadata_value_worker_joins_cancellation_and_reports_panic() {
+    let (_root, backend) = fixture();
+    let started = AtomicBool::new(false);
+    let joined = AtomicBool::new(false);
+    let result = backend.metadata_provider_work_result(
+        &|| {
+            if started.load(Ordering::Acquire) {
+                Err("cancelled typed result".into())
+            } else {
+                Ok(())
+            }
+        },
+        |lease| {
+            started.store(true, Ordering::Release);
+            assert!(lease.wait_cancelled(60_000).is_err());
+            joined.store(true, Ordering::Release);
+            Ok(json!({"tracks":[]}))
+        },
+    );
+    assert_eq!(
+        result,
+        Err(ResolverError::Cancelled("cancelled typed result".into()))
+    );
+    assert!(joined.load(Ordering::Acquire));
+    let panic = backend
+        .metadata_provider_work_result(&|| Ok(()), |_| -> Result<Value, ManagerError> {
+            panic!("typed metadata worker failed")
+        });
+    assert_eq!(
+        panic,
+        Err(ResolverError::Failed("metadata provider panicked".into()))
+    );
+    backend.shutdown();
+}
+
+fn measure_removed_roundtrip(backend: &Backend) {
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    for count in [1, 100, 1_000, 10_000] {
+        let value = backend
+            .manager
+            .provider_call_value(
+                ID,
+                "getPlaylist",
+                &json!([count.to_string()]).to_string(),
+                None,
+                30_000,
+            )
+            .unwrap();
+        let bytes = value.to_string().len();
+        let iterations = if count >= 1_000 { 25 } else { 100 };
+        let start = Instant::now();
+        for _ in 0..iterations {
+            let encoded = black_box(&value).to_string();
+            let decoded: Value = serde_json::from_str(black_box(&encoded)).unwrap();
+            black_box(decoded);
+        }
+        let micros = start.elapsed().as_secs_f64() * 1_000_000.0 / f64::from(iterations);
+        eprintln!(
+            "metadata bridge isolated removed serialize+parse: tracks={count} bytes={bytes} iterations={iterations} mean_us={micros:.2}"
+        );
+    }
+}
