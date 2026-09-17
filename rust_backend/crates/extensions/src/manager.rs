@@ -314,6 +314,9 @@ impl ExtensionManager {
                     .err()
                     .unwrap_or_else(|| error_from_environment(other)),
             })?;
+        // Keep the same source allocation as the VM/isolated-worker cache.
+        // The loader copied the input into its owned CompiledSource.
+        let source = runtime.shared_source();
         Ok((runtime, source))
     }
 
@@ -1068,6 +1071,56 @@ fn information(entry: &Installed) -> Value {
 mod tests {
     use super::{ExtensionManager, RuntimeLimits};
     use std::fs::File;
+    use std::sync::Arc;
+
+    #[test]
+    fn manager_and_isolated_vm_share_one_retained_source_allocation() {
+        let directory = tempfile::tempdir().unwrap();
+        let sources = directory.path().join("sources");
+        let source_dir = sources.join("example.memory");
+        std::fs::create_dir_all(&source_dir).unwrap();
+        let manifest = r#"{"name":"example.memory","displayName":"Example Memory","version":"1","description":"Generic memory fixture","type":["metadata_provider"]}"#;
+        std::fs::write(source_dir.join("manifest.json"), manifest).unwrap();
+        let source = format!(
+            "/*{}*/let calls=0;registerExtension({{next(){{return ++calls;}}}});",
+            "x".repeat(4 * 1024 * 1024)
+        );
+        let source_bytes = source.len();
+        std::fs::write(source_dir.join("index.js"), &source).unwrap();
+        drop(source);
+        let manager = ExtensionManager::new(
+            &sources,
+            &directory.path().join("data"),
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            "1",
+            RuntimeLimits::default(),
+        )
+        .unwrap();
+        manager.load_all().unwrap();
+        manager.set_enabled("example.memory", true).unwrap();
+        let entry = manager.get("example.memory").unwrap();
+        let mut engine = entry.engine.lock().unwrap();
+        let primary = manager.ready(&entry, &mut engine, true).unwrap();
+        let retained = engine.source.as_ref().unwrap();
+        assert!(Arc::ptr_eq(retained, &primary.shared_source()));
+        let isolated = manager
+            .environment
+            .load_isolated(manifest, retained, RuntimeLimits::default(), &primary)
+            .unwrap();
+        assert!(Arc::ptr_eq(retained, &isolated.shared_source()));
+        assert_eq!(retained.len(), source_bytes);
+        drop(engine);
+        assert_eq!(primary.call("next", "[]", None, 0).unwrap(), "1");
+        assert_eq!(isolated.call("next", "[]", None, 0).unwrap(), "1");
+        isolated.shutdown();
+        assert_eq!(primary.call("next", "[]", None, 0).unwrap(), "2");
+        eprintln!(
+            "retained source text: baseline_bytes={} shared_bytes={} saved_bytes={source_bytes}; primary/isolated JS state remains separate",
+            source_bytes * 2,
+            source_bytes
+        );
+        manager.shutdown();
+    }
 
     #[test]
     fn shutdown_unlocks_inherited_descriptors_without_unlocking_reopened_owner() {

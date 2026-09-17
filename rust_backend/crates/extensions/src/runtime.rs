@@ -312,6 +312,10 @@ pub struct ExtensionRuntime {
 }
 
 impl ExtensionRuntime {
+    pub(crate) fn shared_source(&self) -> Arc<str> {
+        Arc::clone(&self.compiled_source.source)
+    }
+
     pub fn load(
         source: &str,
         settings_json: &str,
