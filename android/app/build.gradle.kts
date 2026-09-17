@@ -88,7 +88,7 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
-        
+
         ndk {
             abiFilters.clear()
             abiFilters += rustAndroidAbis
@@ -138,7 +138,7 @@ android {
             }
         }
     }
-    
+
     // Split APKs by ABI for smaller individual downloads
     splits {
         abi {
@@ -182,7 +182,7 @@ dependencies {
     }
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     implementation("net.java.dev.jna:jna:5.19.1@aar")
-    
+
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
     implementation("androidx.documentfile:documentfile:1.1.0")

@@ -38,7 +38,7 @@ body:
         The current API doesn't support:
         - [missing feature 1]
         - [missing feature 2]
-        
+
         This prevents me from...
     validations:
       required: true

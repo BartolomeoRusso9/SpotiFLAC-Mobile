@@ -22,7 +22,7 @@ import UniformTypeIdentifiers
     private var backendChannel: FlutterMethodChannel?
     private let coreBackend: CoreBackend = createCoreBackend()
     private var pendingSessionGrantEvents: [[String: Any]] = []
-    
+
     private let securityScopedAccessLock = NSLock()
     private var securityScopedAccesses: [String: (URL, CoreDirectoryScope)] = [:]
 
@@ -38,12 +38,12 @@ import UniformTypeIdentifiers
     /// Strong reference to the in-flight ASWebAuthenticationSession; the
     /// session is deallocated (and its sheet dismissed) without it.
     private var activeWebAuthSession: AnyObject?
-    
+
     override func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        
+
         let controller = window?.rootViewController as! FlutterViewController
         let channel = FlutterMethodChannel(
             name: CHANNEL,
@@ -65,7 +65,7 @@ import UniformTypeIdentifiers
             name: LIBRARY_SCAN_PROGRESS_STREAM_CHANNEL,
             binaryMessenger: controller.binaryMessenger
         )
-        
+
         channel.setMethodCallHandler { [weak self] call, result in
             self?.handleMethodCall(call: call, result: result)
         }
@@ -93,7 +93,7 @@ import UniformTypeIdentifiers
                 }
             )
         )
-        
+
         GeneratedPluginRegistrant.register(with: self)
         if let url = launchOptions?[.url] as? URL {
             _ = handleExtensionOAuthRedirect(url: url)
@@ -225,7 +225,7 @@ import UniformTypeIdentifiers
             return payload
         }
     }
-    
+
     private func handleMethodCall(call: FlutterMethodCall, result: @escaping FlutterResult) {
         let osMethods: Set<String> = ["getBackendImplementations", "startWebAuthSession", "beginBackgroundDownloadTask", "endBackgroundDownloadTask",
             "pickIosDirectory", "createIosBookmarkFromPath", "resolveIosBookmark", "startAccessingIosBookmark", "stopAccessingIosBookmark", "downloadCoverToFile", "releaseMemory", "releaseMemoryUnderPressure",
@@ -372,9 +372,9 @@ import UniformTypeIdentifiers
             downloadBackgroundTask = .invalid
         }
     }
-    
+
     private func invokeGoMethod(call: FlutterMethodCall) throws -> Any? {
-        
+
         switch call.method {
         case "downloadByStrategy":
             let requestJson = call.arguments as! String
@@ -402,7 +402,7 @@ import UniformTypeIdentifiers
             let template = args["template"] as! String
             let metadata = args["metadata"] as! String
             return try coreBackend.buildFilename(template: template, metadataJson: metadata)
-            
+
         case "sanitizeFilename":
             let args = call.arguments as! [String: Any]
             let filename = args["filename"] as! String
@@ -458,12 +458,12 @@ import UniformTypeIdentifiers
             let args = call.arguments as! [String: Any]
             let requestJson = args["request_json"] as? String ?? "{}"
             return try coreBackend.reEnrichFile(requestJson: requestJson)
-            
+
         case "readFileMetadata":
             let args = call.arguments as! [String: Any]
             let filePath = args["file_path"] as! String
             return try coreBackend.readFileMetadata(path: filePath, hint: args["display_name"] as? String ?? "")
-            
+
         case "editFileMetadata":
             let args = call.arguments as! [String: Any]
             let filePath = args["file_path"] as! String
@@ -494,7 +494,7 @@ import UniformTypeIdentifiers
             let cacheDir = args["cache_dir"] as! String
             try coreBackend.setLibraryCoverCacheDirectory(path: cacheDir)
             return nil
-            
+
         case "scanLibraryFolder":
             let args = call.arguments as! [String: Any]
             let folderPath = args["folder_path"] as! String
@@ -512,16 +512,16 @@ import UniformTypeIdentifiers
             }
             let count = try coreBackend.scanLibraryFolderToNdjsonFile(folder: folderPath, output: outputPath)
             return ["path": outputPath, "count": count]
-            
+
         case "scanLibraryFolderIncremental":
             let args = call.arguments as! [String: Any]
             let folderPath = args["folder_path"] as! String
             let existingFiles = args["existing_files"] as? String ?? "{}"
             return bridgeJsonResult(try coreBackend.scanLibraryFolderIncremental(folder: folderPath, existing: existingFiles))
-            
+
         case "getLibraryScanProgress":
             return parseJsonPayload(try coreBackend.getLibraryScanProgress())
-            
+
         case "cancelLibraryScan":
             try coreBackend.cancelLibraryScan()
             return nil
@@ -531,7 +531,7 @@ import UniformTypeIdentifiers
             let args = call.arguments as! [String: Any]
             let bookmarkBase64 = args["bookmark"] as! String
             return try resolveIosBookmark(bookmarkBase64)
-            
+
         case "startAccessingIosBookmark":
             guard
                 let args = call.arguments as? [String: Any],
@@ -541,7 +541,7 @@ import UniformTypeIdentifiers
                 throw invalidArgumentsError(call.method)
             }
             return try startAccessingIosBookmark(bookmarkBase64)
-            
+
         case "stopAccessingIosBookmark":
             guard
                 let args = call.arguments as? [String: Any],
@@ -552,7 +552,7 @@ import UniformTypeIdentifiers
             }
             stopAccessingIosBookmark(token: token)
             return nil
-            
+
         case "createIosBookmarkFromPath":
             let args = call.arguments as! [String: Any]
             let path = args["path"] as! String
@@ -564,7 +564,7 @@ import UniformTypeIdentifiers
             let cuePath = args["cue_path"] as! String
             let audioDir = args["audio_dir"] as? String ?? ""
             return try coreBackend.parseCueSheet(path: cuePath, audioDirectory: audioDir)
-            
+
         default:
             throw NSError(
                 domain: "SpotiFLAC",
@@ -573,7 +573,7 @@ import UniformTypeIdentifiers
             )
         }
     }
-    
+
     // MARK: - Native Folder Picker
 
     /// Present a native folder picker and return `{path, bookmark}` where the
@@ -633,7 +633,7 @@ import UniformTypeIdentifiers
             )
         }
     }
-    
+
     /// Resolve a base64-encoded security-scoped bookmark and return the resolved path.
     /// Does NOT start accessing the resource.
     private func resolveIosBookmark(_ bookmarkBase64: String) throws -> String {
@@ -644,7 +644,7 @@ import UniformTypeIdentifiers
                 userInfo: [NSLocalizedDescriptionKey: "Invalid base64 bookmark data"]
             )
         }
-        
+
         var isStale = false
         let url: URL
         do {
@@ -666,10 +666,10 @@ import UniformTypeIdentifiers
                 userInfo: [NSLocalizedDescriptionKey: "Failed to resolve bookmark: \(error.localizedDescription)"]
             )
         }
-        
+
         return url.path
     }
-    
+
     private func invalidArgumentsError(_ method: String) -> NSError {
         return NSError(
             domain: "SpotiFLAC",
@@ -687,7 +687,7 @@ import UniformTypeIdentifiers
                 userInfo: [NSLocalizedDescriptionKey: "Invalid base64 bookmark data"]
             )
         }
-        
+
         var isStale = false
         let url: URL
         do {
@@ -709,7 +709,7 @@ import UniformTypeIdentifiers
                 userInfo: [NSLocalizedDescriptionKey: "Failed to resolve bookmark: \(error.localizedDescription)"]
             )
         }
-        
+
         guard url.startAccessingSecurityScopedResource() else {
             throw NSError(
                 domain: "SpotiFLAC",
@@ -717,7 +717,7 @@ import UniformTypeIdentifiers
                 userInfo: [NSLocalizedDescriptionKey: "Failed to start accessing security-scoped resource at \(url.path)"]
             )
         }
-        
+
         let scope: CoreDirectoryScope
         do {
             scope = try coreBackend.openDownloadDirectory(path: url.path)
@@ -731,7 +731,7 @@ import UniformTypeIdentifiers
         securityScopedAccessLock.unlock()
         return ["path": url.path, "token": token]
     }
-    
+
     /// Releases only the lease identified by the caller's token.
     private func stopAccessingIosBookmark(token: String) {
         securityScopedAccessLock.lock()

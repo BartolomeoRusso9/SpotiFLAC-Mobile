@@ -43,13 +43,13 @@ import java.util.concurrent.atomic.AtomicReference
 /**
  * Foreground service to keep downloads running when app is in background.
  * This prevents Android from killing the download process or throttling network.
- * 
+ *
  * Note: Android 15+ (API 35+) has a 6-hour timeout for dataSync foreground services.
  * The service will be stopped automatically after 6 hours of cumulative runtime in 24 hours.
  */
 class DownloadService : Service() {
     internal val coreBackend: CoreBackend by lazy { createCoreBackend(applicationContext) }
-    
+
     companion object {
         private const val CHANNEL_ID = "download_channel"
         private const val ALERT_CHANNEL_ID = "download_alerts_v1"
@@ -59,7 +59,7 @@ class DownloadService : Service() {
         private const val WAKELOCK_TAG = "SpotiFLAC:DownloadWakeLock"
         private const val WAKELOCK_RENEW_MS = 30 * 60 * 1000L
         private const val WAKELOCK_RENEW_INTERVAL_MS = 15 * 60 * 1000L
-        
+
         const val ACTION_START = "com.zarz.spotiflac.action.START_DOWNLOAD"
         const val ACTION_STOP = "com.zarz.spotiflac.action.STOP_DOWNLOAD"
         const val ACTION_UPDATE_PROGRESS = "com.zarz.spotiflac.action.UPDATE_PROGRESS"
@@ -72,7 +72,7 @@ class DownloadService : Service() {
         const val ACTION_PAUSE_NATIVE_QUEUE = "com.zarz.spotiflac.action.PAUSE_NATIVE_QUEUE"
         const val ACTION_RESUME_NATIVE_QUEUE = "com.zarz.spotiflac.action.RESUME_NATIVE_QUEUE"
         const val ACTION_CANCEL_NATIVE_QUEUE = "com.zarz.spotiflac.action.CANCEL_NATIVE_QUEUE"
-        
+
         const val EXTRA_TRACK_NAME = "track_name"
         const val EXTRA_ARTIST_NAME = "artist_name"
         const val EXTRA_PROGRESS = "progress"
@@ -93,14 +93,14 @@ class DownloadService : Service() {
         private const val LEGACY_NOTIFICATION_PERCENT_TOTAL = 100L
         internal val NATIVE_WORKER_STATE_FILE_LOCK = Any()
         internal val NATIVE_REPLAYGAIN_JOURNAL_FILE_LOCK = Any()
-        
+
         private var isRunning = false
 
         internal fun isPercentOnlyNotificationTotal(total: Long): Boolean =
             total == NOTIFICATION_PERCENT_TOTAL || total == LEGACY_NOTIFICATION_PERCENT_TOTAL
-        
+
         fun isServiceRunning(): Boolean = isRunning
-        
+
         fun start(context: Context, trackName: String = "", artistName: String = "", queueCount: Int = 0) {
             val intent = Intent(context, DownloadService::class.java).apply {
                 action = ACTION_START
@@ -114,14 +114,14 @@ class DownloadService : Service() {
                 context.startService(intent)
             }
         }
-        
+
         fun stop(context: Context) {
             val intent = Intent(context, DownloadService::class.java).apply {
                 action = ACTION_STOP
             }
             context.startService(intent)
         }
-        
+
         fun updateProgress(context: Context, trackName: String, artistName: String, progress: Long, total: Long, queueCount: Int, status: String = "downloading") {
             val intent = Intent(context, DownloadService::class.java).apply {
                 action = ACTION_UPDATE_PROGRESS
@@ -307,7 +307,7 @@ class DownloadService : Service() {
             state.put("snapshot_mode", "compact_with_delta")
         }
     }
-    
+
     internal data class NativeDownloadRequest(
         val itemId: String,
         val requestJson: String,
@@ -390,12 +390,12 @@ class DownloadService : Service() {
     // cannot interrupt the blocking native call it may be sitting in, and
     // the shared pause/cancel flags get reset for the new run.
     @Volatile private var nativeWorkerGeneration = 0L
-    
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
     }
-    
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null) {
             flushNativeAlbumReplayGainJournalIfComplete()
@@ -568,9 +568,9 @@ class DownloadService : Service() {
 
         return intent.getStringExtra(jsonExtra) ?: defaultValue
     }
-    
+
     override fun onBind(intent: Intent?): IBinder? = null
-    
+
     /**
      * Called when the foreground service timeout is reached (Android 15+, API 35+).
      * dataSync services have a 6-hour limit in a 24-hour period.
@@ -635,7 +635,7 @@ class DownloadService : Service() {
         // Only tear down the foreground-service resources here.
         stopForegroundService(cancelNativeWorker = false)
     }
-    
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val progressChannel = NotificationChannel(
@@ -659,7 +659,7 @@ class DownloadService : Service() {
             manager.createNotificationChannel(alertChannel)
         }
     }
-    
+
     private fun startForegroundService() {
         isRunning = true
         lastNotificationSignature = null
@@ -1825,7 +1825,7 @@ class DownloadService : Service() {
             isRunning
 
     internal fun nativeWorkerCurrentItemIdSnapshot(): String = nativeWorkerCurrentItemId
-    
+
     @Synchronized
     internal fun updateNotification(progress: Long, total: Long) {
         if (!isRunning) return
@@ -1897,7 +1897,7 @@ class DownloadService : Service() {
             android.util.Log.w("DownloadService", "Widget update failed: ${e.message}")
         }
     }
-    
+
     private fun buildNotification(progress: Long, total: Long): Notification {
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -1905,7 +1905,7 @@ class DownloadService : Service() {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        
+
         val title = if (queueCount > 1) {
             "Downloading $queueCount tracks"
         } else if (currentTrackName.isNotEmpty()) {
@@ -1913,7 +1913,7 @@ class DownloadService : Service() {
         } else {
             "Downloading..."
         }
-        
+
         val text = if (currentStatus == "verification_required") {
             "Open the app to complete verification"
         } else if (currentStatus == "rate_limited") {
@@ -1937,7 +1937,7 @@ class DownloadService : Service() {
         } else {
             "Downloading..."
         }
-        
+
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
@@ -1947,7 +1947,7 @@ class DownloadService : Service() {
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-        
+
         if ((currentStatus == "preparing" || currentStatus == "downloading") && total <= 0) {
             builder.setProgress(0, 0, true)
         } else if (total > 0) {
@@ -1955,7 +1955,7 @@ class DownloadService : Service() {
         } else {
             builder.setProgress(0, 0, false)
         }
-        
+
         return builder.build()
     }
 
@@ -2039,7 +2039,7 @@ class DownloadService : Service() {
         val manager = getSystemService(NotificationManager::class.java)
         manager.cancel(VERIFICATION_REQUIRED_NOTIFICATION_ID)
     }
-    
+
     override fun onDestroy() {
         cancelScheduledNativeWorkerItemsSnapshot()
         unregisterNativeWorkerNetworkCallback()

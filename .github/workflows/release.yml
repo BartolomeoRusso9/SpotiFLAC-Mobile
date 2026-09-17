@@ -545,11 +545,11 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           CHANGELOG=$(cat /tmp/changelog.txt)
-          
+
           # Find APK files
           ARM64_APK=$(find ./release -name "*arm64*.apk" | head -1)
           ARM32_APK=$(find ./release -name "*arm32*.apk" | head -1)
-          
+
           # Prepare message with changelog (HTML format)
           printf '%s\n' \
             "<b>SpotiFLAC Mobile ${VERSION} Released!</b>" \

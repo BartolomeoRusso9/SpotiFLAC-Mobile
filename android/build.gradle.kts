@@ -14,15 +14,15 @@ subprojects {
                     sourceCompatibility = JavaVersion.VERSION_25
                     targetCompatibility = JavaVersion.VERSION_25
                 }
-                
+
                 defaultConfig {
                     multiDexEnabled = true
                 }
             }
-            
+
             project.dependencies.add("coreLibraryDesugaring", "com.android.tools:desugar_jdk_libs:2.1.5")
         }
-        
+
         tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
             compilerOptions {
                 jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_25)
