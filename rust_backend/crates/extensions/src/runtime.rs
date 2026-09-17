@@ -11,6 +11,7 @@ mod json_input;
 const MAX_INPUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_TIMEOUT_MS: u64 = 300_000;
 const QUEUE_CAPACITY: usize = 8;
+const IDLE_GC_DELAY: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LoadMode {
@@ -288,6 +289,8 @@ enum Command {
         reply: Reply,
         kind: CallKind,
     },
+    #[cfg(test)]
+    InspectHeap(SyncSender<(i64, u64)>),
     Stop,
 }
 
@@ -814,7 +817,47 @@ fn run_worker(
     if ready.send(Ok(())).is_err() {
         return;
     }
-    while let Ok(command) = receiver.recv() {
+    // Reclaim unreachable cycles once after a burst. Reference-counted values
+    // are already released; reachable extension state must remain untouched.
+    let mut collect_at = Some(Instant::now() + IDLE_GC_DELAY);
+    #[cfg(test)]
+    let mut idle_collections = 0;
+    loop {
+        let command = if let Some(deadline) = collect_at {
+            match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                Ok(command) => command,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(mpsc::RecvTimeoutError::Timeout) => match receiver.try_recv() {
+                    Ok(command) => command,
+                    Err(mpsc::TryRecvError::Disconnected) => break,
+                    Err(mpsc::TryRecvError::Empty) => {
+                        if control.is_closed() {
+                            break;
+                        }
+                        vm._runtime.run_gc();
+                        collect_at = None;
+                        #[cfg(test)]
+                        {
+                            idle_collections += 1;
+                        }
+                        continue;
+                    }
+                },
+            }
+        } else {
+            match receiver.recv() {
+                Ok(command) => command,
+                Err(_) => break,
+            }
+        };
+        #[cfg(test)]
+        if let Command::InspectHeap(reply) = command {
+            let _ = reply.send((
+                vm._runtime.memory_usage().memory_used_size,
+                idle_collections,
+            ));
+            continue;
+        }
         let Command::Call {
             method,
             arguments,
@@ -826,6 +869,7 @@ fn run_worker(
             break;
         };
         let result = vm.execute(control, &method, &arguments, operation, kind);
+        collect_at = Some(Instant::now() + IDLE_GC_DELAY);
         let _ = reply.send(result);
         if control.closed.load(Ordering::Acquire) {
             // Dropping receiver rejects all queued callers. No stale jobs survive.
@@ -1230,6 +1274,93 @@ fn validate_json(value: &str) -> Result<json_input::Shape, ExtensionError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn worker_collects_once_after_idle_burst_and_preserves_live_state() {
+        let runtime = ExtensionRuntime::load(
+            "let calls=0;const keep={value:'live-state'};registerExtension({allocate(){const cycle={bytes:new Uint8Array(16*1024*1024)};cycle.self=cycle;return ++calls;},state(){return {calls,value:keep.value};}});",
+            "{}",
+            RuntimeLimits::default(),
+        )
+        .unwrap();
+        let snapshot = || {
+            let (reply, result) = mpsc::sync_channel(1);
+            runtime.sender.send(Command::InspectHeap(reply)).unwrap();
+            result.recv_timeout(Duration::from_secs(5)).unwrap()
+        };
+        assert_eq!(runtime.call("allocate", "[]", None, 0).unwrap(), "1");
+        let (retained, collections) = snapshot();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let collected = loop {
+            thread::sleep(Duration::from_millis(25));
+            let (bytes, count) = snapshot();
+            if count > collections {
+                assert_eq!(count, collections + 1);
+                break bytes;
+            }
+            assert!(Instant::now() < deadline, "idle collection did not run");
+        };
+        assert!(retained - collected >= 16 * 1024 * 1024);
+        thread::sleep(IDLE_GC_DELAY + Duration::from_millis(50));
+        assert_eq!(
+            snapshot().1,
+            collections + 1,
+            "clean idle VM collected again"
+        );
+        let state: serde_json::Value =
+            serde_json::from_str(&runtime.call("state", "[]", None, 0).unwrap()).unwrap();
+        assert_eq!(state, serde_json::json!({"calls":1,"value":"live-state"}));
+        eprintln!(
+            "actual worker idle GC: before_bytes={retained} after_bytes={collected} freed_bytes={} collections=1",
+            retained - collected
+        );
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn idle_gc_reclaims_unreachable_cycles_without_changing_live_state() {
+        let source = "let calls=0; const keep={value:'live-state'}; registerExtension({allocate(){const cycle={bytes:new Uint8Array(16*1024*1024)};cycle.self=cycle;return ++calls;},state(){return {calls,value:keep.value};}});";
+        let control = Arc::new(Control::default());
+        let services = ExtensionServices {
+            compiled_source: Some(Arc::new(CompiledSource {
+                source: source.into(),
+                bytecode: OnceLock::new(),
+            })),
+            ..ExtensionServices::default()
+        };
+        let vm = Vm::load(&control, &RuntimeLimits::default(), source, "{}", &services).unwrap();
+        vm._runtime.run_gc();
+        let baseline = vm._runtime.memory_usage().memory_used_size;
+        let call = |method| {
+            vm.execute(
+                &control,
+                method,
+                "[]",
+                Operation {
+                    item_id: String::new(),
+                    deadline: Instant::now() + Duration::from_secs(5),
+                    lease: None,
+                    resolution: None,
+                },
+                CallKind::Function,
+            )
+            .unwrap()
+        };
+        assert_eq!(call("allocate"), "1");
+        let retained = vm._runtime.memory_usage().memory_used_size;
+        let started = Instant::now();
+        vm._runtime.run_gc();
+        let elapsed = started.elapsed();
+        let collected = vm._runtime.memory_usage().memory_used_size;
+        assert!(retained - collected >= 16 * 1024 * 1024);
+        let state: serde_json::Value = serde_json::from_str(&call("state")).unwrap();
+        assert_eq!(state, serde_json::json!({"calls":1,"value":"live-state"}));
+        eprintln!(
+            "QuickJS isolated idle cycle probe: baseline_bytes={baseline} retained_bytes={retained} after_gc_bytes={collected} freed_bytes={} gc_us={}",
+            retained - collected,
+            elapsed.as_micros()
+        );
+    }
 
     #[test]
     fn argument_validation_rejects_before_execution_and_keeps_runtime_usable() {
