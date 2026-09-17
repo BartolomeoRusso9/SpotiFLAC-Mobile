@@ -6,6 +6,8 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+mod json_input;
+
 const MAX_INPUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_TIMEOUT_MS: u64 = 300_000;
 const QUEUE_CAPACITY: usize = 8;
@@ -1010,9 +1012,7 @@ impl Vm {
             context,
             _runtime: runtime,
         };
-        let empty_settings = validate_json(settings)?
-            .as_object()
-            .is_some_and(|settings| settings.is_empty());
+        let empty_settings = validate_json(settings)?.is_empty_object();
         if services.load_mode == LoadMode::Initialize
             && (services.initialize_empty_settings || !empty_settings)
         {
@@ -1218,7 +1218,7 @@ fn validate_size(value: &str) -> Result<(), ExtensionError> {
     Ok(())
 }
 
-fn validate_json(value: &str) -> Result<serde_json::Value, ExtensionError> {
+fn validate_json(value: &str) -> Result<json_input::Shape, ExtensionError> {
     validate_size(value)?;
     serde_json::from_str(value).map_err(|error| ExtensionError::InvalidInput(error.to_string()))
 }
@@ -1226,6 +1226,28 @@ fn validate_json(value: &str) -> Result<serde_json::Value, ExtensionError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn argument_validation_rejects_before_execution_and_keeps_runtime_usable() {
+        let runtime = ExtensionRuntime::load(
+            "let calls=0; registerExtension({echo(value){return {calls:++calls,value}}});",
+            "{}",
+            RuntimeLimits::default(),
+        )
+        .unwrap();
+        for input in ["{}", "[1e400]", "[\"\\uD800\"]", "[] true"] {
+            assert!(matches!(
+                runtime.call("echo", input, None, 0),
+                Err(ExtensionError::InvalidInput(_))
+            ));
+        }
+        let input = "[{\"title\":\"音楽 🎵\",\"nested\":[true,null,{\"key\":\"value\"}]}]";
+        let output: serde_json::Value =
+            serde_json::from_str(&runtime.call("echo", input, None, 0).unwrap()).unwrap();
+        assert_eq!(output["calls"], 1);
+        assert_eq!(output["value"]["title"], "音楽 🎵");
+        assert_eq!(output["value"]["nested"][2]["key"], "value");
+    }
 
     #[test]
     fn cached_source_still_obeys_each_vms_memory_and_stack_limits() {
