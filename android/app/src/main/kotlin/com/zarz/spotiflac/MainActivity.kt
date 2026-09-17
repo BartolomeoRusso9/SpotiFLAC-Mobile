@@ -1953,61 +1953,36 @@ class MainActivity: FlutterFragmentActivity() {
                                         val uri = Uri.parse(cuePath)
                                         val tempCuePath = copyUriToTemp(uri, ".cue")
                                             ?: return@withContext """{"error":"Failed to copy CUE file to temp"}"""
-                                        var tempAudioPath: String? = null
                                         try {
                                             val audioFileName = extractCueAudioFileName(tempCuePath)
 
-                                            var audioDoc: DocumentFile? = null
                                             val parentDir = safParentDir(uri)
-                                            if (parentDir != null && !audioFileName.isNullOrBlank()) {
-                                                audioDoc = try { parentDir.findFile(audioFileName) } catch (_: Exception) { null }
-                                            }
-
-                                            if (audioDoc == null && parentDir != null) {
+                                            val audioDoc = if (parentDir != null) {
                                                 val cueName = try {
                                                     DocumentFile.fromSingleUri(this@MainActivity, uri)?.name ?: ""
                                                 } catch (_: Exception) { "" }
-                                                val cueBaseName = cueName.substringBeforeLast('.')
-                                                if (cueBaseName.isNotBlank()) {
-                                                    val commonExts = listOf(".flac", ".wav", ".ape", ".mp3", ".ogg", ".wv", ".m4a", ".mp4", ".aac")
-                                                    for (ext in commonExts) {
-                                                        audioDoc = try { parentDir.findFile(cueBaseName + ext) } catch (_: Exception) { null }
-                                                        if (audioDoc != null) break
-                                                        audioDoc = try { parentDir.findFile(cueBaseName + ext.uppercase(Locale.ROOT)) } catch (_: Exception) { null }
-                                                        if (audioDoc != null) break
-                                                    }
-                                                }
-                                            }
-
-                                            val tempDir = File(tempCuePath).parent ?: cacheDir.absolutePath
-                                            if (audioDoc != null) {
-                                                val audioName = try { audioDoc.name ?: "audio.flac" } catch (_: Exception) { "audio.flac" }
-                                                val audioExt = audioName.substringAfterLast('.', "").lowercase(Locale.ROOT)
-                                                val fallbackExt = if (audioExt.isNotBlank()) ".$audioExt" else null
-                                                val copiedAudio = copyUriToTemp(audioDoc.uri, fallbackExt)
-                                                if (copiedAudio != null) {
-                                                    val renamedAudio = File(tempDir, audioName)
-                                                    val copiedFile = File(copiedAudio)
-                                                    if (renamedAudio.absolutePath != copiedFile.absolutePath) {
-                                                        copiedFile.renameTo(renamedAudio)
-                                                    }
-                                                    tempAudioPath = renamedAudio.absolutePath
-                                                }
-                                            }
-
-                                            val resultJson = coreBackend.parseCueSheet(tempCuePath, tempDir)
-
-                                            if (audioDoc != null) {
-                                                val resultObj = JSONObject(resultJson)
-                                                resultObj.put("audio_path", audioDoc.uri.toString())
-                                                resultObj.put("cue_path", cuePath)
-                                                resultObj.toString()
+                                                findSafCueAudioSibling(this@MainActivity, parentDir, cueName, audioFileName)
                                             } else {
-                                                resultJson
+                                                null
                                             }
+
+                                            if (audioDoc == null || !audioDoc.isFile) {
+                                                return@withContext JSONObject()
+                                                    .put("error", "Audio file not found for CUE sheet")
+                                                    .toString()
+                                            }
+
+                                            // Preview parses the CUE text only; the selected audio
+                                            // stays in SAF instead of copying a whole album to cache.
+                                            val resultJson = coreBackend.parseCueSheetWithResolvedAudio(
+                                                tempCuePath,
+                                                audioDoc.uri.toString(),
+                                            )
+                                            JSONObject(resultJson)
+                                                .put("cue_path", cuePath)
+                                                .toString()
                                         } finally {
                                             try { File(tempCuePath).delete() } catch (_: Exception) {}
-                                            try { tempAudioPath?.let { File(it).delete() } } catch (_: Exception) {}
                                         }
                                     } else {
                                         coreBackend.parseCueSheet(cuePath, audioDir)

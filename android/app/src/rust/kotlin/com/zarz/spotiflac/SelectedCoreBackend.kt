@@ -296,6 +296,13 @@ internal object RustCoreBackend : CoreBackend {
         }
     }
 
+    override fun parseCueSheetWithResolvedAudio(path: String, audioPath: String): String {
+        val cue = File(path).canonicalFile
+        return withLibraryDirectories(listOf(cue.parent)) {
+            it.parseCueFileJsonWithResolvedAudio(cue.path, audioPath, null)
+        }
+    }
+
     override fun scanCueForLibrary(path: String, audioDirectory: String, virtualPrefix: String, modTime: Long, cacheKey: String): String {
         val cue = File(path).canonicalFile
         val audio = if (audioDirectory.isEmpty()) cue.parentFile!! else File(audioDirectory).canonicalFile

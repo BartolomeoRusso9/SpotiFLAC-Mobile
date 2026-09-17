@@ -54,6 +54,20 @@ impl ExtensionManager {
             .map_err(ExtensionManagerError::Operation)
     }
 
+    pub fn parse_cue_file_json_with_resolved_audio(
+        &self,
+        path: String,
+        audio_path: String,
+        lease: Option<Arc<RequestLease>>,
+    ) -> Result<String, ExtensionManagerError> {
+        self.inner
+            .parse_cue_file_json_with_resolved_audio(&path, &audio_path, &|| {
+                check_lease(lease.as_deref())
+            })
+            .map(|value| value.to_string())
+            .map_err(ExtensionManagerError::Operation)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn scan_cue_file_for_library(
         &self,

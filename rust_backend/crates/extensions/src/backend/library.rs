@@ -239,28 +239,27 @@ impl Backend {
                     "audio file not found for cue sheet:",
                 )
             })?;
-        let tracks: Vec<Value> = sheet
-            .tracks
-            .iter()
-            .enumerate()
-            .map(|(index, track)| {
-                let mut value = json!({"number":track.number,"title":track.title,
-                "artist":prefer(&track.performer, &sheet.performer),"start_sec":track.start_time,
-                "end_sec":next_start(&sheet, index).unwrap_or(-1.0)});
-                optional(&mut value, "isrc", &track.isrc);
-                optional(
-                    &mut value,
-                    "composer",
-                    prefer(&track.composer, &sheet.composer),
-                );
-                value
-            })
-            .collect();
+        cue_sheet_json(path, &sheet, &audio, &check)
+    }
+
+    /// Native callers resolve and validate the audio reference themselves (for
+    /// example an Android SAF URI). Parsing the sheet needs no audio contents.
+    pub fn parse_cue_file_json_with_resolved_audio(
+        &self,
+        path: &str,
+        audio_path: &str,
+        check: &dyn Fn() -> Result<(), String>,
+    ) -> Result<Value, String> {
+        let _operation = self.enter()?;
+        let check = || self.check().and_then(|()| check());
         check()?;
-        let mut result = json!({"cue_path":path,"audio_path":audio,"album":sheet.title,"artist":sheet.performer,"tracks":tracks});
-        optional(&mut result, "genre", &sheet.genre);
-        optional(&mut result, "date", &sheet.date);
-        Ok(result)
+        if audio_path.trim().is_empty() {
+            return Err("resolved audio path is empty".into());
+        }
+        let sheet = self
+            .parse_cue_file(path, &check)
+            .map_err(|error| format!("failed to parse cue file: {error}"))?;
+        cue_sheet_json(path, &sheet, audio_path, &check)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -428,4 +427,115 @@ fn next_start(sheet: &CueSheet, index: usize) -> Option<f64> {
             track.start_time
         }
     })
+}
+
+fn cue_sheet_json(
+    path: &str,
+    sheet: &CueSheet,
+    audio: &str,
+    check: &dyn Fn() -> Result<(), String>,
+) -> Result<Value, String> {
+    let mut tracks = Vec::with_capacity(sheet.tracks.len());
+    for (index, track) in sheet.tracks.iter().enumerate() {
+        check()?;
+        let mut value = json!({"number":track.number,"title":track.title,
+        "artist":prefer(&track.performer, &sheet.performer),"start_sec":track.start_time,
+        "end_sec":next_start(sheet, index).unwrap_or(-1.0)});
+        optional(&mut value, "isrc", &track.isrc);
+        optional(
+            &mut value,
+            "composer",
+            prefer(&track.composer, &sheet.composer),
+        );
+        tracks.push(value);
+    }
+    check()?;
+    let mut result = json!({"cue_path":path,"audio_path":audio,"album":sheet.title,"artist":sheet.performer,"tracks":tracks});
+    optional(&mut result, "genre", &sheet.genre);
+    optional(&mut result, "date", &sheet.date);
+    Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+    use std::io::Cursor;
+
+    const CUE: &str = "PERFORMER \"Album Artist\"\nTITLE \"Album\"\nREM GENRE Jazz\nREM DATE 2026\nREM COMPOSER \"Album Writer\"\nFILE \"album.flac\" WAVE\nTRACK 01 AUDIO\nTITLE \"First\"\nPERFORMER \"Track Artist\"\nISRC XXAAA2600001\nINDEX 01 00:00:00\nTRACK 02 AUDIO\nTITLE \"Second\"\nINDEX 00 03:00:00\nINDEX 01 03:02:00\n";
+
+    #[test]
+    fn resolved_cue_audio_is_opaque_and_matches_legacy_tracks_without_audio() {
+        let directory = tempfile::tempdir().unwrap();
+        let data = directory.path().join("data");
+        let backend = Backend::new(
+            &directory.path().join("sources"),
+            &data,
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            "1",
+            crate::RuntimeLimits::default(),
+        )
+        .unwrap();
+        let path = data.join("album.cue");
+        std::fs::write(&path, CUE).unwrap();
+        let path = path.to_str().unwrap();
+        let audio = data.join("album.flac");
+        std::fs::write(&audio, []).unwrap();
+        let mut expected = backend.parse_cue_file_json(path, "", &|| Ok(())).unwrap();
+        std::fs::remove_file(audio).unwrap();
+        let resolved = "content://example.documents/tree/root/document/opaque%2F音楽.flac";
+        expected["audio_path"] = resolved.into();
+        let result = backend
+            .parse_cue_file_json_with_resolved_audio(path, resolved, &|| Ok(()))
+            .unwrap();
+        assert_eq!(result, expected);
+        assert_eq!(result["tracks"][0]["end_sec"], 180.0);
+        assert_eq!(result["tracks"][1]["end_sec"], -1.0);
+        assert_eq!(result["tracks"][1]["composer"], "Album Writer");
+        assert!(
+            backend
+                .parse_cue_file_json(path, "", &|| Ok(()))
+                .unwrap_err()
+                .contains("audio file not found")
+        );
+        assert_eq!(std::fs::read_to_string(path).unwrap(), CUE);
+        assert_eq!(
+            backend
+                .parse_cue_file_json_with_resolved_audio(path, " \t", &|| Ok(()))
+                .unwrap_err(),
+            "resolved audio path is empty"
+        );
+        assert_eq!(
+            backend
+                .parse_cue_file_json_with_resolved_audio(path, resolved, &|| {
+                    Err("cancelled".into())
+                })
+                .unwrap_err(),
+            "cancelled"
+        );
+        std::fs::write(path, "TITLE \"No tracks\"\n").unwrap();
+        assert!(
+            backend
+                .parse_cue_file_json_with_resolved_audio(path, resolved, &|| Ok(()))
+                .unwrap_err()
+                .contains("no tracks found")
+        );
+    }
+
+    #[test]
+    fn cue_json_checks_cancellation_while_mapping_tracks() {
+        let sheet = cue::parse(&mut Cursor::new(CUE), &|| Ok(())).unwrap();
+        let checks = Cell::new(0);
+        let error = cue_sheet_json("album.cue", &sheet, "opaque-audio", &|| {
+            checks.set(checks.get() + 1);
+            if checks.get() == 2 {
+                Err("cancelled".into())
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap_err();
+        assert_eq!(error, "cancelled");
+        assert_eq!(checks.get(), 2);
+    }
 }

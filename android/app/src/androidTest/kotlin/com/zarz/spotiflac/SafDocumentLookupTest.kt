@@ -40,6 +40,32 @@ class SafDocumentLookupTest {
     }
 
     @Test
+    fun cueSiblingLookupBatchesCandidatesAndPreservesPriority() {
+        val parent = reset(count = 2000)
+        val declared = findSafCueAudioSibling(context, parent, "Song.cue", "Track 1999.flac")
+        assertEquals("child:1999", DocumentsContract.getDocumentId(requireNotNull(declared).uri))
+        assertEquals(1, stats().getInt("children"))
+        assertEquals(0, stats().getInt("documents"))
+
+        clearCounters()
+        val fallback = findSafCueAudioSibling(context, parent, "Song.cue", "missing.flac")
+        assertEquals("original", DocumentsContract.getDocumentId(requireNotNull(fallback).uri))
+        assertEquals(1, stats().getInt("children"))
+        assertEquals(0, stats().getInt("documents"))
+
+        assertTrue(fallback.renameTo("Song.FLAC"))
+        clearCounters()
+        assertEquals(fallback.uri, findSafCueAudioSibling(context, parent, "Song.cue", null)?.uri)
+        assertEquals(1, stats().getInt("children"))
+        assertEquals(0, stats().getInt("documents"))
+
+        clearCounters()
+        assertNull(findSafCueAudioSibling(context, parent, "Missing.cue", null))
+        assertEquals(1, stats().getInt("children"))
+        assertEquals(0, stats().getInt("documents"))
+    }
+
+    @Test
     fun projectedBatchReplacesThousandsOfNameQueriesAndClosesItsCursor() {
         val parent = reset(count = 2000)
         assertNull(parent.findFile("missing.flac"))
