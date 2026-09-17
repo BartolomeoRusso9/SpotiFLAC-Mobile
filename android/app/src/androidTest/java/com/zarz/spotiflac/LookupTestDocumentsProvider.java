@@ -71,6 +71,11 @@ public final class LookupTestDocumentsProvider extends DocumentsProvider {
                 }
                 add("nested:音楽/opaque", "root", "音楽 🎵", Document.MIME_TYPE_DIR);
                 add("song:opaque/%", "nested:音楽/opaque", "歌 🎵.flac", "audio/flac");
+                if (extras.getBoolean("mimeCases")) {
+                    add("mime:null", "root", "Null.flac", null);
+                    add("mime:empty", "root", "Empty.flac", "");
+                    add("mime:generic", "root", "Generic.flac", "application/octet-stream");
+                }
                 Entry original = add("original", "root", "Song.flac", "audio/flac");
                 try (FileOutputStream output = new FileOutputStream(original.file)) {
                     output.write(new byte[] {'o', 'r', 'i', 'g', 'i', 'n', 'a', 'l'});
@@ -84,7 +89,8 @@ public final class LookupTestDocumentsProvider extends DocumentsProvider {
                         extras.getString("targetPackage"),
                         DocumentsContract.buildTreeDocumentUri("com.spotiflac.test.documents.lookup", "root"),
                         Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
-                            Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
+                            Intent.FLAG_GRANT_PREFIX_URI_PERMISSION |
+                            (extras.getBoolean("persistable") ? Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION : 0)
                     );
                 } finally {
                     Binder.restoreCallingIdentity(identity);
@@ -136,6 +142,7 @@ public final class LookupTestDocumentsProvider extends DocumentsProvider {
                 case Document.COLUMN_DISPLAY_NAME: row[i] = entry.name; break;
                 case Document.COLUMN_MIME_TYPE: row[i] = entry.mime; break;
                 case Document.COLUMN_SIZE: row[i] = entry.file.length(); break;
+                case Document.COLUMN_LAST_MODIFIED: row[i] = 1234L; break;
                 case Document.COLUMN_FLAGS:
                     row[i] = Document.FLAG_SUPPORTS_WRITE | Document.FLAG_SUPPORTS_DELETE |
                         Document.FLAG_SUPPORTS_RENAME | Document.FLAG_DIR_SUPPORTS_CREATE;
@@ -173,6 +180,7 @@ public final class LookupTestDocumentsProvider extends DocumentsProvider {
     @Override
     public Cursor queryChildDocuments(String parentId, String[] projection, String sortOrder) {
         childQueries++;
+        if (projectionMode.equals("all-null")) return null;
         boolean projected = projection != null && Arrays.asList(projection).contains(Document.COLUMN_DISPLAY_NAME);
         if (projected && projectionMode.equals("throw")) throw new UnsupportedOperationException("projection");
         if (projected && projectionMode.equals("null")) return null;

@@ -111,7 +111,7 @@ internal fun MainActivity.loadExistingFilesFromSnapshot(snapshotPath: String): M
         return result
     }
 
-internal fun MainActivity.resolveSafFile(treeUriStr: String, relativeDir: String, fileName: String): String {
+internal fun Context.resolveSafFile(treeUriStr: String, relativeDir: String, fileName: String): String {
         val obj = JSONObject()
         if (treeUriStr.isBlank() || fileName.isBlank()) {
             obj.put("uri", "")
@@ -129,7 +129,7 @@ internal fun MainActivity.resolveSafFile(treeUriStr: String, relativeDir: String
         val treeUri = Uri.parse(treeUriStr)
         val targetDir = SafDownloadHandler.findDocumentDir(this, treeUri, safeRelativeDir)
         if (targetDir != null) {
-            val direct = targetDir.findFile(safeFileName)
+            val direct = findSafChild(this, targetDir, safeFileName)
             if (direct != null && direct.isFile) {
                 obj.put("uri", direct.uri.toString())
                 obj.put("relative_dir", safeRelativeDir)
@@ -151,15 +151,20 @@ internal fun MainActivity.resolveSafFile(treeUriStr: String, relativeDir: String
         while (queue.isNotEmpty()) {
             if (visited > maxVisited) break
             val (dir, path) = queue.removeFirst()
-            for (child in dir.listFiles()) {
+            val children = try {
+                listSafChildrenOrThrow(dir, includeLastModified = false)
+            } catch (_: Exception) {
+                continue
+            }
+            for (child in children) {
                 visited++
                 if (child.isDirectory) {
                     val childName = child.name ?: continue
                     val childPath = if (path.isBlank()) childName else "$path/$childName"
-                    queue.add(child to childPath)
+                    queue.add(child.doc to childPath)
                 } else if (child.isFile) {
                     if (child.name == safeFileName) {
-                        obj.put("uri", child.uri.toString())
+                        obj.put("uri", child.doc.uri.toString())
                         obj.put("relative_dir", path)
                         return obj.toString()
                     }
@@ -185,7 +190,7 @@ private data class SafFileInspectionRequest(
  * once. The old per-file resolver could repeat a 20k-document breadth-first
  * search for every missing history row and every conversion filename variant.
  */
-internal fun MainActivity.inspectSafFiles(requestsJson: String): String {
+internal fun Context.inspectSafFiles(requestsJson: String): String {
     val output = JSONObject()
     val resultsByKey = linkedMapOf<String, JSONObject>()
     val requests = mutableListOf<SafFileInspectionRequest>()
@@ -287,7 +292,7 @@ internal fun MainActivity.inspectSafFiles(requestsJson: String): String {
             }
 
             val unresolved = mutableListOf<SafFileInspectionRequest>()
-            val directoryCache = mutableMapOf<String, Map<String, DocumentFile>>()
+            val directoryCache = mutableMapOf<String, Map<String, SafChildEntry>>()
             val resolvedDirectoryCache = mutableMapOf<String, DocumentFile?>()
             for (request in treeRequests) {
                 val directDir = if (resolvedDirectoryCache.containsKey(request.relativeDir)) {
@@ -304,7 +309,15 @@ internal fun MainActivity.inspectSafFiles(requestsJson: String): String {
                 val lookup = if (directDir == null) {
                     emptyMap()
                 } else {
-                    getSafChildFileLookup(directDir, directoryCache)
+                    directoryCache.getOrPut(directDir.uri.toString()) {
+                        buildMap {
+                            for (child in listSafChildrenOrThrow(directDir, includeLastModified = false)) {
+                                if (child.isDirectory) continue
+                                val name = child.name?.trim().orEmpty()
+                                if (name.isNotBlank()) put(name.lowercase(Locale.ROOT), child)
+                            }
+                        }
+                    }
                 }
                 val directName = request.fileNames.firstOrNull {
                     lookup.containsKey(it.lowercase(Locale.ROOT))
@@ -314,7 +327,7 @@ internal fun MainActivity.inspectSafFiles(requestsJson: String): String {
                     resultsByKey[request.key] = result(
                         key = request.key,
                         status = "found",
-                        uri = direct.uri.toString(),
+                        uri = direct.doc.uri.toString(),
                         fileName = direct.name ?: directName,
                         relativeDir = request.relativeDir,
                     )
@@ -336,7 +349,7 @@ internal fun MainActivity.inspectSafFiles(requestsJson: String): String {
                         .add(request.key)
                 }
             }
-            val matches = mutableMapOf<String, Pair<DocumentFile, String>>()
+            val matches = mutableMapOf<String, Pair<SafChildEntry, String>>()
             val matchedRequestKeys = mutableSetOf<String>()
             val queue: ArrayDeque<Pair<DocumentFile, String>> = ArrayDeque()
             queue.add(root to "")
@@ -351,7 +364,7 @@ internal fun MainActivity.inspectSafFiles(requestsJson: String): String {
                 }
                 val (directory, path) = queue.removeFirst()
                 val children = try {
-                    directory.listFiles()
+                    listSafChildrenOrThrow(directory, includeLastModified = false)
                 } catch (_: Exception) {
                     scanComplete = false
                     break
@@ -365,7 +378,7 @@ internal fun MainActivity.inspectSafFiles(requestsJson: String): String {
                     if (child.isDirectory) {
                         val childName = child.name ?: continue
                         val childPath = if (path.isBlank()) childName else "$path/$childName"
-                        queue.add(child to childPath)
+                        queue.add(child.doc to childPath)
                     } else if (child.isFile) {
                         val childName = child.name ?: continue
                         val normalized = childName.lowercase(Locale.ROOT)
@@ -388,7 +401,7 @@ internal fun MainActivity.inspectSafFiles(requestsJson: String): String {
                     result(
                         key = request.key,
                         status = "found",
-                        uri = match.first.uri.toString(),
+                        uri = match.first.doc.uri.toString(),
                         fileName = match.first.name ?: matchedName,
                         relativeDir = match.second,
                     )
@@ -592,21 +605,25 @@ internal data class SafChildEntry(
     val name: String?,
     val isDirectory: Boolean,
     val lastModified: Long,
+    val isFile: Boolean,
 )
 
-internal fun MainActivity.listSafChildrenOrThrow(dir: DocumentFile): List<SafChildEntry> {
+internal fun Context.listSafChildrenOrThrow(
+    dir: DocumentFile,
+    includeLastModified: Boolean = true,
+): List<SafChildEntry> {
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
             dir.uri,
             DocumentsContract.getDocumentId(dir.uri),
         )
-        val projection = arrayOf(
+        val projection = mutableListOf(
             DocumentsContract.Document.COLUMN_DOCUMENT_ID,
             DocumentsContract.Document.COLUMN_DISPLAY_NAME,
             DocumentsContract.Document.COLUMN_MIME_TYPE,
-            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
         )
+        if (includeLastModified) projection.add(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
         val cursor = try {
-            contentResolver.query(childrenUri, projection, null, null, null)
+            contentResolver.query(childrenUri, projection.toTypedArray(), null, null, null)
         } catch (_: Exception) {
             // A few older providers reject the richer projection; retry with IDs.
             contentResolver.query(
@@ -636,7 +653,7 @@ internal fun MainActivity.listSafChildrenOrThrow(dir: DocumentFile): List<SafChi
                         dir.uri,
                         it.getString(documentIdIndex),
                     )
-                    val child = DocumentFile.fromSingleUri(this@listSafChildrenOrThrow, childUri)
+                    val child = DocumentFile.fromTreeUri(this@listSafChildrenOrThrow, childUri)
                         ?: throw IOException("Invalid SAF child URI: $childUri")
                     val name = if (displayNameIndex >= 0 && !it.isNull(displayNameIndex)) {
                         it.getString(displayNameIndex)
@@ -653,14 +670,21 @@ internal fun MainActivity.listSafChildrenOrThrow(dir: DocumentFile): List<SafChi
                     } else {
                         try { child.isDirectory } catch (_: Exception) { false }
                     }
-                    val lastModified = if (
+                    val isFile = if (mimeType != null) {
+                        mimeType.isNotEmpty() && !isDirectory
+                    } else {
+                        !isDirectory && try { child.isFile } catch (_: Exception) { false }
+                    }
+                    val lastModified = if (!includeLastModified) {
+                        0L
+                    } else if (
                         lastModifiedIndex >= 0 && !it.isNull(lastModifiedIndex)
                     ) {
                         it.getLong(lastModifiedIndex)
                     } else {
                         try { child.lastModified() } catch (_: Exception) { 0L }
                     }
-                    add(SafChildEntry(child, name, isDirectory, lastModified))
+                    add(SafChildEntry(child, name, isDirectory, lastModified, isFile))
                 }
             }
         }
