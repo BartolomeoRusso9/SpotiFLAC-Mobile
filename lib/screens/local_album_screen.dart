@@ -129,9 +129,9 @@ class _LocalAlbumScreenState extends ConsumerState<LocalAlbumScreen>
           final deleted = await deleteFile(item.filePath);
           if (!deleted) return false;
         }
-        await libraryNotifier.removeItem(id);
         return true;
       },
+      persistDeletedItems: libraryNotifier.removeItems,
       onExitSelectionMode: exitSelectionMode,
     );
 

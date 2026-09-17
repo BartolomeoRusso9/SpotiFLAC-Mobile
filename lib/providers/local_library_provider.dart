@@ -1222,7 +1222,12 @@ class LocalLibraryNotifier extends Notifier<LocalLibraryState> {
   }
 
   Future<void> removeItem(String id) async {
-    await _db.delete(id);
+    await removeItems([id]);
+  }
+
+  Future<void> removeItems(Iterable<String> ids) async {
+    if (ids.isEmpty) return;
+    await _db.deleteByIds(ids);
     await _refreshSummaryFromStorage();
   }
 

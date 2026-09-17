@@ -3,6 +3,32 @@ import 'package:sqflite/sqflite.dart';
 import 'package:spotiflac_android/utils/file_access.dart';
 import 'package:spotiflac_android/utils/logger.dart';
 
+/// Deletes a selection atomically without exceeding SQLite's parameter budget.
+Future<void> deleteLibraryItemsByIds(Database db, Iterable<String> ids) async {
+  final uniqueIds = ids.toSet().toList();
+  if (uniqueIds.isEmpty) return;
+  await db.transaction((txn) async {
+    const chunkSize = 500;
+    for (var start = 0; start < uniqueIds.length; start += chunkSize) {
+      final chunk = uniqueIds.sublist(
+        start,
+        (start + chunkSize).clamp(0, uniqueIds.length),
+      );
+      final placeholders = List.filled(chunk.length, '?').join(',');
+      await txn.delete(
+        'library_path_keys',
+        where: 'item_id IN ($placeholders)',
+        whereArgs: chunk,
+      );
+      await txn.delete(
+        'library',
+        where: 'id IN ($placeholders)',
+        whereArgs: chunk,
+      );
+    }
+  });
+}
+
 Future<int> pruneUnreferencedLibraryCovers(
   Directory directory,
   Set<String> referencedPaths,

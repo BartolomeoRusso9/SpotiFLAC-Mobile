@@ -1986,15 +1986,12 @@ class LibraryDatabase {
   }
 
   Future<void> delete(String id) async {
-    final db = await database;
-    await db.transaction((txn) async {
-      await txn.delete(
-        'library_path_keys',
-        where: 'item_id = ?',
-        whereArgs: [id],
-      );
-      await txn.delete('library', where: 'id = ?', whereArgs: [id]);
-    });
+    await deleteByIds([id]);
+  }
+
+  Future<void> deleteByIds(Iterable<String> ids) async {
+    if (ids.isEmpty) return;
+    await deleteLibraryItemsByIds(await database, ids);
   }
 
   Future<int> cleanupMissingFiles({

@@ -8,10 +8,13 @@ import 'package:spotiflac_android/l10n/l10n.dart';
 ///
 /// Returns the number of items [deleteItem] reported deleted, or null if the
 /// user cancelled the dialog.
+/// [persistDeletedItems] commits successfully deleted IDs once before the UI
+/// reports completion, including partial success if a later deletion throws.
 Future<int?> confirmAndDeleteTracks({
   required BuildContext context,
   required List<String> ids,
   required Future<bool> Function(String id) deleteItem,
+  Future<void> Function(List<String> ids)? persistDeletedItems,
   required VoidCallback onExitSelectionMode,
 }) async {
   final confirmed = await showDialog<bool>(
@@ -37,10 +40,17 @@ Future<int?> confirmAndDeleteTracks({
 
   if (confirmed != true || !context.mounted) return null;
 
-  var deletedCount = 0;
-  for (final id in ids) {
-    if (await deleteItem(id)) deletedCount++;
+  final deletedIds = <String>[];
+  try {
+    for (final id in ids) {
+      if (await deleteItem(id)) deletedIds.add(id);
+    }
+  } finally {
+    if (deletedIds.isNotEmpty && persistDeletedItems != null) {
+      await persistDeletedItems(deletedIds);
+    }
   }
+  final deletedCount = deletedIds.length;
 
   onExitSelectionMode();
 
