@@ -497,14 +497,17 @@ extension _HomeTabSearchResultsUI on _HomeTabState {
                   height: 32,
                   child: TextButton.icon(
                     onPressed: () => _showSortOptions(colorScheme),
-                    icon: Icon(
-                      mornye ? mornyeIconFor(Icons.swap_vert) : Icons.swap_vert,
-                      size: 18,
-                      color:
-                          _searchSortOption != HomeSearchSortOption.defaultOrder
-                          ? colorScheme.primary
-                          : colorScheme.onSurfaceVariant,
-                    ),
+                    icon: mornye
+                        ? null
+                        : Icon(
+                            Icons.swap_vert,
+                            size: 18,
+                            color:
+                                _searchSortOption !=
+                                    HomeSearchSortOption.defaultOrder
+                                ? colorScheme.primary
+                                : colorScheme.onSurfaceVariant,
+                          ),
                     label: Text(
                       _searchSortOption != HomeSearchSortOption.defaultOrder
                           ? _sortOptionLabel(_searchSortOption)
@@ -535,10 +538,12 @@ extension _HomeTabSearchResultsUI on _HomeTabState {
             final isLast = index == itemCount - 1;
             if (mornye) {
               return Padding(
-                padding: EdgeInsets.fromLTRB(16, 0, 16, isLast ? 0 : 8),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: MornyeGlassPanel.overlay(
                   radius: 24,
-                  child: itemBuilder(index, false),
+                  firstInGroup: isFirst,
+                  lastInGroup: isLast,
+                  child: itemBuilder(index, !isLast),
                 ),
               );
             }

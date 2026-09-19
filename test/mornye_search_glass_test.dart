@@ -7,7 +7,7 @@ import 'package:spotiflac_android/widgets/mornye_chrome.dart';
 void main() {
   for (final brightness in Brightness.values) {
     testWidgets(
-      'search glass cards scroll and filters remain usable in $brightness',
+      'search glass sections scroll and filters remain usable in $brightness',
       (tester) async {
         var selected = false;
         await tester.pumpWidget(
@@ -31,16 +31,26 @@ void main() {
                       Expanded(
                         child: ListView.builder(
                           itemCount: 12,
-                          itemBuilder: (context, index) => Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: MornyeGlassPanel.overlay(
-                              radius: 24,
-                              child: SizedBox(
-                                height: 88,
-                                child: Text('Result $index'),
+                          itemBuilder: (context, index) =>
+                              MornyeGlassPanel.overlay(
+                                radius: 24,
+                                firstInGroup: index == 0,
+                                lastInGroup: index == 11,
+                                child: Column(
+                                  children: [
+                                    SizedBox(
+                                      height: 88,
+                                      child: Text('Result $index'),
+                                    ),
+                                    if (index < 11)
+                                      const Divider(
+                                        height: 1,
+                                        indent: 80,
+                                        endIndent: 12,
+                                      ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          ),
                         ),
                       ),
                     ],

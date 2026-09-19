@@ -123,6 +123,8 @@ class MornyeGlassPanel extends ConsumerWidget {
     super.key,
     required this.child,
     this.radius = 32,
+    this.firstInGroup = true,
+    this.lastInGroup = true,
     this.strongTint = false,
     this.tintOpacity,
   });
@@ -132,17 +134,23 @@ class MornyeGlassPanel extends ConsumerWidget {
     super.key,
     required this.child,
     this.radius = 32,
+    this.firstInGroup = true,
+    this.lastInGroup = true,
     this.tintOpacity = 0.78,
   }) : strongTint = false;
 
   final Widget child;
   final double radius;
+  final bool firstInGroup;
+  final bool lastInGroup;
   final bool strongTint;
   final double? tintOpacity;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => MornyeGlass.navigation(
     radius: radius,
+    firstInGroup: firstInGroup,
+    lastInGroup: lastInGroup,
     strongTint: strongTint,
     tintOpacity: tintOpacity,
     blurEnabled:

@@ -4,10 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spotiflac_android/providers/extension_provider.dart';
 import 'package:spotiflac_android/providers/settings_provider.dart';
 import 'package:spotiflac_android/services/platform_bridge.dart';
+import 'package:spotiflac_android/services/motion_artwork_store.dart';
 import 'package:spotiflac_android/utils/string_utils.dart';
 import 'package:spotiflac_android/utils/ttl_cache.dart';
 
 typedef PlayerArtworkAlbum = ({String album, String artist});
+
+final motionArtworkStoreProvider = Provider((ref) => MotionArtworkStore());
 
 final _motionCache = TtlCache<Future<String?>>(
   const Duration(minutes: 10),
@@ -17,10 +20,13 @@ final _motionCache = TtlCache<Future<String?>>(
 /// Resolve the same album motion artwork used by collection headers. Cache by
 /// album so advancing through its tracks does not repeat metadata requests.
 final playerMotionArtworkProvider = FutureProvider.autoDispose
-    .family<String?, PlayerArtworkAlbum>((ref, album) {
+    .family<MotionArtwork?, PlayerArtworkAlbum>((ref, album) async {
       if (album.album.trim().isEmpty || album.artist.trim().isEmpty) {
         return null;
       }
+      final local = await ref.read(motionArtworkStoreProvider).find(album);
+      if (local != null) return local;
+      if (!ref.mounted) return null;
       final extensions = ref.watch(extensionProvider);
       final preferred = ref.watch(
         settingsProvider.select((s) => s.searchProvider),
@@ -37,7 +43,10 @@ final playerMotionArtworkProvider = FutureProvider.autoDispose
       if (providers.isEmpty) return null;
       final key = jsonEncode([album.album, album.artist, providers]);
       final cached = _motionCache.get(key);
-      if (cached != null) return cached;
+      if (cached != null) {
+        final source = await cached;
+        return source == null ? null : MotionArtwork(source);
+      }
       final request = findPlayerMotionArtwork(
         album: album,
         providerIds: providers,
@@ -53,7 +62,8 @@ final playerMotionArtworkProvider = FutureProvider.autoDispose
         ).timeout(const Duration(seconds: 6)),
       );
       _motionCache.set(key, request);
-      return request;
+      final source = await request;
+      return source == null ? null : MotionArtwork(source);
     });
 
 Future<String?> findPlayerMotionArtwork({

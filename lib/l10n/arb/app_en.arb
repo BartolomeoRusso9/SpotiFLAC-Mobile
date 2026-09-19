@@ -1,4 +1,6 @@
 {
+  "cacheMotionArtwork": "Offline motion covers",
+  "cacheMotionArtworkDesc": "Album videos saved with downloads. Removing them keeps your music files and static covers.",
   "nowPlayingVolume": "Volume",
   "@nowPlayingVolume": {
     "description": "System volume control label in the Mornye player"

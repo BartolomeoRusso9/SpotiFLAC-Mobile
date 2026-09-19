@@ -137,6 +137,105 @@ void main() {
     );
   }
 
+  testWidgets('opening Mornye lyrics centers the current wrapped line', (
+    tester,
+  ) async {
+    final lyrics = List.generate(100, (index) {
+      final seconds = index * 2;
+      final time =
+          '${(seconds ~/ 60).toString().padLeft(2, '0')}:'
+          '${(seconds % 60).toString().padLeft(2, '0')}.00';
+      return '[$time]Line $index with enough words to wrap across several rows';
+    }).join('\n');
+    metadataOverrides = {'lyrics': lyrics};
+    await pumpNowPlaying(
+      tester,
+      theme: MornyeTheme.build(Brightness.dark),
+      size: const Size(393, 780),
+      playback: PlaybackState(updatePosition: const Duration(seconds: 140)),
+    );
+    mediaItems.add(item('many'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(CupertinoIcons.quote_bubble));
+    await tester.pumpAndSettle();
+    final current = find.text(
+      'Line 70 with enough words to wrap across several rows',
+    );
+    expect(current, findsOneWidget);
+    final list = find.ancestor(of: current, matching: find.byType(ListView));
+    expect(tester.getCenter(current).dy, closeTo(tester.getCenter(list).dy, 2));
+    await tester.drag(list, const Offset(0, 200));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(CupertinoIcons.quote_bubble));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(CupertinoIcons.quote_bubble));
+    await tester.pumpAndSettle();
+    expect(tester.getCenter(current).dy, closeTo(tester.getCenter(list).dy, 2));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Mornye landscape has no top handle or reserved toolbar height', (
+    tester,
+  ) async {
+    await pumpNowPlaying(
+      tester,
+      theme: MornyeTheme.build(
+        Brightness.dark,
+      ).copyWith(platform: TargetPlatform.android),
+      size: const Size(900, 420),
+    );
+    mediaItems.add(item('first'));
+    await tester.pumpAndSettle();
+    final bar = tester.widget<AppBar>(find.byType(AppBar));
+    expect(bar.toolbarHeight, 0);
+    expect(bar.title, isNull);
+  });
+
+  testWidgets('manual lyric scrolling hides controls down and restores them up', (
+    tester,
+  ) async {
+    metadataOverrides = {
+      'lyrics': List.generate(
+        20,
+        (index) =>
+            '[00:${(index * 3).toString().padLeft(2, '0')}.00]Lyric $index with several words on this line',
+      ).join('\n'),
+    };
+    await pumpNowPlaying(
+      tester,
+      theme: MornyeTheme.build(Brightness.dark),
+      size: const Size(393, 780),
+      playback: PlaybackState(updatePosition: const Duration(seconds: 30)),
+    );
+    mediaItems.add(item('many'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(CupertinoIcons.quote_bubble));
+    await tester.pumpAndSettle();
+    final list = find.byType(ListView);
+    final initialHeight = tester.getSize(list).height;
+    final headerTop = tester.getTopLeft(find.text('Second')).dy;
+    final transport = find.byWidgetPredicate(
+      (widget) =>
+          widget is MornyePlaybackButton &&
+          const [
+            CupertinoIcons.play_fill,
+            CupertinoIcons.backward_fill,
+            CupertinoIcons.forward_fill,
+          ].contains(widget.icon),
+    );
+    expect(transport.hitTestable(), findsNWidgets(3));
+    await tester.drag(list, const Offset(0, -140));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(list).height, greaterThan(initialHeight + 100));
+    expect(tester.getTopLeft(find.text('Second')).dy, closeTo(headerTop, 1));
+    expect(transport.hitTestable(), findsNothing);
+    await tester.drag(list, const Offset(0, 140));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(list).height, closeTo(initialHeight, 1));
+    expect(transport.hitTestable(), findsNWidgets(3));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('Mornye player background does not reveal the page below', (
     tester,
   ) async {

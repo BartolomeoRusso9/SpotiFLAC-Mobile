@@ -14,6 +14,8 @@ import 'package:spotiflac_android/providers/download_queue_provider.dart';
 import 'package:spotiflac_android/providers/local_library_provider.dart';
 import 'package:spotiflac_android/providers/settings_provider.dart';
 import 'package:spotiflac_android/services/cover_cache_manager.dart';
+import 'package:spotiflac_android/providers/player_motion_artwork_provider.dart';
+import 'package:spotiflac_android/services/motion_artwork_store.dart';
 import 'package:spotiflac_android/services/downloaded_embedded_cover_resolver.dart';
 import 'package:spotiflac_android/services/platform_bridge.dart';
 import 'package:spotiflac_android/utils/string_utils.dart';
@@ -72,6 +74,9 @@ class _CacheManagementPageState extends ConsumerState<CacheManagementPage> {
     final tempDirFuture = getTemporaryDirectory();
     final appSupportDirFuture = getApplicationSupportDirectory();
     final coverStatsFuture = CoverCacheManager.getStats();
+    final motionStatsFuture = MotionArtworkStore.defaultDirectory().then(
+      _scanDirectory,
+    );
     final prefsFuture = SharedPreferences.getInstance();
     final trackCacheEntriesFuture = _getTrackCacheSizeSafe();
 
@@ -120,6 +125,7 @@ class _CacheManagementPageState extends ConsumerState<CacheManagementPage> {
       tempStats: tempStats,
       tempIsSameAsAppCache: tempIsSameAsAppCache,
       coverStats: coverStats,
+      motionStats: await motionStatsFuture,
       libraryCoverStats: libraryCoverStats,
       audioAnalysisStats: audioAnalysisStats,
       exploreCacheBytes: exploreBytes,
@@ -203,6 +209,11 @@ class _CacheManagementPageState extends ConsumerState<CacheManagementPage> {
 
   Future<void> _clearCoverCache() async {
     await CoverCacheManager.clearCache();
+  }
+
+  Future<void> _clearMotionArtwork() async {
+    await ref.read(motionArtworkStoreProvider).clear();
+    if (mounted) ref.invalidate(playerMotionArtworkProvider);
   }
 
   Future<void> _clearLibraryCoverCache() async {
@@ -625,6 +636,24 @@ class _CacheManagementPageState extends ConsumerState<CacheManagementPage> {
                     ),
                   ),
                   SettingsItem(
+                    icon: Icons.video_library_outlined,
+                    title: context.l10n.cacheMotionArtwork,
+                    subtitle: _buildSubtitle(
+                      context.l10n.cacheMotionArtworkDesc,
+                      overview.motionStats.totalSizeBytes > 0
+                          ? formatBytes(overview.motionStats.totalSizeBytes)
+                          : context.l10n.cacheNoData,
+                    ),
+                    trailing: _buildClearTrailing(
+                      'clear_motion_artwork',
+                      () => _confirmAndRunAction(
+                        actionKey: 'clear_motion_artwork',
+                        targetLabel: context.l10n.cacheMotionArtwork,
+                        action: _clearMotionArtwork,
+                      ),
+                    ),
+                  ),
+                  SettingsItem(
                     icon: Icons.explore_outlined,
                     title: context.l10n.cacheExploreFeed,
                     subtitle: _buildSubtitle(
@@ -707,6 +736,7 @@ class _CacheOverview {
   final _DirectoryStats? tempStats;
   final bool tempIsSameAsAppCache;
   final CacheStats coverStats;
+  final _DirectoryStats motionStats;
   final _DirectoryStats libraryCoverStats;
   final _DirectoryStats audioAnalysisStats;
   final int exploreCacheBytes;
@@ -720,6 +750,7 @@ class _CacheOverview {
     this.tempStats,
     required this.tempIsSameAsAppCache,
     required this.coverStats,
+    required this.motionStats,
     required this.libraryCoverStats,
     required this.audioAnalysisStats,
     required this.exploreCacheBytes,

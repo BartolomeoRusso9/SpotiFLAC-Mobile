@@ -83,7 +83,7 @@ class _MornyeLandscapePlayerState extends State<MornyeLandscapePlayer> {
       behavior: HitTestBehavior.translucent,
       onTap: _reveal,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
         child: Row(
           children: [
             Expanded(child: widget.artwork),
@@ -91,7 +91,7 @@ class _MornyeLandscapePlayerState extends State<MornyeLandscapePlayer> {
               child: Column(
                 children: [
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                     child: widget.header,
                   ),
                   const SizedBox(height: 8),

@@ -1,4 +1,6 @@
 {
+  "cacheMotionArtwork": "Cover bergerak offline",
+  "cacheMotionArtworkDesc": "Video album yang disimpan saat download. Menghapusnya tetap menyimpan file musik dan cover biasa.",
   "nowPlayingVolume": "Volume",
   "@nowPlayingVolume": {
     "description": "Label kontrol volume sistem di pemutar Mornye"

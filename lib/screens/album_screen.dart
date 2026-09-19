@@ -212,7 +212,7 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen>
             t as Map<String, dynamic>,
             albumTypeFallback: albumType,
             totalTracksFallback: totalTracks,
-          ),
+          ).copyWith(headerVideoUrl: normalizeRemoteHttpUrl(headerVideo)),
         )
         .toList();
 

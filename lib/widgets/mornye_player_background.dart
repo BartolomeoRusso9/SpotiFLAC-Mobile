@@ -9,11 +9,13 @@ class MornyePlayerBackground extends StatelessWidget {
     required this.artUri,
     this.artwork,
     this.squareArtwork = true,
+    this.artworkAspectRatio,
   });
 
   final Uri? artUri;
   final Widget? artwork;
   final bool squareArtwork;
+  final double? artworkAspectRatio;
 
   @override
   Widget build(BuildContext context) {
@@ -56,11 +58,19 @@ class MornyePlayerBackground extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                Positioned(
+                AnimatedPositioned(
+                  duration: motion,
+                  curve: Curves.easeInOutCubic,
                   left: 0,
                   right: 0,
                   top: 0,
-                  height: squareArtwork
+                  height: artworkAspectRatio != null && artworkAspectRatio! > 0
+                      ? (MediaQuery.sizeOf(context).width / artworkAspectRatio!)
+                            .clamp(
+                              0.0,
+                              MediaQuery.sizeOf(context).height * 0.75,
+                            )
+                      : squareArtwork
                       ? MediaQuery.sizeOf(context).width
                       : MediaQuery.sizeOf(context).height * 0.66,
                   child: ShaderMask(

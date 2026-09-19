@@ -869,7 +869,8 @@ class HomeSearchSkeleton extends StatelessWidget {
                 ],
               ),
             ),
-            const SkeletonBox(width: 20, height: 20, borderRadius: 10),
+            if (!mornye)
+              const SkeletonBox(width: 20, height: 20, borderRadius: 10),
           ],
         ),
       );
@@ -893,24 +894,19 @@ class HomeSearchSkeleton extends StatelessWidget {
             ],
           ),
         ),
-        if (mornye)
-          for (var index = 0; index < rows.length; index++)
-            Container(
-              margin: EdgeInsets.fromLTRB(
-                16,
-                0,
-                16,
-                index == rows.length - 1 ? 0 : 8,
-              ),
-              decoration: decoration,
-              child: rows[index],
-            )
-        else
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: decoration,
-            child: Column(children: rows),
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: decoration,
+          child: Column(
+            children: [
+              for (var index = 0; index < rows.length; index++) ...[
+                if (mornye && index > 0)
+                  const Divider(height: 1, indent: 80, endIndent: 12),
+                rows[index],
+              ],
+            ],
           ),
+        ),
       ],
     );
   }

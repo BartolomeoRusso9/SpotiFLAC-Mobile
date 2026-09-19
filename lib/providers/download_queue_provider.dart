@@ -17,6 +17,7 @@ import 'package:spotiflac_android/models/track.dart';
 import 'package:spotiflac_android/services/app_navigation_service.dart';
 import 'package:spotiflac_android/providers/settings_provider.dart';
 import 'package:spotiflac_android/providers/extension_provider.dart';
+import 'package:spotiflac_android/providers/player_motion_artwork_provider.dart';
 import 'package:spotiflac_android/providers/download_verification_retry_guard.dart';
 import 'package:spotiflac_android/providers/download_queue_state.dart';
 import 'package:spotiflac_android/services/app_state_database.dart';
@@ -37,6 +38,7 @@ import 'package:spotiflac_android/utils/extension_auth_launcher.dart';
 import 'package:spotiflac_android/utils/download_error_type.dart';
 import 'package:spotiflac_android/utils/lyrics_metadata_helper.dart';
 import 'package:spotiflac_android/utils/progress_stream_poller.dart';
+import 'package:spotiflac_android/utils/provider_resource_ids.dart';
 
 import 'package:spotiflac_android/providers/download_history_provider.dart';
 

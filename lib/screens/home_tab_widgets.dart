@@ -532,13 +532,12 @@ class _CollectionItemWidget extends StatelessWidget {
                     ],
                   ),
                 ),
-                Icon(
-                  context.isMornye
-                      ? mornyeIconFor(Icons.chevron_right)
-                      : Icons.chevron_right,
-                  color: colorScheme.onSurfaceVariant,
-                  size: context.isMornye ? 18 : 24,
-                ),
+                if (!context.isMornye)
+                  Icon(
+                    Icons.chevron_right,
+                    color: colorScheme.onSurfaceVariant,
+                    size: 24,
+                  ),
               ],
             ),
           ),

@@ -229,13 +229,16 @@ class TrackNotifier extends Notifier<TrackState> {
             result['tracks'] != null) {
           final trackList = result['tracks'] as List<dynamic>;
           final collectionName = result['name'] as String?;
+          final headerVideo = type == 'album'
+              ? normalizeRemoteHttpUrl(result['header_video']?.toString())
+              : null;
           final tracks = trackList
               .map(
                 (t) => Track.fromBackendMap(
                   t as Map<String, dynamic>,
                   source: extensionId,
                   playlistName: type == 'playlist' ? collectionName : null,
-                ),
+                ).copyWith(headerVideoUrl: headerVideo),
               )
               .toList();
           state = TrackState(

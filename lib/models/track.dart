@@ -14,6 +14,7 @@ class Track {
   final String? artistId;
   final String? albumId;
   final String? coverUrl;
+  final String? headerVideoUrl;
   final String? isrc;
   final String? previewUrl;
   final int duration;
@@ -46,6 +47,7 @@ class Track {
     this.artistId,
     this.albumId,
     this.coverUrl,
+    this.headerVideoUrl,
     this.isrc,
     this.previewUrl,
     required this.duration,
@@ -128,6 +130,7 @@ class Track {
       coverUrl: normalizeCoverReference(
         (data['cover_url'] ?? data['images'])?.toString(),
       ),
+      headerVideoUrl: normalizeRemoteHttpUrl(data['header_video']?.toString()),
       isrc: data['isrc']?.toString(),
       duration: (durationMs / 1000).round(),
       trackNumber: data['track_number'] as int?,
@@ -162,6 +165,7 @@ class Track {
     String? artistId,
     String? albumId,
     String? coverUrl,
+    String? headerVideoUrl,
     String? isrc,
     String? previewUrl,
     int? duration,
@@ -194,6 +198,7 @@ class Track {
       artistId: artistId ?? this.artistId,
       albumId: albumId ?? this.albumId,
       coverUrl: coverUrl ?? this.coverUrl,
+      headerVideoUrl: headerVideoUrl ?? this.headerVideoUrl,
       isrc: isrc ?? this.isrc,
       previewUrl: previewUrl ?? this.previewUrl,
       duration: duration ?? this.duration,

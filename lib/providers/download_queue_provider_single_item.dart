@@ -1717,6 +1717,12 @@ class _DownloadRun {
         externalLrcWritten: externalLrcWritten,
       );
 
+      await n._saveDownloadedMotionArtwork(
+        n.ref,
+        item,
+        trackToDownload,
+        result,
+      );
       await persistBeforePublishingDownloadCompletion(
         persist: () async {
           if (!settings.saveDownloadHistory) return;

@@ -8,12 +8,16 @@ class _VideoPlatform extends VideoPlayerPlatform {
   int playCalls = 0;
   bool looping = false;
   double volume = 1;
+  DataSource? source;
 
   @override
   Future<void> init() async {}
 
   @override
-  Future<int?> createWithOptions(VideoCreationOptions options) async => 1;
+  Future<int?> createWithOptions(VideoCreationOptions options) async {
+    source = options.dataSource;
+    return 1;
+  }
 
   @override
   Stream<VideoEvent> videoEventsFor(int playerId) => Stream.value(
@@ -58,6 +62,37 @@ class _VideoPlatform extends VideoPlayerPlatform {
 }
 
 void main() {
+  testWidgets(
+    'offline cover uses a silent looping file and reports its ratio',
+    (tester) async {
+      final previousPlatform = VideoPlayerPlatform.instance;
+      final platform = _VideoPlatform();
+      VideoPlayerPlatform.instance = platform;
+      addTearDown(() => VideoPlayerPlatform.instance = previousPlatform);
+      double? ratio;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SizedBox(
+            width: 320,
+            height: 180,
+            child: MotionHeaderBanner(
+              videoUrl: 'file:///app/motion_artwork/cover.mp4',
+              fallback: const ColoredBox(color: Colors.black),
+              onAspectRatioChanged: (value) => ratio = value,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(platform.source?.sourceType, DataSourceType.file);
+      expect(platform.looping, isTrue);
+      expect(platform.volume, 0);
+      expect(platform.playing, isTrue);
+      expect(ratio, closeTo(320 / 180, 0.001));
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   testWidgets('collapsed headers pause video and visible headers resume', (
     tester,
   ) async {

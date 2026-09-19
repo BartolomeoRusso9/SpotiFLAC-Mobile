@@ -8,20 +8,30 @@ class MornyePlayerArtwork extends StatelessWidget {
     super.key,
     required this.mediaItem,
     this.videoUrl,
+    this.onAspectRatioChanged,
+    this.onError,
   });
 
   final MediaItem mediaItem;
   final String? videoUrl;
+  final ValueChanged<double>? onAspectRatioChanged;
+  final VoidCallback? onError;
 
   @override
   Widget build(BuildContext context) {
-    final fallback = PlayerArtwork(
-      artUri: mediaItem.artUri?.toString(),
-      colorScheme: Theme.of(context).colorScheme,
-      cacheWidth:
-          (MediaQuery.sizeOf(context).width *
-                  MediaQuery.devicePixelRatioOf(context))
-              .round(),
+    final fallback = Align(
+      alignment: Alignment.topCenter,
+      child: AspectRatio(
+        aspectRatio: 1,
+        child: PlayerArtwork(
+          artUri: mediaItem.artUri?.toString(),
+          colorScheme: Theme.of(context).colorScheme,
+          cacheWidth:
+              (MediaQuery.sizeOf(context).width *
+                      MediaQuery.devicePixelRatioOf(context))
+                  .round(),
+        ),
+      ),
     );
     if (MediaQuery.disableAnimationsOf(context)) return fallback;
     return videoUrl == null
@@ -30,6 +40,8 @@ class MornyePlayerArtwork extends StatelessWidget {
             key: ValueKey(videoUrl),
             videoUrl: videoUrl!,
             fallback: fallback,
+            onAspectRatioChanged: onAspectRatioChanged,
+            onError: onError,
           );
   }
 }

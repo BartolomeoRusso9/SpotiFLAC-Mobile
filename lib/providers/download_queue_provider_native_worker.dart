@@ -1245,6 +1245,7 @@ extension _DownloadQueueNativeWorker on DownloadQueueNotifier {
 
     if (result['native_finalized'] == true) {
       final nativeFinalizedFilePath = filePath;
+      await _saveDownloadedMotionArtwork(ref, item, item.track, result);
       await persistBeforePublishingDownloadCompletion(
         persist: () async {
           if (!settings.saveDownloadHistory) return;
@@ -1532,6 +1533,7 @@ extension _DownloadQueueNativeWorker on DownloadQueueNotifier {
         lowerFilePath.endsWith('.ogg');
 
     final completedFilePath = filePath;
+    await _saveDownloadedMotionArtwork(ref, item, trackToDownload, result);
     final lyricsAvailability = await _resolveFinalLyricsAvailability(
       filePath: completedFilePath,
       externalLrcWritten: externalLrcWritten,

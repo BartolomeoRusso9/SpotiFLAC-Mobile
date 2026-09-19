@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
@@ -10,6 +12,8 @@ class MotionHeaderBanner extends StatefulWidget {
   final Widget fallback;
   final BoxFit fit;
   final Alignment alignment;
+  final ValueChanged<double>? onAspectRatioChanged;
+  final VoidCallback? onError;
 
   const MotionHeaderBanner({
     super.key,
@@ -17,6 +21,8 @@ class MotionHeaderBanner extends StatefulWidget {
     required this.fallback,
     this.fit = BoxFit.cover,
     this.alignment = Alignment.topCenter,
+    this.onAspectRatioChanged,
+    this.onError,
   });
 
   @override
@@ -95,28 +101,35 @@ class _MotionHeaderBannerState extends State<MotionHeaderBanner>
       return;
     }
 
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse(url),
-      formatHint: Uri.parse(url).path.toLowerCase().endsWith('.m3u8')
-          ? VideoFormat.hls
-          : null,
-      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
-    );
+    final uri = Uri.tryParse(url);
+    final options = VideoPlayerOptions(mixWithOthers: true);
+    final controller = uri?.scheme == 'file' || url.startsWith('/')
+        ? VideoPlayerController.file(
+            uri?.scheme == 'file' ? File.fromUri(uri!) : File(url),
+            videoPlayerOptions: options,
+          )
+        : VideoPlayerController.networkUrl(
+            Uri.parse(url),
+            formatHint: uri?.path.toLowerCase().endsWith('.m3u8') == true
+                ? VideoFormat.hls
+                : null,
+            videoPlayerOptions: options,
+          );
     _controller = controller;
     try {
       await controller.initialize();
-      if (!mounted) {
-        await controller.dispose();
-        return;
-      }
+      if (!mounted || !identical(controller, _controller)) return;
       await controller.setVolume(0);
       await controller.setLooping(true);
+      if (!mounted || !identical(controller, _controller)) return;
       setState(() => _ready = true);
+      widget.onAspectRatioChanged?.call(controller.value.aspectRatio);
       _syncPlayback();
     } catch (e) {
       _log.w('Failed to play motion banner: $e');
-      if (!mounted) return;
+      if (!mounted || !identical(controller, _controller)) return;
       setState(() => _failed = true);
+      widget.onError?.call();
     }
   }
 
