@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
 import 'package:spotiflac_android/widgets/app_bottom_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
@@ -92,18 +93,19 @@ class _DuplicateReviewSheetState extends ConsumerState<DuplicateReviewSheet> {
   }
 
   Future<bool> _confirmDelete(String message) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppDialog<bool>(
       context: context,
-      useRootNavigator: true,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => AppAlertDialog(
         title: Text(ctx.l10n.dialogDeleteSelectedTitle),
         content: Text(message),
         actions: [
-          TextButton(
+          AppDialogAction(
             onPressed: () => Navigator.pop(ctx, false),
             child: Text(ctx.l10n.dialogCancel),
           ),
-          FilledButton(
+          AppDialogAction(
+            filled: true,
+            isDestructive: true,
             onPressed: () => Navigator.pop(ctx, true),
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(ctx).colorScheme.error,

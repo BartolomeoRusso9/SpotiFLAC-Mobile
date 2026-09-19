@@ -6,6 +6,8 @@ import 'package:video_player_platform_interface/video_player_platform_interface.
 class _VideoPlatform extends VideoPlayerPlatform {
   bool playing = false;
   int playCalls = 0;
+  bool looping = false;
+  double volume = 1;
 
   @override
   Future<void> init() async {}
@@ -32,10 +34,12 @@ class _VideoPlatform extends VideoPlayerPlatform {
   Future<void> pause(int playerId) async => playing = false;
 
   @override
-  Future<void> setLooping(int playerId, bool looping) async {}
+  Future<void> setLooping(int playerId, bool looping) async =>
+      this.looping = looping;
 
   @override
-  Future<void> setVolume(int playerId, double volume) async {}
+  Future<void> setVolume(int playerId, double volume) async =>
+      this.volume = volume;
 
   @override
   Future<void> setPlaybackSpeed(int playerId, double speed) async {}
@@ -91,6 +95,8 @@ void main() {
     await tester.pumpWidget(app());
     await tester.pump();
     expect(platform.playing, isTrue);
+    expect(platform.looping, isTrue);
+    expect(platform.volume, 0);
     final initialPlayCalls = platform.playCalls;
 
     scroll.jumpTo(50);

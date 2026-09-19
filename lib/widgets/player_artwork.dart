@@ -2,9 +2,11 @@ import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:spotiflac_android/services/cover_cache_manager.dart';
 
 class PlayerArtwork extends StatelessWidget {
+  /// An HTTP(S) URL, file URI, or absolute local artwork path.
   final String? artUri;
   final ColorScheme colorScheme;
   final int? cacheWidth;
@@ -44,8 +46,10 @@ class PlayerArtwork extends StatelessWidget {
         errorWidget: (_, _, _) => placeholder,
       );
     }
-    if (uri.startsWith('file://')) {
-      final path = Uri.parse(uri).toFilePath();
+    if (uri.startsWith('file://') || p.isAbsolute(uri)) {
+      final path = uri.startsWith('file://')
+          ? Uri.parse(uri).toFilePath()
+          : uri;
       return Image.file(
         File(path),
         fit: BoxFit.cover,

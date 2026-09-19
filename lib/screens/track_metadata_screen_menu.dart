@@ -1,198 +1,263 @@
 // ignore_for_file: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
 part of 'track_metadata_screen.dart';
 
-// The overflow options sheet and its header cover.
+// The overflow menu and the Material sheet's header cover.
 extension _TrackMetadataMenu on _TrackMetadataScreenState {
   void _showOptionsMenu(
     BuildContext screenContext,
     WidgetRef ref,
-    ColorScheme colorScheme,
-  ) {
+    ColorScheme colorScheme, {
+    Rect? anchor,
+  }) {
+    Widget buildMenu(BuildContext sheetContext) {
+      final l10n = sheetContext.l10n;
+
+      final options = <_MetadataOption>[
+        if (_fileExists)
+          _MetadataOption(
+            icon: Icons.playlist_play,
+            label: l10n.trackPlayNext,
+            onTap: () => _enqueueThis(ref, playNext: true),
+          ),
+        if (_fileExists)
+          _MetadataOption(
+            icon: Icons.queue_music,
+            label: l10n.trackAddToQueue,
+            onTap: () => _enqueueThis(ref, playNext: false),
+          ),
+        if (albumName.trim().isNotEmpty)
+          _MetadataOption(
+            icon: Icons.album_outlined,
+            label: l10n.homeGoToAlbum,
+            onTap: () => _goToStoredAlbum(screenContext),
+          ),
+        _MetadataOption(
+          icon: Icons.copy_outlined,
+          label: l10n.trackCopyFilePath,
+          dividerAbove: _fileExists,
+          onTap: () => _copyToClipboard(screenContext, cleanFilePath),
+        ),
+        if (_fileExists)
+          _MetadataOption(
+            icon: Icons.edit_outlined,
+            label: l10n.trackEditMetadata,
+            onTap: () =>
+                _showEditMetadataSheet(screenContext, ref, colorScheme),
+          ),
+        if (!_isLocalItem && (_coverUrl != null || _fileExists))
+          _MetadataOption(
+            icon: Icons.image_outlined,
+            label: l10n.trackSaveCoverArt,
+            onTap: _saveCoverArt,
+          ),
+        if (!_isLocalItem)
+          _MetadataOption(
+            icon: Icons.lyrics_outlined,
+            label: l10n.trackSaveLyrics,
+            onTap: _saveLyrics,
+          ),
+        if (_fileExists)
+          _MetadataOption(
+            icon: Icons.travel_explore,
+            label: l10n.trackReEnrich,
+            onTap: _reEnrichMetadata,
+          ),
+        if (_fileExists && _isConvertibleFormat)
+          _MetadataOption(
+            icon: Icons.swap_horiz,
+            label: l10n.trackConvertFormat,
+            onTap: () => _showConvertSheet(screenContext),
+          ),
+        if (_fileExists && !_isCueFile)
+          _MetadataOption(
+            icon: Icons.graphic_eq,
+            label: l10n.trackReplayGain,
+            onTap: () => _rescanReplayGain(),
+          ),
+        if (_fileExists && _isCueFile)
+          _MetadataOption(
+            icon: Icons.call_split,
+            label: l10n.cueSplitTitle,
+            onTap: () => _showCueSplitSheet(screenContext),
+          ),
+        if (_spotifyId != null || (isrc?.isNotEmpty ?? false))
+          _MetadataOption(
+            icon: Icons.open_in_new,
+            label: l10n.trackOpenOn,
+            dividerAbove: true,
+            onTap: () => OpenOnPlatformSheet.show(
+              screenContext,
+              spotifyId: _spotifyId ?? '',
+              isrc: isrc ?? '',
+            ),
+          ),
+        _MetadataOption(
+          icon: Icons.share_outlined,
+          label: l10n.trackMetadataShare,
+          dividerAbove: _spotifyId == null && !(isrc?.isNotEmpty ?? false),
+          onTap: () => _shareFile(screenContext),
+        ),
+        _MetadataOption(
+          icon: Icons.delete_outline,
+          label: l10n.trackRemoveFromDevice,
+          destructive: true,
+          onTap: () => _confirmDelete(screenContext, ref, colorScheme),
+        ),
+      ];
+
+      if (sheetContext.isMornye) {
+        final groups = <List<MornyeMenuAction>>[];
+        for (final option in options) {
+          if (option.icon == Icons.share_outlined ||
+              option.icon == Icons.edit_outlined) {
+            continue;
+          }
+          if (groups.isEmpty || option.dividerAbove || option.destructive) {
+            groups.add([]);
+          }
+          groups.last.add(
+            MornyeMenuAction(
+              icon: mornyeIconFor(option.icon),
+              label: option.label,
+              destructive: option.destructive,
+              onPressed: () =>
+                  _closeOptionsMenuAndRun(sheetContext, option.onTap),
+            ),
+          );
+        }
+        return MornyeContextMenu(
+          quickActions: [
+            if (_fileExists) ...[
+              MornyeMenuAction(
+                icon: CupertinoIcons.play_fill,
+                label: l10n.trackMetadataPlay,
+                onPressed: () => _closeOptionsMenuAndRun(
+                  sheetContext,
+                  () => _openFile(screenContext, rawFilePath),
+                ),
+              ),
+              MornyeMenuAction(
+                icon: CupertinoIcons.pencil,
+                label: l10n.trackEditMetadata,
+                onPressed: () => _closeOptionsMenuAndRun(
+                  sheetContext,
+                  () => _showEditMetadataSheet(screenContext, ref, colorScheme),
+                ),
+              ),
+            ],
+            MornyeMenuAction(
+              icon: CupertinoIcons.share_solid,
+              label: l10n.trackMetadataShare,
+              onPressed: () => _closeOptionsMenuAndRun(
+                sheetContext,
+                () => _shareFile(screenContext),
+              ),
+            ),
+          ],
+          groups: groups,
+        );
+      }
+
+      Widget buildContent({ScrollController? controller}) => SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          controller: controller,
+          primary: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const AppSheetHandle(),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: _buildOptionsHeaderCover(colorScheme),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            trackName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(sheetContext).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            artistName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(sheetContext).textTheme.bodyMedium
+                                ?.copyWith(color: colorScheme.onSurfaceVariant),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Divider(
+                height: 1,
+                color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+              ),
+              const SizedBox(height: 8),
+              Builder(
+                builder: (context) {
+                  final items = <Widget>[
+                    for (int i = 0; i < options.length; i++) ...[
+                      if (options[i].dividerAbove && i != 0)
+                        Divider(
+                          height: 1,
+                          thickness: 1,
+                          color: colorScheme.outlineVariant.withValues(
+                            alpha: 0.3,
+                          ),
+                        ),
+                      _MetadataOptionTile(
+                        option: options[i],
+                        colorScheme: colorScheme,
+                        onTap: () => _closeOptionsMenuAndRun(
+                          sheetContext,
+                          options[i].onTap,
+                        ),
+                      ),
+                    ],
+                  ];
+                  return SettingsGroup(children: items);
+                },
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      );
+      return ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.85,
+        ),
+        child: buildContent(),
+      );
+    }
+
+    if (screenContext.isMornye) {
+      showMornyeContextMenu<void>(
+        context: screenContext,
+        anchor: anchor,
+        builder: buildMenu,
+      );
+      return;
+    }
     showModalBottomSheet<void>(
       context: screenContext,
       useRootNavigator: true,
       backgroundColor: colorScheme.surfaceContainerHigh,
       isScrollControlled: true,
-      builder: (sheetContext) {
-        final l10n = sheetContext.l10n;
-
-        final options = <_MetadataOption>[
-          if (_fileExists)
-            _MetadataOption(
-              icon: Icons.playlist_play,
-              label: l10n.trackPlayNext,
-              onTap: () => _enqueueThis(ref, playNext: true),
-            ),
-          if (_fileExists)
-            _MetadataOption(
-              icon: Icons.queue_music,
-              label: l10n.trackAddToQueue,
-              onTap: () => _enqueueThis(ref, playNext: false),
-            ),
-          if (albumName.trim().isNotEmpty)
-            _MetadataOption(
-              icon: Icons.album_outlined,
-              label: l10n.homeGoToAlbum,
-              onTap: () => _goToStoredAlbum(screenContext),
-            ),
-          _MetadataOption(
-            icon: Icons.copy_outlined,
-            label: l10n.trackCopyFilePath,
-            dividerAbove: _fileExists,
-            onTap: () => _copyToClipboard(screenContext, cleanFilePath),
-          ),
-          if (_fileExists)
-            _MetadataOption(
-              icon: Icons.edit_outlined,
-              label: l10n.trackEditMetadata,
-              onTap: () =>
-                  _showEditMetadataSheet(screenContext, ref, colorScheme),
-            ),
-          if (!_isLocalItem && (_coverUrl != null || _fileExists))
-            _MetadataOption(
-              icon: Icons.image_outlined,
-              label: l10n.trackSaveCoverArt,
-              onTap: _saveCoverArt,
-            ),
-          if (!_isLocalItem)
-            _MetadataOption(
-              icon: Icons.lyrics_outlined,
-              label: l10n.trackSaveLyrics,
-              onTap: _saveLyrics,
-            ),
-          if (_fileExists)
-            _MetadataOption(
-              icon: Icons.travel_explore,
-              label: l10n.trackReEnrich,
-              onTap: _reEnrichMetadata,
-            ),
-          if (_fileExists && _isConvertibleFormat)
-            _MetadataOption(
-              icon: Icons.swap_horiz,
-              label: l10n.trackConvertFormat,
-              onTap: () => _showConvertSheet(screenContext),
-            ),
-          if (_fileExists && !_isCueFile)
-            _MetadataOption(
-              icon: Icons.graphic_eq,
-              label: l10n.trackReplayGain,
-              onTap: () => _rescanReplayGain(),
-            ),
-          if (_fileExists && _isCueFile)
-            _MetadataOption(
-              icon: Icons.call_split,
-              label: l10n.cueSplitTitle,
-              onTap: () => _showCueSplitSheet(screenContext),
-            ),
-          if (_spotifyId != null || (isrc?.isNotEmpty ?? false))
-            _MetadataOption(
-              icon: Icons.open_in_new,
-              label: l10n.trackOpenOn,
-              dividerAbove: true,
-              onTap: () => OpenOnPlatformSheet.show(
-                screenContext,
-                spotifyId: _spotifyId ?? '',
-                isrc: isrc ?? '',
-              ),
-            ),
-          _MetadataOption(
-            icon: Icons.share_outlined,
-            label: l10n.trackMetadataShare,
-            dividerAbove: _spotifyId == null && !(isrc?.isNotEmpty ?? false),
-            onTap: () => _shareFile(screenContext),
-          ),
-          _MetadataOption(
-            icon: Icons.delete_outline,
-            label: l10n.trackRemoveFromDevice,
-            destructive: true,
-            onTap: () => _confirmDelete(screenContext, ref, colorScheme),
-          ),
-        ];
-
-        return SafeArea(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.85,
-            ),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const AppSheetHandle(),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                    child: Row(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: _buildOptionsHeaderCover(colorScheme),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                trackName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(sheetContext)
-                                    .textTheme
-                                    .titleMedium
-                                    ?.copyWith(fontWeight: FontWeight.w600),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                artistName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(sheetContext)
-                                    .textTheme
-                                    .bodyMedium
-                                    ?.copyWith(
-                                      color: colorScheme.onSurfaceVariant,
-                                    ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Divider(
-                    height: 1,
-                    color: colorScheme.outlineVariant.withValues(alpha: 0.5),
-                  ),
-                  const SizedBox(height: 8),
-                  SettingsGroup(
-                    children: [
-                      for (int i = 0; i < options.length; i++) ...[
-                        if (options[i].dividerAbove && i != 0)
-                          Divider(
-                            height: 1,
-                            thickness: 1,
-                            color: colorScheme.outlineVariant.withValues(
-                              alpha: 0.3,
-                            ),
-                          ),
-                        _MetadataOptionTile(
-                          option: options[i],
-                          colorScheme: colorScheme,
-                          onTap: () => _closeOptionsMenuAndRun(
-                            sheetContext,
-                            options[i].onTap,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
+      builder: buildMenu,
     );
   }
 

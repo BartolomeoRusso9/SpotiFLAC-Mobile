@@ -4,7 +4,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:spotiflac_android/screens/track_history_snapshot.dart';
 import 'package:spotiflac_android/theme/app_tokens.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/widgets/app_switch.dart';
+import 'package:spotiflac_android/theme/mornye_icons.dart';
+import 'package:spotiflac_android/widgets/mornye_chrome.dart';
+import 'package:spotiflac_android/widgets/mornye_artist_header.dart';
+import 'package:spotiflac_android/widgets/album_detail_header.dart';
 import 'package:spotiflac_android/widgets/app_bottom_sheet.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
 import 'package:spotiflac_android/widgets/app_sliver_header.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,6 +33,7 @@ import 'package:spotiflac_android/services/csv_import_service.dart';
 import 'package:spotiflac_android/services/cover_download_service.dart';
 import 'package:spotiflac_android/services/downloaded_embedded_cover_resolver.dart';
 import 'package:spotiflac_android/services/platform_bridge.dart';
+import 'package:spotiflac_android/services/shell_navigation_service.dart';
 import 'package:spotiflac_android/utils/adaptive_layout.dart';
 import 'package:spotiflac_android/utils/extension_auth_launcher.dart';
 import 'package:spotiflac_android/utils/nav_bar_inset.dart';
@@ -42,7 +50,7 @@ import 'package:spotiflac_android/widgets/cached_cover_image.dart';
 import 'package:spotiflac_android/widgets/error_card.dart';
 import 'package:spotiflac_android/widgets/in_library_badge.dart';
 import 'package:spotiflac_android/widgets/preview_button.dart';
-import 'package:spotiflac_android/widgets/settings_group.dart';
+import 'package:spotiflac_android/widgets/app_search_field.dart';
 import 'package:spotiflac_android/widgets/view_queue_snackbar_action.dart';
 import 'package:spotiflac_android/widgets/downloadable_cover.dart';
 
@@ -64,6 +72,7 @@ class _HomeTabState extends ConsumerState<HomeTab>
   final _historySnapshot = TrackHistorySnapshot();
   final _urlController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  final _homeScrollController = ScrollController();
   String? _lastSearchQuery;
   String? _activeSearchInput;
   bool _isResettingSearchSurface = false;
@@ -157,6 +166,9 @@ class _HomeTabState extends ConsumerState<HomeTab>
     super.initState();
     _urlController.addListener(_onSearchChanged);
     _searchFocusNode.addListener(_onSearchFocusChanged);
+    ShellNavigationService.homeSearchRequests.addListener(
+      _focusSearchFromShell,
+    );
 
     // Run an initial fetch check in case extensions were already initialized
     // before HomeTab was mounted (e.g. auto-installed during first setup).
@@ -227,6 +239,10 @@ class _HomeTabState extends ConsumerState<HomeTab>
 
   @override
   void dispose() {
+    ShellNavigationService.homeSearchRequests.removeListener(
+      _focusSearchFromShell,
+    );
+    _homeScrollController.dispose();
     _liveSearchDebounce?.cancel();
     _trackStateSub.close();
     _extensionInitSub.close();
@@ -334,6 +350,14 @@ class _HomeTabState extends ConsumerState<HomeTab>
     if (_searchFocusNode.hasFocus) {
       ref.read(trackProvider.notifier).setShowingRecentAccess(true);
     }
+  }
+
+  void _focusSearchFromShell() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_homeScrollController.hasClients) _homeScrollController.jumpTo(0);
+      _searchFocusNode.requestFocus();
+    });
   }
 
   void _onTrackStateChanged(TrackState? previous, TrackState next) {
@@ -743,7 +767,6 @@ class _HomeTabState extends ConsumerState<HomeTab>
       trackProvider.select((s) => s.isShowingRecentAccess),
     );
     final screenHeight = MediaQuery.sizeOf(context).height;
-    final bottomInset = context.navBarBottomInset;
     final hasHistoryItems = ref.watch(
       _homeHistoryPreviewProvider.select((items) => items.isNotEmpty),
     );
@@ -833,6 +856,7 @@ class _HomeTabState extends ConsumerState<HomeTab>
           onRefresh: () => ref.read(exploreProvider.notifier).refresh(),
           notificationPredicate: (notification) => showExplore,
           child: CustomScrollView(
+            controller: _homeScrollController,
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             slivers: [
               AppSliverHeader.tabRoot(title: context.l10n.homeTitle),
@@ -860,7 +884,7 @@ class _HomeTabState extends ConsumerState<HomeTab>
                       16,
                       (hasResults || showExplore) ? 8 : 16,
                     ),
-                    child: _buildSearchBar(colorScheme),
+                    child: _buildSearchBar(),
                   ),
                 ),
 
@@ -1044,7 +1068,7 @@ class _HomeTabState extends ConsumerState<HomeTab>
                   );
                 },
               ),
-              SliverToBoxAdapter(child: SizedBox(height: bottomInset)),
+              const NavBarSliverSpacer(),
             ],
           ),
         ),
@@ -1095,6 +1119,11 @@ class _HomeTabState extends ConsumerState<HomeTab>
         ),
       );
     }
+
+    // The Mornye style uses the navigation title as the page identity. Keep
+    // the search surface directly beneath it instead of repeating app branding
+    // in the content area.
+    if (context.isMornye) return const SizedBox.shrink();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),

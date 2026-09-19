@@ -2,6 +2,15 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
+import 'package:flutter/cupertino.dart'
+    show
+        CupertinoButton,
+        CupertinoIcons,
+        CupertinoTextField,
+        CupertinoActivityIndicator;
+import 'package:spotiflac_android/widgets/app_action_button.dart';
+import 'package:spotiflac_android/widgets/app_switch.dart';
 import 'package:spotiflac_android/widgets/app_bottom_sheet.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -43,8 +52,14 @@ import 'package:spotiflac_android/utils/nav_bar_inset.dart';
 import 'package:spotiflac_android/utils/re_enrich_release_policy.dart';
 import 'package:spotiflac_android/utils/saf_display_path.dart';
 import 'package:spotiflac_android/theme/cover_palette.dart' show HeaderPalette;
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/theme/mornye_icons.dart';
 import 'package:spotiflac_android/widgets/album_detail_header.dart'
-    show HeaderMetaRow, HeaderMetaItem;
+    show HeaderMetaRow, HeaderMetaItem, HeaderCircleButton, HeaderFilledButton;
+import 'package:spotiflac_android/widgets/mornye_chrome.dart';
+import 'package:spotiflac_android/widgets/mornye_context_menu.dart';
+import 'package:spotiflac_android/widgets/mornye_metadata_row.dart';
+import 'package:spotiflac_android/widgets/player_artwork.dart';
 import 'package:spotiflac_android/widgets/audio_analysis_widget.dart';
 import 'package:spotiflac_android/widgets/audio_quality_badges.dart';
 import 'package:spotiflac_android/widgets/batch_convert_sheet.dart';
@@ -61,6 +76,7 @@ import 'package:spotiflac_android/utils/clickable_metadata.dart';
 part 'track_metadata_screen_cover.dart';
 part 'track_metadata_screen_display.dart';
 part 'track_metadata_screen_menu.dart';
+part 'track_metadata_mornye.dart';
 
 part 'track_metadata_edit_sheet.dart';
 part 'track_metadata_cards.dart';
@@ -657,6 +673,7 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (context.isMornye) return _buildMornyePage(context);
     final colorScheme = Theme.of(context).colorScheme;
     final expandedHeight = calculateExpandedHeight(context);
     final bottomInset = context.navBarBottomInset;
@@ -796,6 +813,29 @@ class _TrackMetadataScreenState extends ConsumerState<TrackMetadataScreen>
     ColorScheme colorScheme,
     bool fileExists,
   ) {
+    if (context.isMornye) {
+      return Row(
+        children: [
+          Expanded(
+            child: HeaderFilledButton(
+              icon: CupertinoIcons.play_fill,
+              label: context.l10n.trackMetadataPlay,
+              onPressed: fileExists
+                  ? () => _openFile(context, rawFilePath)
+                  : null,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: HeaderFilledButton(
+              icon: CupertinoIcons.trash,
+              label: context.l10n.trackMetadataDelete,
+              onPressed: () => _confirmDelete(context, ref, colorScheme),
+            ),
+          ),
+        ],
+      );
+    }
     return Row(
       children: [
         Expanded(
@@ -871,6 +911,27 @@ class _MetadataOptionTile extends StatelessWidget {
         ? colorScheme.error
         : colorScheme.onSurfaceVariant;
     final titleColor = option.destructive ? colorScheme.error : null;
+
+    if (context.isMornye) {
+      return CupertinoButton(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        onPressed: onTap,
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                option.label,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: titleColor ?? colorScheme.onSurface,
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Icon(mornyeIconFor(option.icon), color: iconColor, size: 22),
+          ],
+        ),
+      );
+    }
 
     return InkWell(
       onTap: onTap,

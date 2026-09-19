@@ -3,6 +3,9 @@ import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/services/batch_metadata_re_enrich.dart';
 import 'package:spotiflac_android/widgets/app_bottom_sheet.dart';
 import 'package:spotiflac_android/widgets/settings_group.dart';
+import 'package:spotiflac_android/widgets/app_action_button.dart';
+import 'package:spotiflac_android/widgets/app_content_card.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
 
 Future<bool> showReEnrichReviewSheet(
   BuildContext context, {
@@ -108,70 +111,79 @@ class _ReEnrichReviewContent extends StatelessWidget {
               itemCount: visible.length,
               itemBuilder: (context, index) {
                 final preview = visible[index];
-                return SettingsGroup(
-                  children: [
-                    ListTile(
-                      leading: const Icon(Icons.audio_file_outlined),
-                      title: Text(
-                        preview.item.trackName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: Text(
-                        preview.item.artistName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                final children = <Widget>[
+                  ListTile(
+                    leading: const Icon(Icons.audio_file_outlined),
+                    title: Text(
+                      preview.item.trackName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    for (final change in preview.changes) ...[
-                      const Divider(height: 1, indent: 56),
-                      Semantics(
-                        label:
-                            '${_fieldLabel(context, change.field)}: ${_oldValue(context, change)}, ${_newValue(context, change)}',
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(56, 10, 16, 10),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                _fieldLabel(context, change.field),
-                                style: Theme.of(context).textTheme.labelMedium
-                                    ?.copyWith(
+                    subtitle: Text(
+                      preview.item.artistName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  for (final change in preview.changes) ...[
+                    const Divider(height: 1, indent: 56),
+                    Semantics(
+                      label:
+                          '${_fieldLabel(context, change.field)}: ${_oldValue(context, change)}, ${_newValue(context, change)}',
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(56, 10, 16, 10),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _fieldLabel(context, change.field),
+                              style: Theme.of(context).textTheme.labelMedium
+                                  ?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text.rich(
+                              TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: _oldValue(context, change),
+                                    style: TextStyle(
                                       color: colorScheme.onSurfaceVariant,
                                     ),
+                                  ),
+                                  TextSpan(
+                                    text: '  →  ',
+                                    style: TextStyle(
+                                      color: colorScheme.primary,
+                                    ),
+                                  ),
+                                  TextSpan(
+                                    text: _newValue(context, change),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 3),
-                              Text.rich(
-                                TextSpan(
-                                  children: [
-                                    TextSpan(
-                                      text: _oldValue(context, change),
-                                      style: TextStyle(
-                                        color: colorScheme.onSurfaceVariant,
-                                      ),
-                                    ),
-                                    TextSpan(
-                                      text: '  →  ',
-                                      style: TextStyle(
-                                        color: colorScheme.primary,
-                                      ),
-                                    ),
-                                    TextSpan(
-                                      text: _newValue(context, change),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
+                    ),
                   ],
-                );
+                ];
+                return context.isMornye
+                    ? Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 4,
+                        ),
+                        child: AppContentCard(
+                          child: Column(children: children),
+                        ),
+                      )
+                    : SettingsGroup(children: children);
               },
             ),
           ),
@@ -179,7 +191,7 @@ class _ReEnrichReviewContent extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
             child: SizedBox(
               width: double.infinity,
-              child: FilledButton.icon(
+              child: AppActionButton(
                 onPressed: () => Navigator.pop(context, true),
                 icon: const Icon(Icons.save_outlined),
                 label: Text(context.l10n.trackReEnrichApplyChanges),

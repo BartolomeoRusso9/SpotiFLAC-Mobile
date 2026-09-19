@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/widgets/app_bottom_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/constants/language_choices.dart';
 import 'package:spotiflac_android/providers/settings_provider.dart';
 import 'package:spotiflac_android/providers/theme_provider.dart';
+import 'package:spotiflac_android/models/theme_settings.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/theme/mornye_icons.dart';
+import 'package:spotiflac_android/widgets/mornye_chrome.dart';
 import 'package:spotiflac_android/utils/adaptive_layout.dart';
 import 'package:spotiflac_android/widgets/settings_group.dart';
 import 'package:spotiflac_android/widgets/app_sliver_header.dart';
@@ -24,6 +29,71 @@ class AppearanceSettingsPage extends ConsumerWidget {
             AppSliverHeader.page(title: context.l10n.appearanceTitle),
 
             SliverToBoxAdapter(
+              child: SettingsSectionHeader(title: context.l10n.appearanceStyle),
+            ),
+            SliverToBoxAdapter(
+              child: SettingsGroup(
+                children: [
+                  for (final style in AppThemeStyle.values)
+                    ListTile(
+                      title: Wrap(
+                        spacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            style == AppThemeStyle.mornye
+                                ? 'Mornye'
+                                : 'Material',
+                          ),
+                          if (style == AppThemeStyle.mornye)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.primary.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                'Beta',
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.primary,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      leading: Icon(
+                        context.isMornye
+                            ? mornyeIconFor(
+                                style == AppThemeStyle.mornye
+                                    ? Icons.music_note_outlined
+                                    : Icons.palette_outlined,
+                              )
+                            : style == AppThemeStyle.mornye
+                            ? Icons.music_note_outlined
+                            : Icons.palette_outlined,
+                      ),
+                      trailing: themeSettings.style == style
+                          ? Icon(
+                              Icons.check_circle,
+                              color: Theme.of(context).colorScheme.primary,
+                            )
+                          : null,
+                      selected: themeSettings.style == style,
+                      onTap: () =>
+                          ref.read(themeProvider.notifier).setStyle(style),
+                    ),
+                ],
+              ),
+            ),
+
+            SliverToBoxAdapter(
               child: Padding(
                 padding: EdgeInsets.symmetric(
                   horizontal: 16 + wideListInset(context),
@@ -33,37 +103,39 @@ class AppearanceSettingsPage extends ConsumerWidget {
               ),
             ),
 
-            SliverToBoxAdapter(
-              child: SettingsSectionHeader(title: context.l10n.sectionColor),
-            ),
-
-            SliverToBoxAdapter(
-              child: SettingsGroup(
-                children: [
-                  SettingsSwitchItem(
-                    icon: Icons.wallpaper,
-                    title: context.l10n.appearanceDynamicColor,
-                    subtitle: context.l10n.appearanceDynamicColorSubtitle,
-                    value: themeSettings.useDynamicColor,
-                    onChanged: (value) => ref
-                        .read(themeProvider.notifier)
-                        .setUseDynamicColor(value),
-                    showDivider: false,
-                  ),
-                ],
-              ),
-            ),
-            if (!themeSettings.useDynamicColor)
+            if (themeSettings.style == AppThemeStyle.material) ...[
               SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                  child: _ColorPalettePicker(
-                    currentColor: themeSettings.seedColorValue,
-                    onColorSelected: (color) =>
-                        ref.read(themeProvider.notifier).setSeedColor(color),
-                  ),
+                child: SettingsSectionHeader(title: context.l10n.sectionColor),
+              ),
+
+              SliverToBoxAdapter(
+                child: SettingsGroup(
+                  children: [
+                    SettingsSwitchItem(
+                      icon: Icons.wallpaper,
+                      title: context.l10n.appearanceDynamicColor,
+                      subtitle: context.l10n.appearanceDynamicColorSubtitle,
+                      value: themeSettings.useDynamicColor,
+                      onChanged: (value) => ref
+                          .read(themeProvider.notifier)
+                          .setUseDynamicColor(value),
+                      showDivider: false,
+                    ),
+                  ],
                 ),
               ),
+              if (!themeSettings.useDynamicColor)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    child: _ColorPalettePicker(
+                      currentColor: themeSettings.seedColorValue,
+                      onColorSelected: (color) =>
+                          ref.read(themeProvider.notifier).setSeedColor(color),
+                    ),
+                  ),
+                ),
+            ],
 
             SliverToBoxAdapter(
               child: SettingsSectionHeader(title: context.l10n.sectionTheme),
@@ -76,7 +148,8 @@ class AppearanceSettingsPage extends ConsumerWidget {
                     onChanged: (mode) =>
                         ref.read(themeProvider.notifier).setThemeMode(mode),
                   ),
-                  if (Theme.of(context).brightness == Brightness.dark)
+                  if (themeSettings.style == AppThemeStyle.material &&
+                      Theme.of(context).brightness == Brightness.dark)
                     SettingsSwitchItem(
                       icon: Icons.brightness_2,
                       title: context.l10n.appearanceAmoledDark,
@@ -164,6 +237,63 @@ class _ThemePreviewCard extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    if (context.isMornye) {
+      return ExcludeSemantics(
+        child: IgnorePointer(
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: colorScheme.surfaceContainer,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  context.l10n.navLibrary,
+                  style: Theme.of(context).textTheme.headlineLarge,
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.library_music_outlined,
+                      color: colorScheme.primary,
+                    ),
+                    const SizedBox(width: 16),
+                    Text(
+                      'SpotiFLAC Mobile',
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                MornyeTabBar(
+                  destinations: [
+                    NavigationDestination(
+                      icon: const Icon(Icons.home_outlined),
+                      label: context.l10n.navHome,
+                    ),
+                    NavigationDestination(
+                      icon: const Icon(Icons.library_music_outlined),
+                      label: context.l10n.navLibrary,
+                    ),
+                    NavigationDestination(
+                      icon: const Icon(Icons.settings_outlined),
+                      label: context.l10n.navSettings,
+                    ),
+                  ],
+                  selectedIndex: 1,
+                  onSelected: (_) {},
+                  blurEnabled: false,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return RepaintBoundary(
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -178,7 +308,7 @@ class _ThemePreviewCard extends StatelessWidget {
           );
 
           return Container(
-            constraints: BoxConstraints(minHeight: previewHeight),
+            height: previewHeight,
             width: double.infinity,
             decoration: BoxDecoration(
               color: colorScheme.surfaceContainerHighest,
@@ -452,6 +582,21 @@ class _ThemeModeSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (context.isMornye) {
+      final labels = {
+        ThemeMode.system: context.l10n.appearanceThemeSystem,
+        ThemeMode.light: context.l10n.appearanceThemeLight,
+        ThemeMode.dark: context.l10n.appearanceThemeDark,
+      };
+      return Padding(
+        padding: const EdgeInsets.all(12),
+        child: MornyeSegmentedControl(
+          labels: labels.values.toList(),
+          selectedIndex: labels.keys.toList().indexOf(currentMode),
+          onChanged: (index) => onChanged(labels.keys.elementAt(index)),
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.all(12),
       child: Row(
@@ -577,7 +722,7 @@ class _LanguageSelector extends StatelessWidget {
 
   void _showLanguagePicker(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    showModalBottomSheet<void>(
+    showAppModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
       backgroundColor: colorScheme.surface,
@@ -602,7 +747,7 @@ class _LanguageSelector extends StatelessWidget {
                 itemBuilder: (context, index) {
                   final lang = supportedLanguageChoices[index];
                   final isSelected = currentLocale == lang.$1;
-                  return ListTile(
+                  return AppSheetOption(
                     leading: Icon(
                       lang.$3,
                       color: isSelected

@@ -1,5 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:flutter/services.dart';
 import 'package:spotiflac_android/widgets/app_bottom_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +12,8 @@ import 'package:spotiflac_android/providers/settings_provider.dart';
 import 'package:spotiflac_android/services/cover_cache_manager.dart';
 import 'package:spotiflac_android/utils/local_playback.dart';
 import 'package:spotiflac_android/widgets/playlist_picker_sheet.dart';
+import 'package:spotiflac_android/widgets/mornye_context_menu.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:spotiflac_android/widgets/track_collection_action_policy.dart';
 import 'package:spotiflac_android/widgets/track_detail_actions.dart';
 import 'package:spotiflac_android/utils/clickable_metadata.dart';
@@ -31,12 +35,22 @@ class TrackCollectionQuickActions extends ConsumerWidget {
     bool hasLocalPlaybackCandidate = false,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
+    if (context.isMornye) {
+      showMornyeContextMenu<void>(
+        context: context,
+        builder: (_) => _TrackOptionsSheet(
+          track: track,
+          hasLocalPlaybackCandidate: hasLocalPlaybackCandidate,
+        ),
+      );
+      return;
+    }
     showModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
       isScrollControlled: true,
       backgroundColor: colorScheme.surfaceContainerHigh,
-      builder: (sheetContext) => _TrackOptionsSheet(
+      builder: (_) => _TrackOptionsSheet(
         track: track,
         hasLocalPlaybackCandidate: hasLocalPlaybackCandidate,
       ),
@@ -50,7 +64,7 @@ class TrackCollectionQuickActions extends ConsumerWidget {
     return IconButton(
       tooltip: MaterialLocalizations.of(context).showMenuTooltip,
       icon: Icon(
-        Icons.more_vert,
+        context.isMornye ? CupertinoIcons.ellipsis : Icons.more_vert,
         color: colorScheme.onSurfaceVariant,
         size: 20,
       ),
@@ -93,7 +107,111 @@ class _TrackOptionsSheet extends ConsumerWidget {
       hasLocalPlaybackCandidate: hasLocalPlaybackCandidate,
     );
 
+    if (context.isMornye) {
+      final l10n = context.l10n;
+      return MornyeContextMenu(
+        quickActions: [
+          MornyeMenuAction(
+            icon: CupertinoIcons.arrow_down_circle_fill,
+            label: l10n.dialogDownload,
+            onPressed: () {
+              final root = Navigator.of(context, rootNavigator: true).context;
+              Navigator.pop(context);
+              downloadSingleTrack(root, ref, track);
+            },
+          ),
+          MornyeMenuAction(
+            icon: CupertinoIcons.star_fill,
+            label: isLoved ? l10n.mornyeFavorited : l10n.mornyeFavorite,
+            selected: isLoved,
+            onPressed: () => _toggleCollection(context, ref, wishlist: false),
+          ),
+          MornyeMenuAction(
+            icon: CupertinoIcons.share_solid,
+            label: l10n.trackMetadataShare,
+            onPressed: () {
+              final origin =
+                  mornyeMenuAnchor(context) ??
+                  Rect.fromCenter(
+                    center: MediaQuery.sizeOf(context).center(Offset.zero),
+                    width: 1,
+                    height: 1,
+                  );
+              Navigator.pop(context);
+              SharePlus.instance.share(
+                ShareParams(
+                  text: '${track.name} — ${track.artistName}',
+                  sharePositionOrigin: origin,
+                ),
+              );
+            },
+          ),
+        ],
+        groups: [
+          [
+            if (qualityVariantAction == QualityVariantMenuAction.playLocal)
+              MornyeMenuAction(
+                icon: CupertinoIcons.play,
+                label: l10n.trackMetadataPlay,
+                onPressed: () => _playLocal(context, ref),
+              ),
+            if (qualityVariantAction ==
+                QualityVariantMenuAction.downloadAnotherQuality)
+              MornyeMenuAction(
+                icon: CupertinoIcons.arrow_down_circle,
+                label: l10n.trackOptionDownloadQualityVariant,
+                onPressed: () => _downloadQualityVariant(context, ref),
+              ),
+            MornyeMenuAction(
+              icon: CupertinoIcons.square_stack,
+              label: l10n.homeGoToAlbum,
+              onPressed: () => _goToAlbum(context),
+            ),
+          ],
+          [
+            MornyeMenuAction(
+              icon: CupertinoIcons.text_badge_plus,
+              label: l10n.collectionAddToPlaylist,
+              onPressed: () {
+                final root = Navigator.of(context, rootNavigator: true).context;
+                Navigator.pop(context);
+                showAddTrackToPlaylistSheet(root, ref, track);
+              },
+            ),
+            MornyeMenuAction(
+              icon: isInWishlist
+                  ? CupertinoIcons.checkmark_circle
+                  : CupertinoIcons.add_circled,
+              label: isInWishlist
+                  ? l10n.trackOptionRemoveFromWishlist
+                  : l10n.trackOptionAddToWishlist,
+              onPressed: () => _toggleCollection(context, ref, wishlist: true),
+            ),
+          ],
+          [
+            MornyeMenuAction(
+              icon: CupertinoIcons.doc_on_doc,
+              label: l10n.trackOptionCopyTrackName,
+              onPressed: () => _copyText(context, track.name),
+            ),
+            MornyeMenuAction(
+              icon: CupertinoIcons.person,
+              label: l10n.trackOptionCopyArtist,
+              onPressed: () => _copyText(context, track.artistName),
+            ),
+            MornyeMenuAction(
+              icon: CupertinoIcons.doc_on_doc,
+              label: l10n.trackOptionCopyTrackAndArtist,
+              onPressed: () =>
+                  _copyText(context, '${track.name} - ${track.artistName}'),
+            ),
+          ],
+        ],
+      );
+    }
+
     return SafeArea(
+      top: false,
       child: ConstrainedBox(
         constraints: BoxConstraints(
           maxHeight: MediaQuery.sizeOf(context).height * 0.82,
@@ -274,8 +392,12 @@ class _TrackOptionsSheet extends ConsumerWidget {
                 icon: Icons.playlist_add,
                 title: context.l10n.collectionAddToPlaylist,
                 onTap: () {
+                  final rootContext = Navigator.of(
+                    context,
+                    rootNavigator: true,
+                  ).context;
                   Navigator.pop(context);
-                  showAddTrackToPlaylistSheet(context, ref, track);
+                  showAddTrackToPlaylistSheet(rootContext, ref, track);
                 },
               ),
 
@@ -291,6 +413,29 @@ class _TrackOptionsSheet extends ConsumerWidget {
     final rootContext = Navigator.of(context, rootNavigator: true).context;
     Navigator.pop(context);
     downloadSingleTrack(rootContext, ref, track, forceQualityPicker: true);
+  }
+
+  Future<void> _toggleCollection(
+    BuildContext context,
+    WidgetRef ref, {
+    required bool wishlist,
+  }) async {
+    final root = Navigator.of(context, rootNavigator: true).context;
+    final notifier = ref.read(libraryCollectionsProvider.notifier);
+    Navigator.pop(context);
+    final added = wishlist
+        ? await notifier.toggleWishlist(track)
+        : await notifier.toggleLoved(track);
+    if (!root.mounted) return;
+    final l10n = root.l10n;
+    final message = wishlist
+        ? (added
+              ? l10n.collectionAddedToWishlist(track.name)
+              : l10n.collectionRemovedFromWishlist(track.name))
+        : (added
+              ? l10n.collectionAddedToLoved(track.name)
+              : l10n.collectionRemovedFromLoved(track.name));
+    ScaffoldMessenger.of(root).showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _copyText(BuildContext context, String text) {

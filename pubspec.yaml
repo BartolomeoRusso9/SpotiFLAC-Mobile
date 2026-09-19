@@ -39,6 +39,9 @@ dependencies:
   # UI Components
   cached_network_image: ^4.0.0
   flutter_cache_manager: ^3.4.2
+  liquid_glass_easy: ^4.3.1
+  cupertino_icons: ^1.0.9
+  volume_controller: ^3.6.1
 
   # Material Expressive 3 / Dynamic Color
   dynamic_color: ^2.1.0
@@ -104,8 +107,12 @@ flutter:
 
   assets:
     - assets/images/
+    - assets/fonts/Inter-LICENSE.txt
 
   fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/InterVariable.ttf
     - family: Google Sans Flex
       fonts:
         - asset: assets/fonts/GoogleSansFlex.ttf

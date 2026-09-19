@@ -13,6 +13,7 @@ ThemeSettings loadBootstrapThemeSettings(SharedPreferences prefs) {
     useDynamicColor: prefs.getBool(kUseDynamicColorKey) ?? true,
     seedColorValue: prefs.getInt(kSeedColorKey) ?? kDefaultSeedColor,
     useAmoled: prefs.getBool(kUseAmoledKey) ?? false,
+    style: themeStyleFromString(prefs.getString(kThemeStyleKey)),
   );
 }
 
@@ -42,6 +43,7 @@ class ThemeNotifier extends Notifier<ThemeSettings> {
         useDynamicColor: useDynamic ?? true,
         seedColorValue: seedColor ?? kDefaultSeedColor,
         useAmoled: useAmoled ?? false,
+        style: themeStyleFromString(prefs.getString(kThemeStyleKey)),
       );
     } catch (e) {
       debugPrint('Error loading theme settings: $e');
@@ -55,6 +57,7 @@ class ThemeNotifier extends Notifier<ThemeSettings> {
       await prefs.setBool(kUseDynamicColorKey, state.useDynamicColor);
       await prefs.setInt(kSeedColorKey, state.seedColorValue);
       await prefs.setBool(kUseAmoledKey, state.useAmoled);
+      await prefs.setString(kThemeStyleKey, state.style.name);
     } catch (e) {
       debugPrint('Error saving theme settings: $e');
     }
@@ -62,6 +65,11 @@ class ThemeNotifier extends Notifier<ThemeSettings> {
 
   Future<void> setThemeMode(ThemeMode mode) async {
     state = state.copyWith(themeMode: mode);
+    await _saveToStorage();
+  }
+
+  Future<void> setStyle(AppThemeStyle style) async {
+    state = state.copyWith(style: style);
     await _saveToStorage();
   }
 

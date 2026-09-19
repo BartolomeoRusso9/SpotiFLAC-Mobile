@@ -2,13 +2,19 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/widgets/app_action_button.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
+import 'package:spotiflac_android/widgets/app_choice_chip.dart';
 import 'package:spotiflac_android/services/local_track_batch_actions.dart';
 import 'package:spotiflac_android/services/shell_navigation_service.dart';
 import 'package:spotiflac_android/widgets/error_card.dart';
 import 'package:spotiflac_android/widgets/track_card.dart';
 import 'package:spotiflac_android/theme/app_tokens.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/widgets/app_bottom_sheet.dart';
 import 'package:spotiflac_android/widgets/app_sliver_header.dart';
+import 'package:spotiflac_android/widgets/app_search_field.dart';
+import 'package:spotiflac_android/widgets/mornye_chrome.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
@@ -30,6 +36,7 @@ import 'package:spotiflac_android/providers/settings_provider.dart';
 import 'package:spotiflac_android/providers/local_library_provider.dart';
 import 'package:spotiflac_android/providers/playback_provider.dart';
 import 'package:spotiflac_android/providers/music_player_provider.dart';
+import 'package:spotiflac_android/providers/runtime_profile_provider.dart';
 import 'package:spotiflac_android/services/music_player_service.dart';
 import 'package:spotiflac_android/services/library_database.dart';
 import 'package:spotiflac_android/services/local_track_redownload_service.dart';
@@ -775,7 +782,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
     String? tempMetadata = _filterMetadata;
     String tempSortMode = _sortMode;
 
-    showModalBottomSheet<void>(
+    showAppModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
       isScrollControlled: true,
@@ -831,13 +838,13 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                           Wrap(
                             spacing: 8,
                             children: [
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(context.l10n.libraryFilterAll),
                                 selected: tempSource == null,
                                 onSelected: (_) =>
                                     setSheetState(() => tempSource = null),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context.l10n.libraryFilterDownloaded,
                                 ),
@@ -846,7 +853,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                                   () => tempSource = 'downloaded',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(context.l10n.libraryFilterLocal),
                                 selected: tempSource == 'local',
                                 onSelected: (_) =>
@@ -865,13 +872,13 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                           Wrap(
                             spacing: 8,
                             children: [
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(context.l10n.libraryFilterAll),
                                 selected: tempQuality == null,
                                 onSelected: (_) =>
                                     setSheetState(() => tempQuality = null),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context.l10n.libraryFilterQualityHiRes,
                                 ),
@@ -879,7 +886,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                                 onSelected: (_) =>
                                     setSheetState(() => tempQuality = 'hires'),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context.l10n.libraryFilterQualityCD,
                                 ),
@@ -887,7 +894,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                                 onSelected: (_) =>
                                     setSheetState(() => tempQuality = 'cd'),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context.l10n.libraryFilterQualityLossy,
                                 ),
@@ -908,7 +915,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                           Wrap(
                             spacing: 8,
                             children: [
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(context.l10n.libraryFilterAll),
                                 selected: tempFormat == null,
                                 onSelected: (_) =>
@@ -916,7 +923,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                               ),
                               for (final format
                                   in availableFormats.toList()..sort())
-                                FilterChip(
+                                AppChoiceChip(
                                   label: Text(format.toUpperCase()),
                                   selected: tempFormat == format,
                                   onSelected: (_) =>
@@ -936,13 +943,13 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                             spacing: 8,
                             runSpacing: 8,
                             children: [
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(context.l10n.libraryFilterAll),
                                 selected: tempMetadata == null,
                                 onSelected: (_) =>
                                     setSheetState(() => tempMetadata = null),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context.l10n.libraryFilterMetadataComplete,
                                 ),
@@ -951,7 +958,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                                   () => tempMetadata = 'complete',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context.l10n.libraryFilterMetadataMissingAny,
                                 ),
@@ -960,7 +967,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                                   () => tempMetadata = 'missing-any',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context.l10n.libraryFilterMetadataMissingYear,
                                 ),
@@ -969,7 +976,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                                   () => tempMetadata = 'missing-year',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context
                                       .l10n
@@ -980,7 +987,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                                   () => tempMetadata = 'missing-genre',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context
                                       .l10n
@@ -992,7 +999,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                                   () => tempMetadata = 'missing-album-artist',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context
                                       .l10n
@@ -1004,7 +1011,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                                   () => tempMetadata = 'missing-track-number',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context
                                       .l10n
@@ -1015,7 +1022,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                                   () => tempMetadata = 'missing-disc-number',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context
                                       .l10n
@@ -1026,7 +1033,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                                   () => tempMetadata = 'missing-artist',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context
                                       .l10n
@@ -1038,7 +1045,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                                   () => tempMetadata = 'incorrect-isrc-format',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context.l10n.libraryFilterMetadataMissingIsrc,
                                 ),
@@ -1047,7 +1054,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                                   () => tempMetadata = 'missing-isrc',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context
                                       .l10n
@@ -1058,7 +1065,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                                   () => tempMetadata = 'missing-label',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context
                                       .l10n
@@ -1082,7 +1089,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                           Wrap(
                             spacing: 8,
                             children: [
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context.l10n.libraryFilterSortLatest,
                                 ),
@@ -1091,7 +1098,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                                   () => tempSortMode = 'latest',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context.l10n.libraryFilterSortOldest,
                                 ),
@@ -1100,33 +1107,33 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                                   () => tempSortMode = 'oldest',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(context.l10n.searchSortTitleAZ),
                                 selected: tempSortMode == 'a-z',
                                 onSelected: (_) =>
                                     setSheetState(() => tempSortMode = 'a-z'),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(context.l10n.searchSortTitleZA),
                                 selected: tempSortMode == 'z-a',
                                 onSelected: (_) =>
                                     setSheetState(() => tempSortMode = 'z-a'),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(context.l10n.searchSortArtistAZ),
                                 selected: tempSortMode == 'artist-asc',
                                 onSelected: (_) => setSheetState(
                                   () => tempSortMode = 'artist-asc',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(context.l10n.searchSortArtistZA),
                                 selected: tempSortMode == 'artist-desc',
                                 onSelected: (_) => setSheetState(
                                   () => tempSortMode = 'artist-desc',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context.l10n.libraryFilterSortAlbumAsc,
                                 ),
@@ -1135,7 +1142,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                                   () => tempSortMode = 'album-asc',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context.l10n.libraryFilterSortAlbumDesc,
                                 ),
@@ -1144,21 +1151,21 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                                   () => tempSortMode = 'album-desc',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(context.l10n.searchSortDateNewest),
                                 selected: tempSortMode == 'release-newest',
                                 onSelected: (_) => setSheetState(
                                   () => tempSortMode = 'release-newest',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(context.l10n.searchSortDateOldest),
                                 selected: tempSortMode == 'release-oldest',
                                 onSelected: (_) => setSheetState(
                                   () => tempSortMode = 'release-oldest',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context.l10n.libraryFilterSortGenreAsc,
                                 ),
@@ -1167,7 +1174,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                                   () => tempSortMode = 'genre-asc',
                                 ),
                               ),
-                              FilterChip(
+                              AppChoiceChip(
                                 label: Text(
                                   context.l10n.libraryFilterSortGenreDesc,
                                 ),
@@ -1182,7 +1189,8 @@ class _QueueTabState extends ConsumerState<QueueTab> {
 
                           SizedBox(
                             width: double.infinity,
-                            child: FilledButton(
+                            child: AppDialogAction(
+                              filled: true,
                               onPressed: () {
                                 setState(() {
                                   _filterSource = tempSource;
@@ -1443,12 +1451,11 @@ class _QueueTabState extends ConsumerState<QueueTab> {
       isLibraryPageLoading: isLibraryPageLoading,
     );
 
-    final bottomPadding = MediaQuery.paddingOf(context).bottom;
-    final bottomInset = context.navBarBottomInset;
     final selectionItems = getFilterData(
       historyFilterMode,
     ).filteredUnifiedItems;
     if (_isSelectionMode || _isPlaylistSelectionMode) {
+      final bottomPadding = MediaQuery.paddingOf(context).bottom;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_isSelectionMode) {
           _syncSelectionOverlay(
@@ -1494,53 +1501,14 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                       child: GestureDetector(
                         onTap: () {},
-                        child: TextField(
+                        child: AppSearchField(
                           controller: _searchController,
                           focusNode: _searchFocusNode,
-                          autofocus: false,
-                          canRequestFocus: true,
-                          decoration: InputDecoration(
-                            hintText: context.l10n.historySearchHint,
-                            prefixIcon: const Icon(Icons.search),
-                            suffixIcon: _searchQuery.isNotEmpty
-                                ? IconButton(
-                                    tooltip: context.l10n.dialogClear,
-                                    icon: const Icon(Icons.clear),
-                                    onPressed: () {
-                                      _searchController.clear();
-                                      _clearSearch();
-                                      FocusScope.of(context).unfocus();
-                                    },
-                                  )
-                                : null,
-                            filled: true,
-                            fillColor: settingsGroupColor(context),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(28),
-                              borderSide: BorderSide(
-                                color: colorScheme.outlineVariant,
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(28),
-                              borderSide: BorderSide(
-                                color: colorScheme.outlineVariant,
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(28),
-                              borderSide: BorderSide(
-                                color: colorScheme.primary,
-                                width: 2,
-                              ),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 16,
-                            ),
-                          ),
+                          hintText: context.l10n.historySearchHint,
+                          clearTooltip: context.l10n.dialogClear,
                           onChanged: _onSearchChanged,
-                          onTapOutside: (_) {
+                          onClear: () {
+                            _clearSearch();
                             FocusScope.of(context).unfocus();
                           },
                         ),
@@ -1567,6 +1535,9 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                             size: 48,
                             child: SingleChildScrollView(
                               scrollDirection: Axis.horizontal,
+                              padding: context.isMornye
+                                  ? const EdgeInsets.symmetric(vertical: 4)
+                                  : EdgeInsets.zero,
                               child: Row(
                                 children: [
                                   _FilterChip(
@@ -1635,7 +1606,6 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                         : false,
                     isPageLoading: isLibraryPageLoading,
                     inMemoryHistoryItems: inMemoryHistoryItems,
-                    bottomInset: bottomInset,
                   );
                 },
               ),
@@ -1753,17 +1723,18 @@ class _QueueTabState extends ConsumerState<QueueTab> {
     BuildContext context,
     DownloadItem item,
   ) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => AppAlertDialog(
         title: Text(context.l10n.cancelDownloadTitle),
         content: Text(context.l10n.cancelDownloadContent(item.track.name)),
         actions: [
-          TextButton(
+          AppDialogAction(
             onPressed: () => Navigator.of(ctx).pop(false),
             child: Text(context.l10n.cancelDownloadKeep),
           ),
-          TextButton(
+          AppDialogAction(
+            isDestructive: true,
             onPressed: () => Navigator.of(ctx).pop(true),
             child: Text(context.l10n.dialogCancel),
           ),
@@ -1799,9 +1770,9 @@ class _QueueTabState extends ConsumerState<QueueTab> {
         : (item.errorMessage.trim().isNotEmpty
               ? _localizedDownloadError(context, item.errorMessage)
               : context.l10n.updateDownloadFailed);
-    final action = await showDialog<String>(
+    final action = await showAppDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => AppAlertDialog(
         title: Text(title),
         content: SingleChildScrollView(
           child: Column(
@@ -1823,22 +1794,25 @@ class _QueueTabState extends ConsumerState<QueueTab> {
           ),
         ),
         actions: [
-          TextButton(
+          AppDialogAction(
+            isDestructive: true,
             onPressed: () => Navigator.of(ctx).pop('remove'),
             style: TextButton.styleFrom(foregroundColor: colorScheme.error),
             child: Text(context.l10n.dialogRemove),
           ),
-          TextButton(
+          AppDialogAction(
             onPressed: () => Navigator.of(ctx).pop(),
             child: Text(context.l10n.dialogCancel),
           ),
           if (isFolderAccessLost)
-            FilledButton(
+            AppDialogAction(
+              filled: true,
               onPressed: () => Navigator.of(ctx).pop('reselect'),
               child: Text(context.l10n.downloadFolderReselect),
             )
           else
-            FilledButton(
+            AppDialogAction(
+              filled: true,
               onPressed: () => Navigator.of(ctx).pop('retry'),
               child: Text(context.l10n.dialogRetry),
             ),

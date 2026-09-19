@@ -284,7 +284,7 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
                 Flexible(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.only(bottom: 16),
-                    child: SettingsGroup(
+                    child: _editorOptions(
                       children: [
                         for (var index = 0; index < options.length; index++)
                           _metadataProviderOption(
@@ -356,7 +356,7 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
                 Flexible(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.only(bottom: 16),
-                    child: SettingsGroup(
+                    child: _editorOptions(
                       children: [
                         for (var index = 0; index < options.length; index++)
                           Column(
@@ -368,7 +368,9 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
                                   vertical: 4,
                                 ),
                                 leading: Icon(
-                                  options[index].value == 0
+                                  context.isMornye
+                                      ? CupertinoIcons.photo
+                                      : options[index].value == 0
                                       ? Icons.photo_size_select_actual_outlined
                                       : Icons.photo_size_select_large_outlined,
                                   color: options[index].value == currentValue
@@ -379,7 +381,11 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
                                 selected: options[index].value == currentValue,
                                 selectedColor: cs.primary,
                                 trailing: options[index].value == currentValue
-                                    ? const Icon(Icons.check_rounded)
+                                    ? Icon(
+                                        context.isMornye
+                                            ? CupertinoIcons.checkmark
+                                            : Icons.check_rounded,
+                                      )
                                     : null,
                                 onTap: () => Navigator.pop(
                                   sheetContext,
@@ -432,13 +438,19 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
             vertical: 4,
           ),
           leading: Icon(
-            icon,
+            context.isMornye ? mornyeIconFor(icon) : icon,
             color: selected ? cs.primary : cs.onSurfaceVariant,
           ),
           title: Text(name, maxLines: 2, overflow: TextOverflow.ellipsis),
           selected: selected,
           selectedColor: cs.primary,
-          trailing: selected ? const Icon(Icons.check_rounded) : null,
+          trailing: selected
+              ? Icon(
+                  context.isMornye
+                      ? CupertinoIcons.checkmark
+                      : Icons.check_rounded,
+                )
+              : null,
           onTap: () => Navigator.pop(context, id),
         ),
         if (showDivider)
@@ -1274,7 +1286,7 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
       builder: (sheetContext) => ListView(
         padding: const EdgeInsets.only(bottom: 16),
         children: [
-          SettingsGroup(
+          _editorOptions(
             children: [
               for (var index = 0; index < candidates.length; index++) ...[
                 Builder(
@@ -2137,16 +2149,20 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
                         ),
                       ),
                       if (_saving)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 12),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
                           child: SizedBox(
                             width: 22,
                             height: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: context.isMornye
+                                ? const CupertinoActivityIndicator()
+                                : const CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                           ),
                         )
                       else
-                        FilledButton.icon(
+                        AppActionButton(
                           onPressed: _save,
                           icon: const Icon(Icons.check, size: 18),
                           label: Text(context.l10n.dialogSave),
@@ -2378,6 +2394,25 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
             runSpacing: 4,
             children: _fieldDefs.keys.map((key) {
               final selected = _autoFillFields.contains(key);
+              if (context.isMornye) {
+                return MornyeFilterChip(
+                  label: _fieldLabel(key),
+                  selected: selected,
+                  glass: false,
+                  tonal: false,
+                  icon: selected ? CupertinoIcons.checkmark : null,
+                  onTap: _fetching
+                      ? null
+                      : () => setState(() {
+                          _invalidateAutoFillPreview();
+                          if (selected) {
+                            _autoFillFields.remove(key);
+                          } else {
+                            _autoFillFields.add(key);
+                          }
+                        }),
+                );
+              }
               return FilterChip(
                 label: Text(_fieldLabel(key)),
                 selected: selected,
@@ -2406,7 +2441,9 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
           const SizedBox(height: 14),
           SizedBox(
             width: double.infinity,
-            child: FilledButton.icon(
+            child: AppActionButton(
+              outlined: context.isMornye,
+              glass: false,
               onPressed: (_fetching || _saving || _autoFillFields.isEmpty)
                   ? null
                   : _fetchAutoFillPreview,
@@ -2440,7 +2477,9 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
           const SizedBox(height: 8),
           SizedBox(
             width: double.infinity,
-            child: OutlinedButton.icon(
+            child: AppActionButton(
+              outlined: true,
+              glass: false,
               onPressed: (_fetching || _fetchingMusicBrainz || _saving)
                   ? null
                   : _fetchFromMusicBrainz,
@@ -2476,12 +2515,16 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: cs.surfaceContainerHighest.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: cs.outlineVariant),
-      ),
+      padding: context.isMornye
+          ? const EdgeInsets.symmetric(vertical: 12)
+          : const EdgeInsets.all(12),
+      decoration: context.isMornye
+          ? null
+          : BoxDecoration(
+              color: cs.surfaceContainerHighest.withValues(alpha: 0.45),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: cs.outlineVariant),
+            ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2570,7 +2613,9 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
           const SizedBox(height: 6),
           SizedBox(
             width: double.infinity,
-            child: FilledButton.icon(
+            child: AppActionButton(
+              outlined: context.isMornye,
+              glass: false,
               onPressed: (_fetching || _saving) ? null : _applyAutoFillPreview,
               icon: const Icon(Icons.check),
               label: Text(context.l10n.editMetadataAutoFillApply),
@@ -2619,11 +2664,36 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
     }
   }
 
+  Widget _editorOptions({required List<Widget> children}) {
+    if (!context.isMornye) return SettingsGroup(children: children);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Material(
+        color: MornyeTheme.controlFill(context),
+        borderRadius: BorderRadius.circular(28),
+        clipBehavior: Clip.antiAlias,
+        child: Column(mainAxisSize: MainAxisSize.min, children: children),
+      ),
+    );
+  }
+
   Widget _quickSelectButton({
     required String label,
     required VoidCallback onTap,
     required ColorScheme cs,
   }) {
+    if (context.isMornye) {
+      return CupertinoButton(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        onPressed: _fetching ? null : onTap,
+        child: Text(
+          label,
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: cs.primary),
+        ),
+      );
+    }
     return InkWell(
       onTap: _fetching ? null : onTap,
       borderRadius: BorderRadius.circular(16),
@@ -2668,7 +2738,9 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
         Row(
           children: [
             Expanded(
-              child: OutlinedButton.icon(
+              child: AppActionButton(
+                outlined: true,
+                glass: false,
                 onPressed: _saving ? null : _pickCoverImage,
                 icon: const Icon(Icons.image_outlined),
                 label: Text(
@@ -2846,6 +2918,7 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
   /// Fill for input fields, one step apart from the card so each field reads as
   /// a distinct surface in light/dark/AMOLED.
   Color _fieldFill(ColorScheme cs) {
+    if (context.isMornye) return Colors.transparent;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return isDark
         ? Color.alphaBlend(Colors.white.withValues(alpha: 0.05), cs.surface)
@@ -2878,36 +2951,50 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
               ),
             ),
           ),
-          TextField(
-            controller: controller,
-            keyboardType: keyboard,
-            inputFormatters: inputFormatters,
-            maxLines: maxLines,
-            cursorColor: cs.primary,
-            style: Theme.of(context).textTheme.bodyLarge,
-            decoration: InputDecoration(
-              hintText: hint,
-              filled: true,
-              fillColor: _fieldFill(cs),
-              isDense: true,
-              border: OutlineInputBorder(
-                borderRadius: radius,
-                borderSide: BorderSide.none,
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: radius,
-                borderSide: BorderSide.none,
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: radius,
-                borderSide: BorderSide(color: cs.primary, width: 1.5),
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 15,
+          if (context.isMornye) ...[
+            CupertinoTextField(
+              controller: controller,
+              keyboardType: keyboard,
+              inputFormatters: inputFormatters,
+              maxLines: maxLines,
+              placeholder: hint,
+              cursorColor: cs.primary,
+              style: Theme.of(context).textTheme.bodyLarge,
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
+              decoration: null,
+            ),
+            const Divider(height: 0.5),
+          ] else
+            TextField(
+              controller: controller,
+              keyboardType: keyboard,
+              inputFormatters: inputFormatters,
+              maxLines: maxLines,
+              cursorColor: cs.primary,
+              style: Theme.of(context).textTheme.bodyLarge,
+              decoration: InputDecoration(
+                hintText: hint,
+                filled: true,
+                fillColor: _fieldFill(cs),
+                isDense: true,
+                border: OutlineInputBorder(
+                  borderRadius: radius,
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: radius,
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: radius,
+                  borderSide: BorderSide(color: cs.primary, width: 1.5),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 15,
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -2922,22 +3009,30 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
     final cs = widget.colorScheme;
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
-      child: Material(
-        color: _fieldFill(cs),
-        borderRadius: BorderRadius.circular(14),
-        clipBehavior: Clip.antiAlias,
-        child: SwitchListTile.adaptive(
-          value: value,
-          onChanged: onChanged,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-          title: Text(label, style: Theme.of(context).textTheme.bodyLarge),
-          subtitle: Text(
-            subtitle,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+      child: Column(
+        children: [
+          Material(
+            color: _fieldFill(cs),
+            borderRadius: BorderRadius.circular(14),
+            clipBehavior: Clip.antiAlias,
+            child: AppSwitchListTile(
+              adaptive: true,
+              value: value,
+              onChanged: onChanged,
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: context.isMornye ? 4 : 16,
+              ),
+              title: Text(label, style: Theme.of(context).textTheme.bodyLarge),
+              subtitle: Text(
+                subtitle,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+              ),
+            ),
           ),
-        ),
+          if (context.isMornye) const Divider(height: 0.5),
+        ],
       ),
     );
   }
@@ -2949,6 +3044,53 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
     bool enabled = true,
   }) {
     final cs = widget.colorScheme;
+    if (context.isMornye) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: 6),
+              child: Text(
+                label,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+              ),
+            ),
+            CupertinoButton(
+              color: _fieldFill(cs),
+              disabledColor: Colors.transparent,
+              borderRadius: BorderRadius.circular(16),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
+              onPressed: enabled ? onTap : null,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      value,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: enabled ? cs.onSurface : cs.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Icon(
+                    CupertinoIcons.chevron_up_chevron_down,
+                    size: 16,
+                    color: cs.primary,
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 0.5),
+          ],
+        ),
+      );
+    }
     final radius = BorderRadius.circular(14);
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
@@ -3019,10 +3161,15 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
   }) {
     final cs = widget.colorScheme;
     final collapsible = onHeaderTap != null;
+    const inset = 16.0;
 
     final headerRow = Row(
       children: [
-        Icon(icon, size: 20, color: cs.primary),
+        Icon(
+          context.isMornye ? mornyeIconFor(icon) : icon,
+          size: 20,
+          color: cs.primary,
+        ),
         const SizedBox(width: 10),
         Expanded(
           child: Text(
@@ -3039,7 +3186,9 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
             duration: const Duration(milliseconds: 200),
             curve: Curves.easeOutCubic,
             child: Icon(
-              Icons.expand_more,
+              context.isMornye
+                  ? CupertinoIcons.chevron_down
+                  : Icons.expand_more,
               size: 22,
               color: cs.onSurfaceVariant,
             ),
@@ -3051,43 +3200,56 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
         ? InkWell(
             onTap: onHeaderTap,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+              padding: EdgeInsets.fromLTRB(inset, 16, inset, 16),
               child: headerRow,
             ),
           )
         : Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            padding: EdgeInsets.fromLTRB(inset, 16, inset, 8),
             child: headerRow,
           );
 
+    final content = AnimatedSize(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          header,
+          if (children.isNotEmpty)
+            Padding(
+              padding: EdgeInsets.fromLTRB(inset, 0, inset, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: children,
+              ),
+            ),
+        ],
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: Card(
-        elevation: 0,
-        margin: EdgeInsets.zero,
-        color: settingsGroupColor(context),
-        shape: _sectionCardShape(cs),
-        clipBehavior: Clip.antiAlias,
-        child: AnimatedSize(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
-          alignment: Alignment.topCenter,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              header,
-              if (children.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: children,
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
+      child: context.isMornye
+          ? Material(
+              color: MornyeTheme.controlFill(context),
+              borderRadius: BorderRadius.circular(28),
+              clipBehavior: Clip.antiAlias,
+              child: DividerTheme(
+                data: DividerTheme.of(
+                  context,
+                ).copyWith(color: MornyeTheme.metadataDividerColor(context)),
+                child: content,
+              ),
+            )
+          : Card(
+              elevation: 0,
+              margin: EdgeInsets.zero,
+              color: settingsGroupColor(context),
+              shape: _sectionCardShape(cs),
+              clipBehavior: Clip.antiAlias,
+              child: content,
+            ),
     );
   }
 }

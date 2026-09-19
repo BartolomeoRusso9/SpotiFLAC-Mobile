@@ -1,4 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
+import 'package:spotiflac_android/theme/mornye_icons.dart';
+import 'package:spotiflac_android/widgets/mornye_artist_header.dart';
+import 'package:spotiflac_android/widgets/mornye_chrome.dart';
 import 'package:spotiflac_android/screens/track_history_snapshot.dart';
 import 'package:spotiflac_android/widgets/album_detail_header.dart';
 import 'package:spotiflac_android/theme/cover_palette.dart';
@@ -480,6 +486,17 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (context.isMornye) {
+      return MornyeArtistSurface(
+        imageSource:
+            _headerImageUrl ?? widget.headerImageUrl ?? widget.coverUrl,
+        child: Builder(builder: _buildPage),
+      );
+    }
+    return _buildPage(context);
+  }
+
+  Widget _buildPage(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final albums = _albums ?? [];
     _ensureAlbumBuckets(albums);
@@ -487,7 +504,6 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
     final albumsOnly = _albumsOnlyBucket;
     final singles = _singlesBucket;
     final compilations = _compilationsBucket;
-    final bottomInset = context.navBarBottomInset;
 
     final hasDiscography =
         !_isLoadingDiscography && _error == null && albums.isNotEmpty;
@@ -513,7 +529,7 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
             CustomScrollView(
               controller: _scrollController,
               slivers: [
-                _buildHeader(
+                ..._buildHeader(
                   context,
                   colorScheme,
                   albums: albums,
@@ -523,10 +539,11 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
                   SliverToBoxAdapter(
                     child: ArtistScreenSkeleton(
                       showCoverHeader:
+                          !context.isMornye &&
                           (_headerImageUrl ??
-                              widget.headerImageUrl ??
-                              widget.coverUrl) ==
-                          null,
+                                  widget.headerImageUrl ??
+                                  widget.coverUrl) ==
+                              null,
                       showPopularSection:
                           !widget.artistId.startsWith('deezer:') &&
                           !widget.artistId.startsWith('qobuz:') &&
@@ -545,13 +562,18 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
                     ),
                   ),
                 if (!_isLoadingDiscography && _error == null) ...[
+                  if (context.isMornye && albums.isNotEmpty && !isSelectionMode)
+                    SliverToBoxAdapter(
+                      child: _buildMornyeFeaturedAlbum(context, albums.first),
+                    ),
                   if (_topTracks != null && _topTracks!.isNotEmpty)
                     SliverToBoxAdapter(
-                      child: _buildPopularSection(colorScheme),
+                      child: _buildPopularSection(context, colorScheme),
                     ),
                   if (releases.isNotEmpty)
                     SliverToBoxAdapter(
                       child: _buildAlbumSection(
+                        context,
                         context.l10n.artistReleases,
                         releases,
                         colorScheme,
@@ -560,6 +582,7 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
                   if (albumsOnly.isNotEmpty)
                     SliverToBoxAdapter(
                       child: _buildAlbumSection(
+                        context,
                         context.l10n.artistAlbums,
                         albumsOnly,
                         colorScheme,
@@ -568,6 +591,7 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
                   if (singles.isNotEmpty)
                     SliverToBoxAdapter(
                       child: _buildAlbumSection(
+                        context,
                         context.l10n.artistSingles,
                         singles,
                         colorScheme,
@@ -577,6 +601,7 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
                   if (compilations.isNotEmpty)
                     SliverToBoxAdapter(
                       child: _buildAlbumSection(
+                        context,
                         context.l10n.artistCompilations,
                         compilations,
                         colorScheme,
@@ -586,7 +611,7 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
                 SliverToBoxAdapter(
                   child: SizedBox(height: isSelectionMode ? 120 : 32),
                 ),
-                SliverToBoxAdapter(child: SizedBox(height: bottomInset)),
+                const NavBarSliverSpacer(),
               ],
             ),
           ],
@@ -695,87 +720,108 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
       (sum, a) => sum + a.totalTracks,
     );
     final singleTracks = singles.fold<int>(0, (sum, a) => sum + a.totalTracks);
+    final pageContext = context;
+
+    Widget buildSheet(BuildContext context) => AppBottomSheet(
+      maxHeightFactor: 0.85,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+              child: Row(
+                children: [
+                  if (!context.isMornye) ...[
+                    Icon(Icons.download, color: colorScheme.primary),
+                    const SizedBox(width: 12),
+                  ],
+                  Expanded(
+                    child: Text(
+                      context.l10n.discographyDownload,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: context.isMornye
+                            ? FontWeight.w600
+                            : FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            if (albums.isNotEmpty)
+              _DiscographyOptionTile(
+                icon: Icons.library_music,
+                title: context.l10n.discographyDownloadAll,
+                subtitle: context.l10n.discographyDownloadAllSubtitle(
+                  totalTracks,
+                  albums.length,
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  _downloadAlbums(pageContext, albums);
+                },
+              ),
+            if (albumsOnly.isNotEmpty)
+              _DiscographyOptionTile(
+                icon: Icons.album,
+                title: context.l10n.discographyAlbumsOnly,
+                subtitle: context.l10n.discographyAlbumsOnlySubtitle(
+                  albumTracks,
+                  albumsOnly.length,
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  _downloadAlbums(pageContext, albumsOnly);
+                },
+              ),
+            if (singles.isNotEmpty)
+              _DiscographyOptionTile(
+                icon: Icons.music_note,
+                title: context.l10n.discographySinglesOnly,
+                subtitle: context.l10n.discographySinglesOnlySubtitle(
+                  singleTracks,
+                  singles.length,
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  _downloadAlbums(pageContext, singles);
+                },
+              ),
+            _DiscographyOptionTile(
+              icon: Icons.checklist,
+              title: context.l10n.discographySelectAlbums,
+              subtitle: context.l10n.discographySelectAlbumsSubtitle,
+              showDivider: false,
+              onTap: () {
+                Navigator.pop(context);
+                enterSelectionMode(albums.first.id);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
 
     showModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
-      backgroundColor: colorScheme.surfaceContainerHigh,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const AppSheetHandle(),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
-                child: Row(
-                  children: [
-                    Icon(Icons.download, color: colorScheme.primary),
-                    const SizedBox(width: 12),
-                    Text(
-                      context.l10n.discographyDownload,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
+      isScrollControlled: true,
+      backgroundColor: context.isMornye
+          ? Colors.transparent
+          : colorScheme.surfaceContainerHigh,
+      builder: (sheetContext) => sheetContext.isMornye
+          ? Theme(
+              data: MornyeTheme.build(Brightness.dark),
+              child: MornyeGlassPanel(
+                tintOpacity: 0.78,
+                child: Builder(builder: buildSheet),
               ),
-              const Divider(height: 1),
-              if (albums.isNotEmpty)
-                _DiscographyOptionTile(
-                  icon: Icons.library_music,
-                  title: context.l10n.discographyDownloadAll,
-                  subtitle: context.l10n.discographyDownloadAllSubtitle(
-                    totalTracks,
-                    albums.length,
-                  ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _downloadAlbums(context, albums);
-                  },
-                ),
-              if (albumsOnly.isNotEmpty)
-                _DiscographyOptionTile(
-                  icon: Icons.album,
-                  title: context.l10n.discographyAlbumsOnly,
-                  subtitle: context.l10n.discographyAlbumsOnlySubtitle(
-                    albumTracks,
-                    albumsOnly.length,
-                  ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _downloadAlbums(context, albumsOnly);
-                  },
-                ),
-              if (singles.isNotEmpty)
-                _DiscographyOptionTile(
-                  icon: Icons.music_note,
-                  title: context.l10n.discographySinglesOnly,
-                  subtitle: context.l10n.discographySinglesOnlySubtitle(
-                    singleTracks,
-                    singles.length,
-                  ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _downloadAlbums(context, singles);
-                  },
-                ),
-              _DiscographyOptionTile(
-                icon: Icons.checklist,
-                title: context.l10n.discographySelectAlbums,
-                subtitle: context.l10n.discographySelectAlbumsSubtitle,
-                onTap: () {
-                  Navigator.pop(context);
-                  enterSelectionMode(albums.first.id);
-                },
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        ),
-      ),
+            )
+          : buildSheet(sheetContext),
     );
   }
 
@@ -846,7 +892,7 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
     }
 
     final progressDialogKey = GlobalKey<_FetchingProgressDialogState>();
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => _FetchingProgressDialog(

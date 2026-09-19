@@ -23,6 +23,7 @@ class TrackListTile extends ConsumerWidget {
   final void Function({bool forceQualityPicker}) onDownload;
   final Widget leading;
   final bool clickableArtist;
+  final bool showQualityBadges;
   final bool isSelectionMode;
   final bool isSelected;
   final VoidCallback? onToggleSelection;
@@ -35,6 +36,7 @@ class TrackListTile extends ConsumerWidget {
     required this.onDownload,
     required this.leading,
     this.clickableArtist = false,
+    this.showQualityBadges = true,
     this.isSelectionMode = false,
     this.isSelected = false,
     this.onToggleSelection,
@@ -95,8 +97,8 @@ class TrackListTile extends ConsumerWidget {
               ),
         badges: [
           ...buildQualityBadges(
-            audioQuality: track.audioQuality,
-            audioModes: track.audioModes,
+            audioQuality: showQualityBadges ? track.audioQuality : null,
+            audioModes: showQualityBadges ? track.audioModes : null,
             colorScheme: colorScheme,
             explicit: track.isExplicit,
           ),

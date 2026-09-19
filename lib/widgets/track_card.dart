@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/theme/app_tokens.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/widgets/animation_utils.dart';
 
 /// How a [TrackCard] paints its container.
@@ -80,13 +81,13 @@ class TrackCard extends StatelessWidget {
     final Color? cardColor;
     if (isSelected) {
       cardColor = colorScheme.primaryContainer.withValues(alpha: 0.3);
-    } else if (style == TrackCardStyle.flat) {
+    } else if (style == TrackCardStyle.flat || context.isMornye) {
       cardColor = Colors.transparent;
     } else {
       cardColor = null; // Inherits cardTheme.color.
     }
 
-    return Card(
+    final card = Card(
       elevation: 0,
       // The two styles carry their own outer margin so no call site has to
       // repeat it: flat rows sit tight inside a collection list, filled cards
@@ -162,6 +163,20 @@ class TrackCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+    if (!context.isMornye) return card;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        card,
+        Padding(
+          padding: EdgeInsetsDirectional.only(
+            start: tokens.coverList + 40,
+            end: 20,
+          ),
+          child: const Divider(),
+        ),
+      ],
     );
   }
 }

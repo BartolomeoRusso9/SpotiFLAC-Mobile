@@ -248,6 +248,8 @@ extension _TrackMetadataConvertAndCueSplit on _TrackMetadataScreenState {
       context: context,
       useRootNavigator: true,
       isScrollControlled: true,
+      backgroundColor: context.isMornye ? Colors.transparent : null,
+      elevation: context.isMornye ? 0 : null,
       builder: (sheetContext) => BatchConvertSheet(
         formats: formats,
         title: context.l10n.trackConvertTitle,
@@ -492,20 +494,21 @@ extension _TrackMetadataConvertAndCueSplit on _TrackMetadataScreenState {
     required String date,
     required List<CueSplitTrackInfo> tracks,
   }) {
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
+        return AppAlertDialog(
           title: Text(dialogContext.l10n.cueSplitConfirmTitle),
           content: Text(
             dialogContext.l10n.cueSplitConfirmMessage(album, tracks.length),
           ),
           actions: [
-            TextButton(
+            AppDialogAction(
               onPressed: () => Navigator.pop(dialogContext),
               child: Text(dialogContext.l10n.dialogCancel),
             ),
-            FilledButton(
+            AppDialogAction(
+              filled: true,
               onPressed: () {
                 Navigator.pop(dialogContext);
                 _performCueSplit(
@@ -745,10 +748,10 @@ extension _TrackMetadataConvertAndCueSplit on _TrackMetadataScreenState {
     bool keepOriginal = false,
   }) {
     final isLossless = isLosslessConversionTarget(targetFormat);
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
+        return AppAlertDialog(
           title: Text(dialogContext.l10n.trackConvertConfirmTitle),
           content: Text(
             keepOriginal
@@ -782,11 +785,12 @@ extension _TrackMetadataConvertAndCueSplit on _TrackMetadataScreenState {
                   ),
           ),
           actions: [
-            TextButton(
+            AppDialogAction(
               onPressed: () => Navigator.pop(dialogContext),
               child: Text(dialogContext.l10n.dialogCancel),
             ),
-            FilledButton(
+            AppDialogAction(
+              filled: true,
               onPressed: () {
                 Navigator.pop(dialogContext);
                 _performConversion(

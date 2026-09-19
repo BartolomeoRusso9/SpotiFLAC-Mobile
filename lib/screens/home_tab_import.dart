@@ -17,7 +17,7 @@ extension _HomeTabCsvImport on _HomeTabState {
       if (progressDialogInitialized || !mounted) return;
       progressDialogInitialized = true;
       progressDialogVisible = true;
-      showDialog<void>(
+      showAppDialog<void>(
         context: this.context,
         useRootNavigator: false,
         barrierDismissible: false,
@@ -25,7 +25,7 @@ extension _HomeTabCsvImport on _HomeTabState {
           builder: (dialogCtx, setState) {
             progressDialogContext = dialogCtx;
             setDialogState = setState;
-            return AlertDialog(
+            return AppAlertDialog(
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -88,13 +88,13 @@ extension _HomeTabCsvImport on _HomeTabState {
 
         final l10n = this.context.l10n;
 
-        final options = await showDialog<_CsvImportOptions>(
+        final options = await showAppDialog<_CsvImportOptions>(
           context: this.context,
           useRootNavigator: false,
           builder: (dialogCtx) {
             var skipDownloaded = true;
             return StatefulBuilder(
-              builder: (dialogCtx, setDialogState) => AlertDialog(
+              builder: (dialogCtx, setDialogState) => AppAlertDialog(
                 title: Text(l10n.dialogImportPlaylistTitle),
                 content: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -102,20 +102,30 @@ extension _HomeTabCsvImport on _HomeTabState {
                   children: [
                     Text(l10n.dialogImportPlaylistMessage(tracks.length)),
                     const SizedBox(height: 12),
-                    CheckboxListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(l10n.homeSkipAlreadyDownloaded),
-                      value: skipDownloaded,
-                      onChanged: (value) {
-                        setDialogState(() {
-                          skipDownloaded = value ?? true;
-                        });
-                      },
-                    ),
+                    if (dialogCtx.isMornye)
+                      AppSwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(l10n.homeSkipAlreadyDownloaded),
+                        value: skipDownloaded,
+                        onChanged: (value) => setDialogState(() {
+                          skipDownloaded = value;
+                        }),
+                      )
+                    else
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(l10n.homeSkipAlreadyDownloaded),
+                        value: skipDownloaded,
+                        onChanged: (value) {
+                          setDialogState(() {
+                            skipDownloaded = value ?? true;
+                          });
+                        },
+                      ),
                   ],
                 ),
                 actions: [
-                  TextButton(
+                  AppDialogAction(
                     onPressed: () => Navigator.pop(
                       dialogCtx,
                       const _CsvImportOptions(
@@ -125,7 +135,8 @@ extension _HomeTabCsvImport on _HomeTabState {
                     ),
                     child: Text(l10n.dialogCancel),
                   ),
-                  FilledButton(
+                  AppDialogAction(
+                    filled: true,
                     onPressed: () => Navigator.pop(
                       dialogCtx,
                       _CsvImportOptions(

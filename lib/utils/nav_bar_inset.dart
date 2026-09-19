@@ -10,3 +10,17 @@ import 'package:flutter/widgets.dart';
 extension NavBarInset on BuildContext {
   double get navBarBottomInset => MediaQuery.paddingOf(this).bottom;
 }
+
+/// Keeps animated navigation-bar insets local to the trailing spacer instead
+/// of rebuilding the screen and its lists on every chrome animation frame.
+class NavBarSliverSpacer extends StatelessWidget {
+  const NavBarSliverSpacer({super.key, this.bottomInset});
+
+  /// An explicit inset for surfaces that do not inherit the shell's padding.
+  final double? bottomInset;
+
+  @override
+  Widget build(BuildContext context) => SliverToBoxAdapter(
+    child: SizedBox(height: bottomInset ?? context.navBarBottomInset),
+  );
+}

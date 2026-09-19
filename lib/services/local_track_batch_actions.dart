@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/models/settings.dart';
@@ -28,17 +29,18 @@ Future<void> queueLocalTracksAsFlac(
     return;
   }
 
-  final confirmed = await showDialog<bool>(
+  final confirmed = await showAppDialog<bool>(
     context: context,
-    builder: (ctx) => AlertDialog(
+    builder: (ctx) => AppAlertDialog(
       title: Text(context.l10n.queueFlacAction),
       content: Text(context.l10n.queueFlacConfirmMessage(selected.length)),
       actions: [
-        TextButton(
+        AppDialogAction(
           onPressed: () => Navigator.pop(ctx, false),
           child: Text(context.l10n.dialogCancel),
         ),
-        FilledButton(
+        AppDialogAction(
+          filled: true,
           onPressed: () => Navigator.pop(ctx, true),
           child: Text(context.l10n.queueFlacAction),
         ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
 
 /// Wraps a child in a staggered fade-in + slide-up animation.
 ///
@@ -194,6 +195,24 @@ class TrackListSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (context.isMornye) {
+      return ShimmerLoading(
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              if (showCoverHeader)
+                const _CollectionHeaderSkeleton(showSubtitle: false),
+              for (var index = 0; index < itemCount; index++)
+                _MornyeTrackSkeleton(
+                  numbered: false,
+                  index: index,
+                  showPreview: true,
+                ),
+            ],
+          ),
+        ),
+      );
+    }
     return ShimmerLoading(
       child: SingleChildScrollView(
         physics: const NeverScrollableScrollPhysics(),
@@ -265,6 +284,23 @@ class AlbumTrackListSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (context.isMornye) {
+      return ShimmerLoading(
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              if (showCoverHeader) const _CollectionHeaderSkeleton(),
+              for (var index = 0; index < itemCount; index++)
+                _MornyeTrackSkeleton(
+                  numbered: true,
+                  index: index,
+                  showPreview: true,
+                ),
+            ],
+          ),
+        ),
+      );
+    }
     return ShimmerLoading(
       child: SingleChildScrollView(
         physics: const NeverScrollableScrollPhysics(),
@@ -331,14 +367,87 @@ class AlbumTrackListSkeleton extends StatelessWidget {
   }
 }
 
-/// Header skeleton matching the redesigned album/playlist header: a blurred
-/// backdrop block with a centered square cover, title/subtitle bars, a meta
-/// line (year + quality badges) and the action button row.
+/// Mirrors each theme's collection header, including Mornye's full-width
+/// square artwork and compact primary action between two circular controls.
 class _CollectionHeaderSkeleton extends StatelessWidget {
-  const _CollectionHeaderSkeleton();
+  const _CollectionHeaderSkeleton({this.showSubtitle = true});
+
+  final bool showSubtitle;
 
   @override
   Widget build(BuildContext context) {
+    if (context.isMornye) {
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final coverSize = constraints.maxWidth.clamp(0.0, 440.0);
+          return Column(
+            children: [
+              ShaderMask(
+                blendMode: BlendMode.dstIn,
+                shaderCallback: (bounds) => const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  stops: [0, 0.52, 1],
+                  colors: [Colors.white, Colors.white, Colors.transparent],
+                ).createShader(bounds),
+                child: SkeletonBox(
+                  width: coverSize,
+                  height: coverSize,
+                  borderRadius: 0,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+                child: Column(
+                  children: [
+                    const FractionallySizedBox(
+                      widthFactor: 0.75,
+                      child: SkeletonBox(
+                        width: double.infinity,
+                        height: 28,
+                        borderRadius: 6,
+                      ),
+                    ),
+                    if (showSubtitle) ...[
+                      const SizedBox(height: 5),
+                      const FractionallySizedBox(
+                        widthFactor: 0.5,
+                        child: SkeletonBox(
+                          width: double.infinity,
+                          height: 24,
+                          borderRadius: 5,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 5),
+                    const SkeletonBox(width: 140, height: 16, borderRadius: 4),
+                    const SizedBox(height: 24),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 460),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        spacing: 16,
+                        children: [
+                          SkeletonBox(width: 44, height: 44, borderRadius: 22),
+                          Flexible(
+                            child: SkeletonBox(
+                              width: 172,
+                              height: 50,
+                              borderRadius: 25,
+                            ),
+                          ),
+                          SkeletonBox(width: 44, height: 44, borderRadius: 22),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    }
     final screenWidth = MediaQuery.sizeOf(context).width;
     final coverSize = (screenWidth * 0.5).clamp(150.0, 210.0).toDouble();
 
@@ -403,6 +512,104 @@ class ArtistScreenSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (context.isMornye) {
+      return ShimmerLoading(
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (showCoverHeader) ...[
+                const SkeletonBox(
+                  width: double.infinity,
+                  height: 342,
+                  borderRadius: 0,
+                ),
+                const Center(child: SkeletonBox(width: 220, height: 36)),
+                const SizedBox(height: 16),
+                const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  spacing: 24,
+                  children: [
+                    SkeletonBox(width: 44, height: 44, borderRadius: 22),
+                    SkeletonBox(width: 60, height: 60, borderRadius: 30),
+                    SkeletonBox(width: 44, height: 44, borderRadius: 22),
+                  ],
+                ),
+              ],
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Row(
+                    spacing: 14,
+                    children: [
+                      SkeletonBox(width: 76, height: 76, borderRadius: 5),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          spacing: 6,
+                          children: [
+                            SkeletonBox(width: 38, height: 12, borderRadius: 4),
+                            FractionallySizedBox(
+                              widthFactor: 0.9,
+                              child: SkeletonBox(
+                                width: double.infinity,
+                                height: 18,
+                                borderRadius: 4,
+                              ),
+                            ),
+                            SkeletonBox(width: 62, height: 12, borderRadius: 4),
+                          ],
+                        ),
+                      ),
+                      SkeletonBox(width: 10, height: 14, borderRadius: 4),
+                    ],
+                  ),
+                ),
+              ),
+              if (showPopularSection) ...[
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 24, 20, 12),
+                  child: SkeletonBox(width: 110, height: 24, borderRadius: 4),
+                ),
+                for (var index = 0; index < popularCount; index++)
+                  _MornyeTrackSkeleton(numbered: false, index: index),
+              ],
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 24, 20, 12),
+                child: SkeletonBox(width: 120, height: 24, borderRadius: 4),
+              ),
+              SizedBox(
+                height: 208,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  itemCount: albumCount,
+                  separatorBuilder: (_, _) => const SizedBox(width: 12),
+                  itemBuilder: (_, index) => const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SkeletonBox(width: 156, height: 156, borderRadius: 8),
+                      SizedBox(height: 8),
+                      SkeletonBox(width: 120, height: 16, borderRadius: 4),
+                      SizedBox(height: 4),
+                      SkeletonBox(width: 45, height: 12, borderRadius: 4),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
+          ),
+        ),
+      );
+    }
     final screenWidth = MediaQuery.sizeOf(context).width;
     return ShimmerLoading(
       child: SingleChildScrollView(
@@ -513,6 +720,77 @@ class ArtistScreenSkeleton extends StatelessWidget {
   }
 }
 
+class _MornyeTrackSkeleton extends StatelessWidget {
+  const _MornyeTrackSkeleton({
+    required this.numbered,
+    required this.index,
+    this.showPreview = false,
+  });
+
+  final bool numbered;
+  final int index;
+  final bool showPreview;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          child: Row(
+            children: [
+              if (numbered)
+                const SizedBox(
+                  width: 32,
+                  child: Center(
+                    child: SkeletonBox(width: 14, height: 16, borderRadius: 4),
+                  ),
+                )
+              else
+                const SkeletonBox(width: 48, height: 48, borderRadius: 4),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    FractionallySizedBox(
+                      widthFactor: 0.7 + (index % 3) * 0.1,
+                      child: const SkeletonBox(
+                        width: double.infinity,
+                        height: 18,
+                        borderRadius: 4,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const FractionallySizedBox(
+                      widthFactor: 0.5,
+                      child: SkeletonBox(
+                        width: double.infinity,
+                        height: 14,
+                        borderRadius: 4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 20),
+              if (showPreview) ...[
+                const SkeletonBox(width: 20, height: 20, borderRadius: 10),
+                const SizedBox(width: 24),
+              ],
+              const SkeletonBox(width: 20, height: 6, borderRadius: 3),
+            ],
+          ),
+        ),
+        Padding(
+          padding: EdgeInsets.only(left: numbered ? 64 : 80, right: 20),
+          child: const Divider(height: 1, thickness: 0.5),
+        ),
+      ],
+    );
+  }
+}
+
 /// Home search skeleton – mimics filter chips + sectioned results
 /// (Artists section with rounded card items, Albums section, etc.)
 class HomeSearchSkeleton extends StatelessWidget {
@@ -558,6 +836,50 @@ class HomeSearchSkeleton extends StatelessWidget {
     double headerWidth,
     int itemCount,
   ) {
+    final mornye = context.isMornye;
+    final rows = List.generate(itemCount, (index) {
+      return Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: mornye ? 12 : 16,
+          vertical: mornye ? 12 : 10,
+        ),
+        child: Row(
+          children: [
+            SkeletonBox(
+              width: mornye ? 56 : 48,
+              height: mornye ? 56 : 48,
+              borderRadius: 24,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SkeletonBox(
+                    width: 100 + (index % 3) * 40,
+                    height: 14,
+                    borderRadius: 4,
+                  ),
+                  const SizedBox(height: 6),
+                  SkeletonBox(
+                    width: 60 + (index % 2) * 25,
+                    height: 12,
+                    borderRadius: 4,
+                  ),
+                ],
+              ),
+            ),
+            const SkeletonBox(width: 20, height: 20, borderRadius: 10),
+          ],
+        ),
+      );
+    });
+    final decoration = BoxDecoration(
+      color: Theme.of(
+        context,
+      ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+      borderRadius: BorderRadius.circular(mornye ? 24 : 20),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -571,50 +893,24 @@ class HomeSearchSkeleton extends StatelessWidget {
             ],
           ),
         ),
-        Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16),
-          decoration: BoxDecoration(
-            color: Theme.of(
-              context,
-            ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-            borderRadius: BorderRadius.circular(20),
+        if (mornye)
+          for (var index = 0; index < rows.length; index++)
+            Container(
+              margin: EdgeInsets.fromLTRB(
+                16,
+                0,
+                16,
+                index == rows.length - 1 ? 0 : 8,
+              ),
+              decoration: decoration,
+              child: rows[index],
+            )
+        else
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: decoration,
+            child: Column(children: rows),
           ),
-          child: Column(
-            children: List.generate(itemCount, (index) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
-                child: Row(
-                  children: [
-                    const SkeletonBox(width: 48, height: 48, borderRadius: 24),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SkeletonBox(
-                            width: 100 + (index % 3) * 40,
-                            height: 14,
-                            borderRadius: 4,
-                          ),
-                          const SizedBox(height: 6),
-                          SkeletonBox(
-                            width: 60 + (index % 2) * 25,
-                            height: 12,
-                            borderRadius: 4,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SkeletonBox(width: 20, height: 20, borderRadius: 10),
-                  ],
-                ),
-              );
-            }),
-          ),
-        ),
       ],
     );
   }

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/widgets/app_snack_bar.dart';
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
@@ -7,6 +9,10 @@ import 'package:spotiflac_android/providers/extension_provider.dart';
 import 'package:spotiflac_android/services/extension_storage_service.dart';
 import 'package:spotiflac_android/utils/adaptive_layout.dart';
 import 'package:spotiflac_android/utils/nav_bar_inset.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/theme/mornye_icons.dart';
+import 'package:spotiflac_android/widgets/extension_repo_card.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
 
 class ExtensionDetailsScreen extends ConsumerStatefulWidget {
   final RepoExtension extension;
@@ -130,7 +136,9 @@ class _ExtensionDetailsScreenState
         padding: EdgeInsets.only(left: edgeInset),
         child: IconButton(
           tooltip: MaterialLocalizations.of(context).backButtonTooltip,
-          icon: const Icon(Icons.arrow_back),
+          icon: Icon(
+            context.isMornye ? CupertinoIcons.chevron_back : Icons.arrow_back,
+          ),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -145,7 +153,9 @@ class _ExtensionDetailsScreenState
     return Container(
       color: colorScheme.surfaceContainerHighest,
       child: Icon(
-        _getCategoryIcon(ext.category),
+        context.isMornye
+            ? mornyeIconFor(_getCategoryIcon(ext.category))
+            : _getCategoryIcon(ext.category),
         size: size,
         color: colorScheme.onSurfaceVariant,
       ),
@@ -163,12 +173,8 @@ class _ExtensionDetailsScreenState
         padding:
             const EdgeInsets.all(16) +
             EdgeInsets.symmetric(horizontal: wideListInset(context)),
-        child: Card(
-          elevation: 0,
+        child: ExtensionRepoCard(
           color: colorScheme.surfaceContainerLow,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
@@ -232,7 +238,11 @@ class _ExtensionDetailsScreenState
                   if (ext.hasUpdate)
                     FilledButton.icon(
                       onPressed: () => _updateExtension(ext),
-                      icon: const Icon(Icons.update),
+                      icon: Icon(
+                        context.isMornye
+                            ? CupertinoIcons.arrow_clockwise
+                            : Icons.update,
+                      ),
                       label: Text(
                         '${context.l10n.storeUpdate} v${ext.version}',
                       ),
@@ -249,7 +259,11 @@ class _ExtensionDetailsScreenState
                         Expanded(
                           child: OutlinedButton.icon(
                             onPressed: null,
-                            icon: const Icon(Icons.check),
+                            icon: Icon(
+                              context.isMornye
+                                  ? CupertinoIcons.check_mark
+                                  : Icons.check,
+                            ),
                             label: Text(context.l10n.storeInstalled),
                             style: OutlinedButton.styleFrom(
                               minimumSize: const Size(0, 52),
@@ -262,7 +276,11 @@ class _ExtensionDetailsScreenState
                         const SizedBox(width: 12),
                         IconButton.filled(
                           onPressed: () => _uninstallExtension(ext),
-                          icon: const Icon(Icons.delete_outline),
+                          icon: Icon(
+                            context.isMornye
+                                ? CupertinoIcons.trash
+                                : Icons.delete_outline,
+                          ),
                           style: IconButton.styleFrom(
                             backgroundColor: colorScheme.errorContainer,
                             foregroundColor: colorScheme.onErrorContainer,
@@ -278,7 +296,11 @@ class _ExtensionDetailsScreenState
                   else
                     FilledButton.icon(
                       onPressed: () => _installExtension(ext),
-                      icon: const Icon(Icons.download),
+                      icon: Icon(
+                        context.isMornye
+                            ? CupertinoIcons.arrow_down_circle
+                            : Icons.download,
+                      ),
                       label: Text(context.l10n.storeInstall),
                       style: FilledButton.styleFrom(
                         minimumSize: const Size.fromHeight(52),
@@ -309,7 +331,11 @@ class _ExtensionDetailsScreenState
             EdgeInsets.symmetric(horizontal: wideListInset(context)),
         child: Row(
           children: [
-            Icon(icon, size: 20, color: colorScheme.primary),
+            Icon(
+              context.isMornye ? mornyeIconFor(icon) : icon,
+              size: 20,
+              color: colorScheme.primary,
+            ),
             const SizedBox(width: 8),
             Text(
               title,
@@ -360,17 +386,30 @@ class _ExtensionDetailsScreenState
           runSpacing: 8,
           children: ext.tags
               .map(
-                (tag) => Chip(
-                  label: Text(tag),
-                  backgroundColor: colorScheme.surfaceContainer,
-                  labelStyle: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                  side: BorderSide.none,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                ),
+                (tag) => context.isMornye
+                    ? ExtensionRepoCard(
+                        margin: EdgeInsets.zero,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          child: Text(
+                            tag,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                      )
+                    : Chip(
+                        label: Text(tag),
+                        backgroundColor: colorScheme.surfaceContainer,
+                        labelStyle: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(color: colorScheme.onSurfaceVariant),
+                        side: BorderSide.none,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                      ),
               )
               .toList(),
         ),
@@ -388,12 +427,9 @@ class _ExtensionDetailsScreenState
           const EdgeInsets.symmetric(horizontal: 16, vertical: 8) +
           EdgeInsets.symmetric(horizontal: wideListInset(context)),
       sliver: SliverToBoxAdapter(
-        child: Card(
-          elevation: 0,
+        child: ExtensionRepoCard(
           color: colorScheme.surfaceContainer,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
+          radius: 16,
           child: Column(
             children: [
               _MetadataRow(
@@ -437,12 +473,9 @@ class _ExtensionDetailsScreenState
           const EdgeInsets.symmetric(horizontal: 16, vertical: 8) +
           EdgeInsets.symmetric(horizontal: wideListInset(context)),
       sliver: SliverToBoxAdapter(
-        child: Card(
-          elevation: 0,
+        child: ExtensionRepoCard(
           color: colorScheme.surfaceContainer,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
+          radius: 16,
           child: Column(
             children: [
               _CapabilityRow(
@@ -544,15 +577,14 @@ class _ExtensionDetailsScreenState
         .installExtension(ext.id, tempDir.path, storage.extensionsDir);
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            success
-                ? context.l10n.snackbarExtensionInstalled(ext.displayName)
-                : context.l10n.snackbarFailedToInstall,
-          ),
-          behavior: SnackBarBehavior.floating,
+      showAppSnackBar(
+        context,
+        content: Text(
+          success
+              ? context.l10n.snackbarExtensionInstalled(ext.displayName)
+              : context.l10n.snackbarFailedToInstall,
         ),
+        behavior: SnackBarBehavior.floating,
       );
     }
   }
@@ -565,38 +597,39 @@ class _ExtensionDetailsScreenState
         .updateExtension(ext.id, tempDir.path);
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            success
-                ? context.l10n.snackbarExtensionUpdated(ext.displayName)
-                : context.l10n.snackbarFailedToUpdate,
-          ),
-          behavior: SnackBarBehavior.floating,
+      showAppSnackBar(
+        context,
+        content: Text(
+          success
+              ? context.l10n.snackbarExtensionUpdated(ext.displayName)
+              : context.l10n.snackbarFailedToUpdate,
         ),
+        behavior: SnackBarBehavior.floating,
       );
     }
   }
 
   Future<void> _uninstallExtension(RepoExtension ext) async {
-    final confirm = await showDialog<bool>(
+    final confirm = await showAppDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => AppAlertDialog(
         title: Text(context.l10n.dialogUninstallExtension),
         content: Text(
           context.l10n.dialogUninstallExtensionMessage(ext.displayName),
         ),
         actions: [
-          TextButton(
+          AppDialogAction(
+            isDefault: true,
             onPressed: () => Navigator.pop(context, false),
             child: Text(context.l10n.dialogCancel),
           ),
-          TextButton(
+          AppDialogAction(
+            isDestructive: true,
             onPressed: () => Navigator.pop(context, true),
-            child: Text(
-              context.l10n.dialogUninstall,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.error,
             ),
+            child: Text(context.l10n.dialogUninstall),
           ),
         ],
       ),
@@ -735,7 +768,7 @@ class _CapabilityRow extends StatelessWidget {
           child: Row(
             children: [
               Icon(
-                icon,
+                context.isMornye ? mornyeIconFor(icon) : icon,
                 size: 20,
                 color: enabled ? colorScheme.primary : colorScheme.outline,
               ),
@@ -747,7 +780,11 @@ class _CapabilityRow extends StatelessWidget {
                 ),
               ),
               Icon(
-                enabled ? Icons.check_circle : Icons.cancel_outlined,
+                context.isMornye
+                    ? (enabled
+                          ? CupertinoIcons.check_mark_circled
+                          : CupertinoIcons.clear_circled)
+                    : (enabled ? Icons.check_circle : Icons.cancel_outlined),
                 size: 20,
                 color: enabled ? colorScheme.primary : colorScheme.outline,
               ),

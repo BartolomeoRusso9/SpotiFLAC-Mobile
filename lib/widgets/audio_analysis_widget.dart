@@ -10,8 +10,11 @@ import 'package:ffmpeg_kit_flutter_new_full/ffprobe_kit.dart';
 import 'package:ffmpeg_kit_flutter_new_full/return_code.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/services/audio_analysis_jobs.dart';
 import 'package:spotiflac_android/widgets/settings_group.dart';
+import 'package:spotiflac_android/widgets/app_content_card.dart';
+import 'package:spotiflac_android/widgets/app_choice_chip.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/services/platform_bridge.dart';
@@ -1540,7 +1543,7 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
     if (_checkingCache) return const SizedBox.shrink();
 
     if (_unsupportedCodec != null) {
-      return Card(
+      return AppContentCard(
         elevation: 0,
         color: settingsGroupColor(context),
         shape: RoundedRectangleBorder(
@@ -1586,7 +1589,7 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
 
     if (_analyzing) {
       final isRescan = _data != null || _spectrogramImage != null;
-      return Card(
+      return AppContentCard(
         elevation: 0,
         color: settingsGroupColor(context),
         shape: RoundedRectangleBorder(
@@ -1619,7 +1622,8 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
     }
 
     if (_error != null) {
-      return Card(
+      return AppContentCard(
+        preserveColor: true,
         color: cs.errorContainer,
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -1649,7 +1653,7 @@ class _AudioAnalysisCardState extends State<AudioAnalysisCard> {
     }
 
     if (_data == null) {
-      return Card(
+      return AppContentCard(
         elevation: 0,
         color: settingsGroupColor(context),
         shape: RoundedRectangleBorder(

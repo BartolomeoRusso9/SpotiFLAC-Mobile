@@ -562,7 +562,7 @@ class TrackNotifier extends Notifier<TrackState> {
       id: data['id'] as String? ?? '',
       name: data['name'] as String? ?? '',
       releaseDate: data['release_date'] as String? ?? '',
-      totalTracks: data['total_tracks'] as int? ?? 0,
+      totalTracks: int.tryParse(data['total_tracks']?.toString() ?? '') ?? 0,
       coverUrl: normalizeCoverReference(
         (data['cover_url'] ?? data['images'])?.toString(),
       ),

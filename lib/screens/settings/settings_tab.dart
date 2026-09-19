@@ -17,6 +17,7 @@ import 'package:spotiflac_android/screens/settings/lyrics_settings_page.dart';
 import 'package:spotiflac_android/screens/settings/metadata_settings_page.dart';
 import 'package:spotiflac_android/screens/settings/settings_search_catalog.dart';
 import 'package:spotiflac_android/theme/app_tokens.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/utils/adaptive_layout.dart';
 import 'package:spotiflac_android/utils/nav_bar_inset.dart';
 import 'package:spotiflac_android/widgets/animation_utils.dart';
@@ -266,7 +267,9 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
     final destination = targetLabel == null
         ? page
         : SettingsSearchHighlightScope(targetLabel: targetLabel, child: page);
-    await Navigator.of(context).push(slidePageRoute<void>(page: destination));
+    await Navigator.of(
+      context,
+    ).push(slidePageRoute<void>(page: MornyeSettingsTheme(child: destination)));
     if (!mounted) return;
 
     // A route's focus scope remembers its previously focused child. Keep the
@@ -284,7 +287,7 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
     return SettingsItem(
       icon: destination.icon,
       title: destination.title,
-      subtitle: destination.subtitle,
+      subtitle: context.isMornye ? null : destination.subtitle,
       showDivider: showDivider,
       onTap: () => _navigateTo(context, destination.pageBuilder()),
     );
@@ -315,16 +318,15 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
   @override
   Widget build(BuildContext context) {
     final tokens = context.tokens;
-    final bottomInset = context.navBarBottomInset;
     final wideInset = wideListInset(context);
     final query = SettingsSearchQuery(_query);
     final groups = _groups(context);
 
     final margin = EdgeInsets.fromLTRB(
       tokens.gapLg + wideInset,
-      tokens.gapSm,
+      context.isMornye ? 12 : tokens.gapSm,
       tokens.gapLg + wideInset,
-      tokens.gapSm,
+      context.isMornye ? 12 : tokens.gapSm,
     );
 
     final List<Widget> body;
@@ -384,31 +386,33 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
             ];
     }
 
-    return CustomScrollView(
-      slivers: [
-        AppSliverHeader.tabRoot(title: context.l10n.settingsTitle),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(
-              tokens.gapLg + wideInset,
-              tokens.gapSm,
-              tokens.gapLg + wideInset,
-              tokens.gapSm,
-            ),
-            child: AppSearchField(
-              controller: _searchController,
-              focusNode: _searchFocusNode,
-              hintText: context.l10n.settingsSearchHint,
-              clearTooltip: context.l10n.dialogClear,
-              onChanged: (value) => setState(() => _query = value),
-              onClear: () => setState(() => _query = ''),
+    return MornyeSettingsTheme(
+      child: CustomScrollView(
+        slivers: [
+          AppSliverHeader.tabRoot(title: context.l10n.settingsTitle),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                tokens.gapLg + wideInset,
+                tokens.gapSm,
+                tokens.gapLg + wideInset,
+                tokens.gapSm,
+              ),
+              child: AppSearchField(
+                controller: _searchController,
+                focusNode: _searchFocusNode,
+                hintText: context.l10n.settingsSearchHint,
+                clearTooltip: context.l10n.dialogClear,
+                onChanged: (value) => setState(() => _query = value),
+                onClear: () => setState(() => _query = ''),
+              ),
             ),
           ),
-        ),
-        ...body,
-        SliverToBoxAdapter(child: SizedBox(height: bottomInset)),
-        const SliverFillRemaining(hasScrollBody: false, child: SizedBox()),
-      ],
+          ...body,
+          const NavBarSliverSpacer(),
+          const SliverFillRemaining(hasScrollBody: false, child: SizedBox()),
+        ],
+      ),
     );
   }
 }

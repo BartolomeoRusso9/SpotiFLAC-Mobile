@@ -177,14 +177,18 @@ extension _HomeTabSearchResultsUI on _HomeTabState {
 
   void _showSortOptions(ColorScheme colorScheme) {
     var tempSort = _searchSortOption;
+    final mornye = context.isMornye;
     showModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
       isScrollControlled: true,
-      backgroundColor: colorScheme.surfaceContainerLow,
+      backgroundColor: mornye
+          ? Colors.transparent
+          : colorScheme.surfaceContainerLow,
+      elevation: mornye ? 0 : null,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheetState) {
-          return SafeArea(
+          final content = SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
               child: Column(
@@ -214,6 +218,14 @@ extension _HomeTabSearchResultsUI on _HomeTabState {
                     spacing: 8,
                     runSpacing: 8,
                     children: HomeSearchSortOption.values.map((option) {
+                      if (context.isMornye) {
+                        return MornyeFilterChip(
+                          label: _sortOptionLabel(option),
+                          selected: tempSort == option,
+                          glass: false,
+                          onTap: () => setSheetState(() => tempSort = option),
+                        );
+                      }
                       return FilterChip(
                         label: Text(_sortOptionLabel(option)),
                         selected: tempSort == option,
@@ -242,6 +254,7 @@ extension _HomeTabSearchResultsUI on _HomeTabState {
               ),
             ),
           );
+          return mornye ? MornyeGlassPanel.overlay(child: content) : content;
         },
       ),
     );
@@ -452,22 +465,31 @@ extension _HomeTabSearchResultsUI on _HomeTabState {
             colorScheme.surface,
           )
         : colorScheme.surfaceContainerHighest;
+    final mornye = context.isMornye;
 
     return [
       SliverToBoxAdapter(
         child: Padding(
           // Aligned with the clamped result list below on wide screens.
           padding:
-              EdgeInsets.fromLTRB(16, 8, 8, 8) +
+              (mornye
+                  ? const EdgeInsets.fromLTRB(20, 16, 12, 10)
+                  : const EdgeInsets.fromLTRB(16, 8, 8, 8)) +
               EdgeInsets.symmetric(horizontal: wideListInset(context)),
           child: Row(
             children: [
               Expanded(
                 child: Text(
                   title,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
+                  style: mornye
+                      ? Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          color: colorScheme.onSurface,
+                        )
+                      : Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
                 ),
               ),
               if (showSortButton)
@@ -476,7 +498,7 @@ extension _HomeTabSearchResultsUI on _HomeTabState {
                   child: TextButton.icon(
                     onPressed: () => _showSortOptions(colorScheme),
                     icon: Icon(
-                      Icons.swap_vert,
+                      mornye ? mornyeIconFor(Icons.swap_vert) : Icons.swap_vert,
                       size: 18,
                       color:
                           _searchSortOption != HomeSearchSortOption.defaultOrder
@@ -511,6 +533,15 @@ extension _HomeTabSearchResultsUI on _HomeTabState {
           delegate: SliverChildBuilderDelegate((context, index) {
             final isFirst = index == 0;
             final isLast = index == itemCount - 1;
+            if (mornye) {
+              return Padding(
+                padding: EdgeInsets.fromLTRB(16, 0, 16, isLast ? 0 : 8),
+                child: MornyeGlassPanel.overlay(
+                  radius: 24,
+                  child: itemBuilder(index, false),
+                ),
+              );
+            }
             return StaggeredListItem(
               index: index,
               child: Container(
@@ -675,6 +706,33 @@ extension _HomeTabSearchResultsUI on _HomeTabState {
     String? selectedFilter,
     ColorScheme colorScheme,
   ) {
+    Widget filterChip(String id, String label, {IconData? icon}) {
+      void select() {
+        ref.read(trackProvider.notifier).setSearchFilter(id);
+        _triggerSearchWithFilter(id);
+      }
+
+      return context.isMornye
+          ? MornyeGlassPanel.overlay(
+              radius: 24,
+              child: MornyeFilterChip(
+                label: label,
+                selected: selectedFilter == id,
+                icon: icon == null ? null : mornyeIconFor(icon),
+                glass: false,
+                tonal: selectedFilter == id,
+                onTap: select,
+              ),
+            )
+          : FilterChip(
+              label: Text(label),
+              selected: selectedFilter == id,
+              onSelected: (_) => select(),
+              showCheckmark: false,
+              avatar: icon == null ? null : Icon(icon, size: 18),
+            );
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: SingleChildScrollView(
@@ -683,31 +741,17 @@ extension _HomeTabSearchResultsUI on _HomeTabState {
           children: [
             Padding(
               padding: const EdgeInsets.only(right: 8),
-              child: FilterChip(
-                label: Text(context.l10n.historyFilterAll),
-                selected: selectedFilter == 'all',
-                onSelected: (_) {
-                  ref.read(trackProvider.notifier).setSearchFilter('all');
-                  _triggerSearchWithFilter('all');
-                },
-                showCheckmark: false,
-              ),
+              child: filterChip('all', context.l10n.historyFilterAll),
             ),
             ...filters.map((filter) {
-              final isSelected = selectedFilter == filter.id;
               return Padding(
                 padding: const EdgeInsets.only(right: 8),
-                child: FilterChip(
-                  label: Text(filter.label ?? filter.id),
-                  selected: isSelected,
-                  onSelected: (_) {
-                    ref.read(trackProvider.notifier).setSearchFilter(filter.id);
-                    _triggerSearchWithFilter(filter.id);
-                  },
-                  showCheckmark: false,
-                  avatar: filter.icon != null
-                      ? Icon(_getFilterIcon(filter.icon!), size: 18)
-                      : null,
+                child: filterChip(
+                  filter.id,
+                  filter.label ?? filter.id,
+                  icon: filter.icon == null
+                      ? null
+                      : _getFilterIcon(filter.icon!),
                 ),
               );
             }),
@@ -747,75 +791,53 @@ extension _HomeTabSearchResultsUI on _HomeTabState {
     _performSearch(text, filterOverride: filter);
   }
 
-  Widget _buildSearchBar(ColorScheme colorScheme) {
+  Widget _buildSearchBar() {
     final hasText = _urlController.text.isNotEmpty;
 
-    return TextField(
+    return AppSearchField(
       controller: _urlController,
       focusNode: _searchFocusNode,
-      autofocus: false,
-      decoration: InputDecoration(
-        hintText: _getSearchHint(),
-        filled: true,
-        fillColor: settingsGroupColor(context),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(28),
-          borderSide: BorderSide(color: colorScheme.outlineVariant),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(28),
-          borderSide: BorderSide(color: colorScheme.outlineVariant),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(28),
-          borderSide: BorderSide(color: colorScheme.primary, width: 2),
-        ),
-        prefixIcon: _SearchProviderDropdown(
-          onProviderChanged: () {
-            _lastSearchQuery = null;
-            ref.read(trackProvider.notifier).setSearchFilter(null);
-            setState(() {});
-            final text = _urlController.text.trim();
-            if (text.isNotEmpty &&
-                text.length >= _HomeTabState._minLiveSearchChars) {
-              _performSearch(text);
-            }
-          },
-        ),
-        suffixIcon: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (hasText)
-              IconButton(
-                icon: const Icon(Icons.clear),
-                onPressed: _clearAndRefresh,
-                tooltip: context.l10n.dialogClear,
-              )
-            else ...[
-              IconButton(
-                icon: const Icon(Icons.file_upload_outlined),
-                onPressed: _isCsvImporting
-                    ? null
-                    : () => _importCsv(context, ref),
-                tooltip: context.l10n.homeImportCsvTooltip,
-              ),
-              IconButton(
-                icon: const Icon(Icons.paste),
-                onPressed: _pasteFromClipboard,
-                tooltip: context.l10n.actionPaste,
-              ),
-            ],
+      hintText: _getSearchHint(),
+      clearTooltip: context.l10n.dialogClear,
+      onClear: _clearAndRefresh,
+      prefixIcon: _SearchProviderDropdown(
+        onProviderChanged: () {
+          _lastSearchQuery = null;
+          ref.read(trackProvider.notifier).setSearchFilter(null);
+          setState(() {});
+          final text = _urlController.text.trim();
+          if (text.isNotEmpty &&
+              text.length >= _HomeTabState._minLiveSearchChars) {
+            _performSearch(text);
+          }
+        },
+      ),
+      suffixIcon: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (hasText)
+            IconButton(
+              icon: const Icon(Icons.clear),
+              onPressed: _clearAndRefresh,
+              tooltip: context.l10n.dialogClear,
+            )
+          else ...[
+            IconButton(
+              icon: const Icon(Icons.file_upload_outlined),
+              onPressed: _isCsvImporting
+                  ? null
+                  : () => _importCsv(context, ref),
+              tooltip: context.l10n.homeImportCsvTooltip,
+            ),
+            IconButton(
+              icon: const Icon(Icons.paste),
+              onPressed: _pasteFromClipboard,
+              tooltip: context.l10n.actionPaste,
+            ),
           ],
-        ),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 20,
-          vertical: 16,
-        ),
+        ],
       ),
       onSubmitted: (_) => _onSearchSubmitted(),
-      onTapOutside: (_) {
-        FocusScope.of(context).unfocus();
-      },
     );
   }
 

@@ -42,7 +42,7 @@ class _CollectionEntry {
       _CollectionEntry._(_CollectionEntryType.playlist, index);
 }
 
-class _FilterChip extends StatelessWidget {
+class _FilterChip extends ConsumerWidget {
   final String label;
   final int count;
   final bool isSelected;
@@ -56,36 +56,89 @@ class _FilterChip extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final colorScheme = Theme.of(context).colorScheme;
+    final mornye = context.isMornye;
 
-    return FilterChip(
-      label: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label),
-          const SizedBox(width: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
+    final content = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: mornye
+              ? Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: isSelected
+                      ? colorScheme.onSurface
+                      : colorScheme.onSurfaceVariant,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                )
+              : null,
+        ),
+        const SizedBox(width: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? colorScheme.primary.withValues(alpha: 0.2)
+                : colorScheme.outline.withValues(alpha: 0.2),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            count.toString(),
+            style: TextStyle(
+              fontSize: 11,
               color: isSelected
-                  ? colorScheme.primary.withValues(alpha: 0.2)
-                  : colorScheme.outline.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(10),
+                  ? colorScheme.onPrimaryContainer
+                  : colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w500,
             ),
-            child: Text(
-              count.toString(),
-              style: TextStyle(
-                fontSize: 11,
-                color: isSelected
-                    ? colorScheme.onPrimaryContainer
-                    : colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+
+    if (mornye) {
+      return Semantics(
+        button: true,
+        selected: isSelected,
+        label: '$label, $count',
+        excludeSemantics: true,
+        onTap: onTap,
+        child: MornyeGlass(
+          radius: 22,
+          blurEnabled:
+              !ref.watch(lowEndDeviceProvider) ||
+              ref.watch(backdropBlurEnabledProvider),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(22),
+              child: AnimatedContainer(
+                duration: MediaQuery.disableAnimationsOf(context)
+                    ? Duration.zero
+                    : context.tokens.motionFast,
+                constraints: const BoxConstraints(minHeight: 44),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? colorScheme.primary.withValues(alpha: 0.10)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: content,
               ),
             ),
           ),
-        ],
-      ),
+        ),
+      );
+    }
+
+    return FilterChip(
+      label: content,
       selected: isSelected,
       onSelected: (_) => onTap(),
       showCheckmark: false,

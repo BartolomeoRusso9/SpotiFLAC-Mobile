@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/theme/app_tokens.dart';
 import 'package:spotiflac_android/widgets/track_card.dart';
@@ -58,10 +60,15 @@ class AlbumTrackTile extends StatelessWidget {
       trailing: IconButton(
         tooltip: context.l10n.tooltipPlay,
         onPressed: onPlay,
-        icon: Icon(Icons.play_arrow, color: colorScheme.primary),
+        icon: Icon(
+          context.isMornye ? CupertinoIcons.play_fill : Icons.play_arrow,
+          color: colorScheme.primary,
+        ),
         style: IconButton.styleFrom(
           minimumSize: Size.square(context.tokens.minTouchTarget),
-          backgroundColor: colorScheme.primaryContainer.withValues(alpha: 0.3),
+          backgroundColor: context.isMornye
+              ? Colors.transparent
+              : colorScheme.primaryContainer.withValues(alpha: 0.3),
         ),
       ),
     );

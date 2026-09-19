@@ -1,0 +1,97 @@
+import 'package:audio_service/audio_service.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:spotiflac_android/l10n/l10n.dart';
+import 'package:spotiflac_android/providers/music_player_provider.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/widgets/mornye_player_queue.dart';
+
+class _Player extends MusicPlayerController {
+  int? jumpedTo;
+  (int, int)? moved;
+  bool? shuffled;
+  AudioServiceRepeatMode? repeat;
+
+  @override
+  Future<void> jumpTo(int index) async => jumpedTo = index;
+  @override
+  void moveQueueItem(int oldIndex, int newIndex) =>
+      moved = (oldIndex, newIndex);
+  @override
+  Future<void> setShuffle(bool enabled) async => shuffled = enabled;
+  @override
+  Future<void> setRepeatMode(AudioServiceRepeatMode mode) async =>
+      repeat = mode;
+}
+
+void main() {
+  testWidgets(
+    'upcoming queue maps taps and reorders to the complete playback queue',
+    (tester) async {
+      final player = _Player();
+      var libraryShuffles = 0;
+      final queue = [
+        for (final name in ['Previous', 'Current', 'Next', 'Last'])
+          MediaItem(id: name, title: name, artist: 'Artist'),
+      ];
+      final theme = MornyeTheme.build(Brightness.dark);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            musicPlayerControllerProvider.overrideWithValue(player),
+            currentMediaItemProvider.overrideWith(
+              (ref) => Stream.value(queue[1]),
+            ),
+            playQueueProvider.overrideWith((ref) => Stream.value(queue)),
+            playbackStateProvider.overrideWith(
+              (ref) => Stream.value(PlaybackState(queueIndex: 1)),
+            ),
+          ],
+          child: MaterialApp(
+            theme: theme,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: MornyePlayerQueue(
+                colorScheme: theme.colorScheme,
+                onShuffleLibrary: () => libraryShuffles++,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Previous'), findsNothing);
+      expect(find.text('Current'), findsNothing);
+      await tester.tap(find.text('Last'));
+      expect(player.jumpedTo, 3);
+      final firstHandle = find.byType(ReorderableDragStartListener).first;
+      final drag = await tester.startGesture(tester.getCenter(firstHandle));
+      await tester.pump(const Duration(milliseconds: 100));
+      await drag.moveBy(const Offset(0, 30));
+      await tester.pump();
+      await drag.moveBy(const Offset(0, 180));
+      await tester.pump(const Duration(milliseconds: 300));
+      await drag.up();
+      await tester.pumpAndSettle();
+      expect(player.moved, (2, 3));
+      await tester.tap(find.byIcon(CupertinoIcons.shuffle));
+      expect(player.shuffled, isTrue);
+      await tester.tap(find.byIcon(CupertinoIcons.repeat));
+      expect(player.repeat, AudioServiceRepeatMode.all);
+      await tester.tap(find.byIcon(CupertinoIcons.ellipsis));
+      await tester.pumpAndSettle();
+      final shuffleLibrary = AppLocalizations.of(
+        tester.element(find.byType(MornyePlayerQueue)),
+      ).nowPlayingShuffleLibrary;
+      await tester.tap(find.text(shuffleLibrary));
+      await tester.pumpAndSettle();
+      expect(libraryShuffles, 1);
+      expect(find.text(shuffleLibrary), findsNothing);
+      expect(find.text('Next'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+}

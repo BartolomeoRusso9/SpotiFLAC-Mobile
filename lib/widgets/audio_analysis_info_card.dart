@@ -13,7 +13,7 @@ class _AudioInfoCard extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final nyquist = data.sampleRate / 2;
 
-    return Card(
+    return AppContentCard(
       elevation: 0,
       color: settingsGroupColor(context),
       shape: RoundedRectangleBorder(

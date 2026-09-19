@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
+import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/screens/track_history_snapshot.dart';
 import 'package:spotiflac_android/widgets/collection_scaffold.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,7 +20,6 @@ import 'package:spotiflac_android/screens/selection_mode_mixin.dart';
 import 'package:spotiflac_android/widgets/error_card.dart';
 import 'package:spotiflac_android/widgets/album_detail_header.dart';
 import 'package:spotiflac_android/utils/adaptive_layout.dart';
-import 'package:spotiflac_android/utils/nav_bar_inset.dart';
 import 'package:spotiflac_android/utils/provider_resource_ids.dart';
 import 'package:spotiflac_android/utils/ttl_cache.dart';
 import 'package:spotiflac_android/widgets/animation_utils.dart';
@@ -32,6 +33,7 @@ import 'package:spotiflac_android/widgets/track_detail_actions.dart';
 import 'package:spotiflac_android/widgets/selection_action_button.dart';
 import 'package:spotiflac_android/widgets/selection_bottom_bar.dart';
 import 'package:spotiflac_android/widgets/downloadable_cover.dart';
+import 'package:spotiflac_android/widgets/mornye_artist_header.dart';
 
 class _AlbumCache {
   static final _cache = TtlCache<List<Track>>(
@@ -274,6 +276,10 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen>
   Widget _buildHeaderMeta(BuildContext context, String? releaseDate) {
     final items = <Widget>[];
 
+    final genre = _tracks?.firstOrNull?.genre?.trim();
+    if (context.isMornye && genre != null && genre.isNotEmpty) {
+      items.add(HeaderMetaItem(genre));
+    }
     final year = _releaseYear(releaseDate);
     if (year != null) items.add(HeaderMetaItem(year));
     items.addAll(_audioTraitInline());
@@ -340,11 +346,24 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (context.isMornye) {
+      return MornyeArtistSurface(
+        imageSource:
+            widget.coverUrl ?? _headerImageUrl ?? widget.headerImageUrl,
+        neutralActions: true,
+        child: Builder(builder: _buildPage),
+      );
+    }
+    return _buildPage(context);
+  }
+
+  Widget _buildPage(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final tracks = _tracks ?? [];
     final pageBackgroundColor = colorScheme.surface;
-    final bottomInset = context.navBarBottomInset;
-    final bottomPadding = MediaQuery.paddingOf(context).bottom;
+    final bottomPadding = isSelectionMode
+        ? MediaQuery.paddingOf(context).bottom
+        : 0.0;
 
     pruneSelection({
       for (var index = 0; index < tracks.length; index++)
@@ -356,7 +375,6 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen>
       isSelectionMode: isSelectionMode,
       onExitSelectionMode: exitSelectionMode,
       backgroundColor: pageBackgroundColor,
-      bottomInset: bottomInset,
       selectionBar: _buildSelectionBottomBar(
         context,
         colorScheme,
@@ -366,10 +384,12 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen>
       appBar: _buildAppBar(context, colorScheme, pageBackgroundColor),
       slivers: [
         if (_isLoading)
-          const SliverToBoxAdapter(
+          SliverToBoxAdapter(
             child: Padding(
-              padding: EdgeInsets.all(16),
-              child: AlbumTrackListSkeleton(itemCount: 10),
+              padding: context.isMornye
+                  ? EdgeInsets.zero
+                  : const EdgeInsets.all(16),
+              child: const AlbumTrackListSkeleton(itemCount: 10),
             ),
           ),
         if (_error != null)
@@ -410,7 +430,7 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen>
         motionUrl.trim().isNotEmpty &&
         Uri.tryParse(motionUrl)?.hasAuthority == true;
     final coverThumbUrl = widget.coverUrl ?? _headerImageUrl;
-    final showSquareCover = !hasMotion;
+    final showSquareCover = context.isMornye || !hasMotion;
     final expandedHeight = calculateExpandedHeight(context);
     final cacheWidth = coverCacheWidthForViewport(context);
     final headerBgUrl =
@@ -439,6 +459,8 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen>
 
     return AlbumDetailHeader(
       title: widget.albumName,
+      immersive: context.isMornye,
+      squareArtwork: !hasMotion && headerBgUrl == coverThumbUrl,
       expandedHeight: expandedHeight,
       showTitleInAppBar: showTitleInAppBar,
       backgroundColor: pageBackgroundColor,
@@ -446,7 +468,9 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen>
       paletteSource: coverThumbUrl,
       blurAndScrimBackground: showSquareCover,
       coverBuilder: showSquareCover
-          ? (context, coverSize) => coverThumbUrl != null
+          ? (context, coverSize) => context.isMornye && hasMotion
+                ? background
+                : coverThumbUrl != null
                 ? DownloadableCover(
                     coverUrl: highResCoverUrl(coverThumbUrl) ?? coverThumbUrl,
                     baseName: [
@@ -490,8 +514,10 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen>
               extensionId: widget.extensionId,
               style: TextStyle(
                 color: colorScheme.primary,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
+                fontSize: context.isMornye ? 20 : 16,
+                fontWeight: context.isMornye
+                    ? FontWeight.w400
+                    : FontWeight.w600,
               ),
               textAlign: TextAlign.center,
               maxLines: 1,
@@ -501,6 +527,29 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen>
       meta: _buildHeaderMeta(context, releaseDate),
       actions: isSelectionMode
           ? null
+          : context.isMornye
+          ? Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _buildLoveAllButton(),
+                const SizedBox(width: 16),
+                Flexible(
+                  child: SizedBox(
+                    width: 172,
+                    child: HeaderFilledButton(
+                      icon: CupertinoIcons.arrow_down_circle_fill,
+                      label: context.l10n.dialogDownload,
+                      tonal: true,
+                      onPressed: tracks.isEmpty
+                          ? null
+                          : () => _downloadAll(context),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                _buildAddToPlaylistButton(context),
+              ],
+            )
           : Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -580,6 +629,11 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen>
                       forceQualityPicker: forceQualityPicker,
                     ),
                 clickableArtist: true,
+                showQualityBadges:
+                    !context.isMornye ||
+                    !_audioTraits.any(
+                      (trait) => trait.toLowerCase().contains('lossless'),
+                    ),
                 isSelectionMode: isSelectionMode,
                 isSelected: selectedIds.contains(selectionId),
                 onToggleSelection: () => toggleSelection(selectionId),
@@ -708,6 +762,7 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen>
 
     return HeaderCircleButton(
       icon: allLoved ? Icons.favorite : Icons.favorite_border,
+      tonal: true,
       iconColor: allLoved ? Theme.of(context).colorScheme.error : null,
       tooltip: allLoved
           ? context.l10n.trackOptionRemoveFromLoved
@@ -721,6 +776,7 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen>
   Widget _buildAddToPlaylistButton(BuildContext context) {
     return HeaderCircleButton(
       icon: Icons.add,
+      tonal: true,
       tooltip: context.l10n.tooltipAddToPlaylist,
       onPressed: _tracks == null || _tracks!.isEmpty
           ? null

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/utils/nav_bar_inset.dart';
+import 'package:spotiflac_android/widgets/album_detail_header.dart';
 import 'package:spotiflac_android/widgets/selection_bottom_bar.dart';
 
 /// Shared shell for every track-collection screen: album, playlist, local
@@ -17,7 +19,7 @@ class CollectionScaffold extends StatefulWidget {
     required this.onExitSelectionMode,
     required this.appBar,
     required this.slivers,
-    required this.bottomInset,
+    this.bottomInset,
     this.selectionBar,
     this.backgroundColor,
   });
@@ -32,8 +34,8 @@ class CollectionScaffold extends StatefulWidget {
   /// Content slivers below the header (track list, error card, footer, ...).
   final List<Widget> slivers;
 
-  /// Bottom inset needed to clear the shell navigation bar.
-  final double bottomInset;
+  /// Overrides the shell inset; otherwise only the trailing spacer watches it.
+  final double? bottomInset;
 
   /// Rebuilt by the caller each frame; shown only while [isSelectionMode] is
   /// true. Null means the screen has no multi-select.
@@ -101,7 +103,10 @@ class _CollectionScaffoldState extends State<CollectionScaffold> {
         body: CustomScrollView(
           controller: widget.scrollController,
           slivers: [
-            widget.appBar,
+            if (widget.appBar case final AlbumDetailHeader header)
+              ...header.buildSlivers(context)
+            else
+              widget.appBar,
             ...widget.slivers,
             SliverToBoxAdapter(
               child: SizedBox(
@@ -109,7 +114,7 @@ class _CollectionScaffoldState extends State<CollectionScaffold> {
                 height: widget.isSelectionMode ? _selectionBarHeight : 32,
               ),
             ),
-            SliverToBoxAdapter(child: SizedBox(height: widget.bottomInset)),
+            NavBarSliverSpacer(bottomInset: widget.bottomInset),
           ],
         ),
       ),

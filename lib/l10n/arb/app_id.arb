@@ -1,4 +1,12 @@
 {
+  "nowPlayingVolume": "Volume",
+  "@nowPlayingVolume": {
+    "description": "Label kontrol volume sistem di pemutar Mornye"
+  },
+  "appearanceStyle": "Gaya Aplikasi",
+  "@appearanceStyle": {
+    "description": "Bagian tampilan untuk memilih gaya visual aplikasi"
+  },
   "discordRichPresence": "Discord Rich Presence",
   "discordPresenceDescription": "Bagikan lagu yang diputar di pemutar bawaan ke Discord. Discord harus terpasang dan sudah login.",
   "discordPresenceMissing": "Pasang Discord dan login, lalu matikan dan nyalakan kembali pengaturan ini.",
@@ -6230,5 +6238,11 @@
   "nowPlayingRepeatAll": "Repeat all",
   "nowPlayingRepeatOne": "Repeat one",
   "queueNetworkFailedOffline": "{count} downloads failed while offline",
-  "libraryFilterMetadataMissingIsrc": "Missing ISRC"
+  "libraryFilterMetadataMissingIsrc": "Missing ISRC",
+  "mornyeShowTabs": "Tampilkan tab",
+  "mornyeSearch": "Cari",
+  "mornyeContinuePlaying": "Putar Berikutnya",
+  "mornyeFavorite": "Favorit",
+  "mornyeGoToArtist": "Buka Artis",
+  "mornyeFavorited": "Difavoritkan"
 }

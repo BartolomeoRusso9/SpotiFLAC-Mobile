@@ -314,6 +314,58 @@ void main() {
     expect(container.read(repoProvider).error, isNull);
   });
 
+  for (final hasWorkingExtension in [false, true]) {
+    test('native package load errors stay visible and recover on retry '
+        '(partial=$hasWorkingExtension)', () async {
+      SharedPreferences.setMockInitialValues({});
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(extensionProvider.notifier);
+      var fail = true;
+      const loadError =
+          'example-unreadable: cipher: message authentication failed';
+      messenger.setMockMethodCallHandler(backend, (call) async {
+        switch (call.method) {
+          case 'loadExtensionsFromDir':
+            return {
+              'loaded': hasWorkingExtension ? ['example-working'] : null,
+              'errors': fail ? [loadError] : <String>[],
+            };
+          case 'getInstalledExtensions':
+            return <Map<String, dynamic>>[
+              if (hasWorkingExtension)
+                {
+                  'id': 'example-working',
+                  'name': 'example-working',
+                  'display_name': 'Example Working',
+                  'version': '1.0.0',
+                  'enabled': false,
+                },
+            ];
+          case 'getProviderPriority':
+          case 'getMetadataProviderPriority':
+            return <String>[];
+          default:
+            return null;
+        }
+      });
+
+      await container.read(settingsProvider.notifier).ensureLoaded();
+      final loaded = await notifier.loadExtensions('${root.path}/sources');
+      expect(notifier.state.error, contains(loadError));
+      expect(loaded, hasWorkingExtension);
+      expect(notifier.state.isLoading, isFalse);
+      expect(
+        notifier.state.extensions.map((extension) => extension.id),
+        hasWorkingExtension ? ['example-working'] : isEmpty,
+      );
+
+      fail = false;
+      expect(await notifier.loadExtensions('${root.path}/sources'), isTrue);
+      expect(notifier.state.error, isNull);
+    });
+  }
+
   for (final failureMethod in const [
     'loadExtensionsFromDir',
     'getInstalledExtensions',

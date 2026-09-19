@@ -1,0 +1,144 @@
+import 'dart:async';
+
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:spotiflac_android/l10n/l10n.dart';
+import 'package:spotiflac_android/widgets/mornye_player_slider.dart';
+import 'package:spotiflac_android/utils/logger.dart';
+import 'package:volume_controller/volume_controller.dart';
+
+/// A single shared subscription for the visible player, including hardware
+/// volume-button changes. This controls system volume, not ReplayGain gain.
+final systemVolumeProvider = StreamProvider.autoDispose<double>((ref) {
+  final events = StreamController<double>();
+  final volume = VolumeController.instance;
+  final subscription = volume.addListener(events.add);
+  subscription.onError((Object error, StackTrace stack) {
+    events.addError(error, stack);
+  });
+  ref.onDispose(() {
+    unawaited(subscription.cancel());
+    volume.removeListener();
+    unawaited(events.close());
+  });
+  return events.stream;
+});
+
+final systemVolumeWriterProvider = Provider<Future<void> Function(double)>((
+  ref,
+) {
+  return (value) {
+    final volume = VolumeController.instance;
+    volume.showSystemUI = false;
+    return volume.setVolume(value.clamp(0, 1));
+  };
+});
+
+class MornyeVolumeControl extends ConsumerStatefulWidget {
+  const MornyeVolumeControl({super.key});
+
+  @override
+  ConsumerState<MornyeVolumeControl> createState() =>
+      _MornyeVolumeControlState();
+}
+
+class _MornyeVolumeControlState extends ConsumerState<MornyeVolumeControl> {
+  double? _preview;
+  double? _pendingVolume;
+  bool _dragging = false;
+  bool _writing = false;
+
+  void _setVolume(double value) {
+    setState(() => _preview = value);
+    _pendingVolume = value;
+    if (!_writing) unawaited(_flushVolume());
+  }
+
+  Future<void> _flushVolume() async {
+    _writing = true;
+    final write = ref.read(systemVolumeWriterProvider);
+    try {
+      // Send changes during the gesture. If the platform is still processing
+      // a write, keep only the newest value instead of queuing stale positions.
+      while (mounted && _pendingVolume != null) {
+        final value = _pendingVolume!;
+        _pendingVolume = null;
+        try {
+          await write(value);
+        } catch (error) {
+          AppLogger('PlayerVolume').w('Could not set system volume: $error');
+        }
+      }
+    } finally {
+      _writing = false;
+      if (mounted && !_dragging) setState(() => _preview = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final volume = ref.watch(systemVolumeProvider).value;
+    final value = (_preview ?? volume ?? 0).clamp(0.0, 1.0);
+    String percentage(double volume) => '${(volume * 100).round()}%';
+    return Semantics(
+      label: context.l10n.nowPlayingVolume,
+      slider: true,
+      enabled: volume != null,
+      excludeSemantics: true,
+      value: volume == null ? null : percentage(value),
+      increasedValue: volume == null
+          ? null
+          : percentage((value + 0.05).clamp(0, 1)),
+      decreasedValue: volume == null
+          ? null
+          : percentage((value - 0.05).clamp(0, 1)),
+      onIncrease: volume == null
+          ? null
+          : () => _setVolume((value + 0.05).clamp(0, 1)),
+      onDecrease: volume == null
+          ? null
+          : () => _setVolume((value - 0.05).clamp(0, 1)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 28),
+        child: Row(
+          children: [
+            const Icon(
+              CupertinoIcons.speaker_fill,
+              size: 16,
+              color: Colors.white54,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) => IgnorePointer(
+                  ignoring: volume == null,
+                  child: Opacity(
+                    opacity: volume == null ? 0.4 : 1,
+                    child: MornyePlayerSlider(
+                      value: value,
+                      activeColor: Colors.white70,
+                      inactiveColor: Colors.white12,
+                      onChangeStart: (_) => _dragging = true,
+                      onChanged: _setVolume,
+                      onChangeEnd: (value) {
+                        _dragging = false;
+                        _setVolume(value);
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Icon(
+              CupertinoIcons.speaker_3_fill,
+              size: 16,
+              color: Colors.white54,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

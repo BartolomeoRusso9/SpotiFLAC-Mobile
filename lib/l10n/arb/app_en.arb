@@ -1,4 +1,12 @@
 {
+  "nowPlayingVolume": "Volume",
+  "@nowPlayingVolume": {
+    "description": "System volume control label in the Mornye player"
+  },
+  "appearanceStyle": "App Style",
+  "@appearanceStyle": {
+    "description": "Appearance section for choosing the app visual style"
+  },
   "discordRichPresence": "Discord Rich Presence",
   "discordPresenceDescription": "Share the track playing in the built-in player on Discord. Requires Discord to be installed and signed in.",
   "discordPresenceMissing": "Install Discord and sign in, then turn this setting off and on again.",
@@ -6601,6 +6609,9 @@
   "@metadataCopyField": {
     "description": "Metadata menu action that copies the selected key and value"
   },
+  "mornyeShowTabs": "Show tabs",
+  "mornyeSearch": "Search",
+  "mornyeContinuePlaying": "Continue Playing",
   "metadataCopyAll": "Copy all metadata",
   "@metadataCopyAll": {
     "description": "Metadata menu action that copies every visible key and value"
@@ -6612,6 +6623,15 @@
   "optionsEmbeddedCoverSizeDescription": "Downscale remotely downloaded cover art before embedding it. Images already within the limit are kept unchanged.",
   "@optionsEmbeddedCoverSizeDescription": {
     "description": "Description shown in the embedded cover size picker"
+  },
+  "mornyeFavorite": "Favorite",
+  "mornyeGoToArtist": "Go to Artist",
+  "@mornyeFavorite": {
+    "description": "Compact context menu action that adds a track to Loved"
+  },
+  "mornyeFavorited": "Favorited",
+  "@mornyeFavorited": {
+    "description": "Selected state of the compact favorite action"
   },
   "optionsEmbeddedCoverSizeOriginal": "Original resolution",
   "@optionsEmbeddedCoverSizeOriginal": {

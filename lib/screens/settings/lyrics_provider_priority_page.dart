@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/widgets/app_switch.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/providers/extension_provider.dart';
@@ -114,14 +115,10 @@ class _LyricsProviderPriorityPageState
                   iconColor: Theme.of(context).colorScheme.primary,
                   name: info.name,
                   subtitle: info.description,
-                  trailing: SizedBox(
-                    height: 32,
-                    child: FittedBox(
-                      child: Switch(
-                        value: true,
-                        onChanged: (_) => _disableProvider(id),
-                      ),
-                    ),
+                  trailing: AppSwitch(
+                    value: true,
+                    semanticLabel: info.name,
+                    onChanged: (_) => _disableProvider(id),
                   ),
                 );
               },
@@ -346,11 +343,10 @@ class _DisabledProviderItem extends StatelessWidget {
                       ],
                     ),
                   ),
-                  SizedBox(
-                    height: 32,
-                    child: FittedBox(
-                      child: Switch(value: false, onChanged: (_) => onToggle()),
-                    ),
+                  AppSwitch(
+                    value: false,
+                    semanticLabel: info.name,
+                    onChanged: (_) => onToggle(),
                   ),
                 ],
               ),

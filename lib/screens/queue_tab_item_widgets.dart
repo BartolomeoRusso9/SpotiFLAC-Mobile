@@ -101,7 +101,8 @@ extension _QueueTabItemWidgets on _QueueTabState {
 
         SizedBox(
           width: double.infinity,
-          child: FilledButton.icon(
+          child: AppActionButton(
+            isDestructive: true,
             onPressed: selectedCount > 0
                 ? () => _deleteSelected(unifiedItems)
                 : null,
@@ -148,19 +149,20 @@ extension _QueueTabItemWidgets on _QueueTabState {
         direction: DismissDirection.endToStart,
         confirmDismiss: isActive
             ? (_) async {
-                return await showDialog<bool>(
+                return await showAppDialog<bool>(
                       context: context,
-                      builder: (ctx) => AlertDialog(
+                      builder: (ctx) => AppAlertDialog(
                         title: Text(context.l10n.cancelDownloadTitle),
                         content: Text(
                           context.l10n.cancelDownloadContent(item.track.name),
                         ),
                         actions: [
-                          TextButton(
+                          AppDialogAction(
                             onPressed: () => Navigator.of(ctx).pop(false),
                             child: Text(context.l10n.cancelDownloadKeep),
                           ),
-                          TextButton(
+                          AppDialogAction(
+                            isDestructive: true,
                             onPressed: () => Navigator.of(ctx).pop(true),
                             child: Text(context.l10n.dialogCancel),
                           ),

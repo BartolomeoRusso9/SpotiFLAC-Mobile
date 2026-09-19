@@ -1,15 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/providers/music_player_provider.dart';
+import 'package:spotiflac_android/providers/runtime_profile_provider.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/screens/now_playing_screen.dart';
 import 'package:spotiflac_android/utils/string_utils.dart';
 import 'package:spotiflac_android/widgets/audio_quality_badges.dart';
 import 'package:spotiflac_android/widgets/player_artwork.dart';
 import 'package:spotiflac_android/widgets/settings_group.dart';
+import 'package:spotiflac_android/widgets/mornye_chrome.dart';
 
 class MiniPlayer extends ConsumerStatefulWidget {
-  const MiniPlayer({super.key});
+  const MiniPlayer({super.key, this.compact = false, this.bottomPadding = 8});
+
+  final bool compact;
+  final double bottomPadding;
 
   @override
   ConsumerState<MiniPlayer> createState() => _MiniPlayerState();
@@ -34,8 +41,10 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
 
     final controller = ref.read(musicPlayerControllerProvider);
     final colorScheme = Theme.of(context).colorScheme;
+    final mornye = context.isMornye;
+    final compact = mornye && widget.compact;
 
-    return Dismissible(
+    final player = Dismissible(
       key: ValueKey('mini-player-${mediaItem.id}'),
       direction: DismissDirection.horizontal,
       onDismissed: (_) {
@@ -45,14 +54,18 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
       child: DecoratedBox(
         position: DecorationPosition.foreground,
         decoration: BoxDecoration(
-          border: Border(
-            top: BorderSide(
-              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
-            ),
-          ),
+          border: mornye
+              ? null
+              : Border(
+                  top: BorderSide(
+                    color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                  ),
+                ),
         ),
         child: Material(
-          color: settingsGroupColor(context).withValues(alpha: 0.72),
+          color: mornye
+              ? Colors.transparent
+              : settingsGroupColor(context).withValues(alpha: 0.72),
           child: InkWell(
             onTap: () {
               Navigator.of(
@@ -63,14 +76,15 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _MiniPlayerProgress(
-                  duration: mediaItem.duration ?? Duration.zero,
-                  backgroundColor: colorScheme.surfaceContainerHighest,
-                ),
+                if (!mornye)
+                  _MiniPlayerProgress(
+                    duration: mediaItem.duration ?? Duration.zero,
+                    backgroundColor: colorScheme.surfaceContainerHighest,
+                  ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: compact ? 8 : 12,
+                    vertical: mornye ? 0 : 8,
                   ),
                   child: Row(
                     children: [
@@ -79,8 +93,8 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(6),
                           child: SizedBox(
-                            width: 44,
-                            height: 44,
+                            width: mornye ? 38 : 44,
+                            height: mornye ? 38 : 44,
                             child: PlayerArtwork(
                               artUri: mediaItem.artUri?.toString(),
                               colorScheme: colorScheme,
@@ -90,7 +104,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      SizedBox(width: compact ? 8 : 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -112,7 +126,16 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                               mediaItem.artist ?? '',
                               style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(
-                                    color: colorScheme.onSurfaceVariant,
+                                    color: mornye
+                                        ? Color.lerp(
+                                            colorScheme.onSurfaceVariant,
+                                            colorScheme.onSurface,
+                                            colorScheme.brightness ==
+                                                    Brightness.dark
+                                                ? 0.7
+                                                : 0.6,
+                                          )
+                                        : colorScheme.onSurfaceVariant,
                                   ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -121,6 +144,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                         ),
                       ),
                       IconButton(
+                        color: mornye ? colorScheme.onSurface : null,
                         tooltip: isPlaying
                             ? context.l10n.actionPause
                             : context.l10n.tooltipPlay,
@@ -131,16 +155,30 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                                   strokeWidth: 2.5,
                                 ),
                               )
-                            : Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+                            : Icon(
+                                mornye
+                                    ? (isPlaying
+                                          ? CupertinoIcons.pause_fill
+                                          : CupertinoIcons.play_fill)
+                                    : (isPlaying
+                                          ? Icons.pause
+                                          : Icons.play_arrow),
+                              ),
                         onPressed: isLoading
                             ? null
                             : () => controller.togglePlayPause(isPlaying),
                       ),
-                      IconButton(
-                        tooltip: context.l10n.nowPlayingNextTrack,
-                        icon: const Icon(Icons.skip_next),
-                        onPressed: controller.next,
-                      ),
+                      if (!compact)
+                        IconButton(
+                          color: mornye ? colorScheme.onSurface : null,
+                          tooltip: context.l10n.nowPlayingNextTrack,
+                          icon: Icon(
+                            mornye
+                                ? CupertinoIcons.forward_fill
+                                : Icons.skip_next,
+                          ),
+                          onPressed: controller.next,
+                        ),
                     ],
                   ),
                 ),
@@ -150,6 +188,19 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
         ),
       ),
     );
+    return mornye
+        ? Padding(
+            padding: EdgeInsets.only(bottom: widget.bottomPadding),
+            child: MornyeGlass.navigation(
+              strongTint: true,
+              tintOpacity: MornyeTheme.chromeOpacity(context),
+              blurEnabled:
+                  !ref.watch(lowEndDeviceProvider) ||
+                  ref.watch(backdropBlurEnabledProvider),
+              child: player,
+            ),
+          )
+        : player;
   }
 }
 

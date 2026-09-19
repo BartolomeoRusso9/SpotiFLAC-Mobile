@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/widgets/app_action_button.dart';
+import 'package:spotiflac_android/widgets/mornye_chrome.dart';
+import 'package:spotiflac_android/widgets/app_switch.dart';
 import 'package:spotiflac_android/widgets/app_bottom_sheet.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/utils/audio_conversion_utils.dart';
 import 'package:spotiflac_android/widgets/settings_group.dart';
 
-/// Modern, card-based batch convert sheet shared by the queue and album
-/// screens, matching the single-track convert sheet styling.
+/// Conversion options shared by the queue, album and single-track sheets.
 class BatchConvertSheet extends StatefulWidget {
   final List<String> formats;
   final String title;
@@ -93,7 +97,7 @@ class _BatchConvertSheetState extends State<BatchConvertSheet> {
         minChildSize: 0.5,
         maxChildSize: 0.95,
         expand: false,
-        builder: (context, scrollController) => SafeArea(
+        builder: (context, scrollController) => _sheetSurface(
           child: SingleChildScrollView(
             controller: scrollController,
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
@@ -327,13 +331,21 @@ class _BatchConvertSheetState extends State<BatchConvertSheet> {
                       horizontal: 14,
                       vertical: 12,
                     ),
-                    decoration: BoxDecoration(
-                      color: cs.primaryContainer.withValues(alpha: 0.4),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
+                    decoration: context.isMornye
+                        ? null
+                        : BoxDecoration(
+                            color: cs.primaryContainer.withValues(alpha: 0.4),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
                     child: Row(
                       children: [
-                        Icon(Icons.verified, size: 18, color: cs.primary),
+                        Icon(
+                          context.isMornye
+                              ? CupertinoIcons.checkmark_seal
+                              : Icons.verified,
+                          size: 18,
+                          color: cs.primary,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -364,7 +376,7 @@ class _BatchConvertSheetState extends State<BatchConvertSheet> {
 
                 _card(
                   cs,
-                  child: SwitchListTile(
+                  child: AppSwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: Text(context.l10n.trackConvertKeepOriginal),
                     subtitle: Text(
@@ -378,7 +390,7 @@ class _BatchConvertSheetState extends State<BatchConvertSheet> {
                 const SizedBox(height: 8),
                 SizedBox(
                   width: double.infinity,
-                  child: FilledButton.icon(
+                  child: AppActionButton(
                     onPressed: () => widget.onConvert(
                       _selectedFormat,
                       _selectedBitrate,
@@ -421,7 +433,27 @@ class _BatchConvertSheetState extends State<BatchConvertSheet> {
     );
   }
 
+  Widget _sheetSurface({required Widget child}) {
+    final content = SafeArea(child: child);
+    return context.isMornye
+        ? MornyeGlassPanel.overlay(child: content)
+        : content;
+  }
+
   Widget _card(ColorScheme cs, {required Widget child}) {
+    if (context.isMornye) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            child,
+            const SizedBox(height: 20),
+            const Divider(height: 1),
+          ],
+        ),
+      );
+    }
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 12),
@@ -458,6 +490,15 @@ class _BatchConvertSheetState extends State<BatchConvertSheet> {
     required bool selected,
     required VoidCallback onTap,
   }) {
+    if (context.isMornye) {
+      return MornyeFilterChip(
+        label: label,
+        selected: selected,
+        onTap: onTap,
+        icon: selected ? CupertinoIcons.checkmark : null,
+        glass: false,
+      );
+    }
     return Material(
       color: selected ? cs.primaryContainer : cs.surface,
       borderRadius: BorderRadius.circular(14),

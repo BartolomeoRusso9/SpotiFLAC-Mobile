@@ -1,6 +1,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
+import 'package:spotiflac_android/widgets/app_switch.dart';
 import 'package:spotiflac_android/widgets/app_bottom_sheet.dart';
+import 'package:spotiflac_android/widgets/app_choice_chip.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -82,17 +86,19 @@ class _FilesSettingsPageState extends ConsumerState<FilesSettingsPage> {
       if (mounted) setState(() => _hasAllFilesAccess = true);
     } else if (status.isPermanentlyDenied) {
       if (mounted) {
-        final shouldOpen = await showDialog<bool>(
+        final shouldOpen = await showAppDialog<bool>(
           context: context,
-          builder: (context) => AlertDialog(
+          builder: (context) => AppAlertDialog(
             title: Text(context.l10n.setupStorageAccessRequired),
             content: Text(context.l10n.allFilesAccessDeniedMessage),
             actions: [
-              TextButton(
+              AppDialogAction(
                 onPressed: () => Navigator.pop(context, false),
                 child: Text(context.l10n.dialogCancel),
               ),
-              FilledButton(
+              AppDialogAction(
+                filled: true,
+                isDefault: true,
                 onPressed: () => Navigator.pop(context, true),
                 child: Text(context.l10n.setupOpenSettings),
               ),
@@ -486,7 +492,7 @@ class _FilesSettingsPageState extends ConsumerState<FilesSettingsPage> {
     final settings = ref.read(settingsProvider);
     final isSafMode =
         settings.storageMode == 'saf' && settings.downloadTreeUri.isNotEmpty;
-    showModalBottomSheet<void>(
+    showAppModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
       backgroundColor: colorScheme.surfaceContainerHigh,
@@ -513,7 +519,7 @@ class _FilesSettingsPageState extends ConsumerState<FilesSettingsPage> {
                 ),
               ),
             ),
-            ListTile(
+            AppSheetOption(
               leading: Icon(Icons.folder_special, color: colorScheme.primary),
               title: Text(context.l10n.storageAutomaticFolder),
               subtitle: Text(context.l10n.storageAutomaticDownloadFolder),
@@ -527,7 +533,7 @@ class _FilesSettingsPageState extends ConsumerState<FilesSettingsPage> {
                 notifier.setDownloadTreeUri('');
               },
             ),
-            ListTile(
+            AppSheetOption(
               leading: Icon(Icons.folder_open, color: colorScheme.primary),
               title: Text(context.l10n.storageSafRecommended),
               subtitle: Text(context.l10n.storageDownloadFolderHint),
@@ -547,7 +553,7 @@ class _FilesSettingsPageState extends ConsumerState<FilesSettingsPage> {
 
   void _showIOSDirectoryOptions(BuildContext context, WidgetRef ref) {
     final colorScheme = Theme.of(context).colorScheme;
-    showModalBottomSheet<void>(
+    showAppModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
       backgroundColor: colorScheme.surfaceContainerHigh,
@@ -574,7 +580,7 @@ class _FilesSettingsPageState extends ConsumerState<FilesSettingsPage> {
                 ),
               ),
             ),
-            ListTile(
+            AppSheetOption(
               leading: Icon(Icons.folder_special, color: colorScheme.primary),
               title: Text(context.l10n.setupAppDocumentsFolder),
               subtitle: Text(context.l10n.setupAppDocumentsFolderSubtitle),
@@ -587,7 +593,7 @@ class _FilesSettingsPageState extends ConsumerState<FilesSettingsPage> {
                 if (ctx.mounted) Navigator.pop(ctx);
               },
             ),
-            ListTile(
+            AppSheetOption(
               leading: Icon(Icons.cloud, color: colorScheme.onSurfaceVariant),
               title: Text(context.l10n.setupChooseFromFiles),
               subtitle: Text(context.l10n.setupChooseFromFilesSubtitle),
@@ -665,7 +671,7 @@ class _FilesSettingsPageState extends ConsumerState<FilesSettingsPage> {
     final save =
         onSave ?? ref.read(settingsProvider.notifier).setFilenameFormat;
 
-    showModalBottomSheet<void>(
+    showAppModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -685,7 +691,7 @@ class _FilesSettingsPageState extends ConsumerState<FilesSettingsPage> {
     String current,
   ) {
     final colorScheme = Theme.of(context).colorScheme;
-    showModalBottomSheet<void>(
+    showAppModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
       backgroundColor: colorScheme.surfaceContainerHigh,
@@ -755,7 +761,7 @@ class _FilesSettingsPageState extends ConsumerState<FilesSettingsPage> {
                   Icons.person_outline_outlined,
                 ),
               ])
-                ListTile(
+                AppSheetOption(
                   leading: Icon(option.$4),
                   title: Text(option.$2),
                   subtitle: Text(option.$3),
@@ -782,7 +788,7 @@ class _FilesSettingsPageState extends ConsumerState<FilesSettingsPage> {
     String current,
   ) {
     final colorScheme = Theme.of(context).colorScheme;
-    showModalBottomSheet<void>(
+    showAppModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
       backgroundColor: colorScheme.surfaceContainerHigh,
@@ -883,7 +889,7 @@ class _FolderOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return ListTile(
+    return AppSheetOption(
       contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
       title: Text(title),
       subtitle: Column(
@@ -997,6 +1003,13 @@ class _FilenameFormatEditorSheetState
   }
 
   Widget _tagChip(ColorScheme colorScheme, String tag) {
+    if (context.isMornye) {
+      return AppChoiceChip(
+        label: Text(tag),
+        selected: false,
+        onSelected: (_) => _insertTag(tag),
+      );
+    }
     return ActionChip(
       label: Text(tag),
       onPressed: () => _insertTag(tag),
@@ -1082,7 +1095,7 @@ class _FilenameFormatEditorSheetState
                       .toList(),
                 ),
                 const SizedBox(height: 12),
-                SwitchListTile(
+                AppSwitchListTile(
                   value: _showAdvancedTags,
                   onChanged: (value) =>
                       setState(() => _showAdvancedTags = value),
@@ -1106,7 +1119,7 @@ class _FilenameFormatEditorSheetState
                 Row(
                   children: [
                     Expanded(
-                      child: TextButton(
+                      child: AppDialogAction(
                         onPressed: () => Navigator.pop(context),
                         style: TextButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),
@@ -1120,7 +1133,8 @@ class _FilenameFormatEditorSheetState
                     const SizedBox(width: 12),
                     Expanded(
                       flex: 2,
-                      child: FilledButton(
+                      child: AppDialogAction(
+                        filled: true,
                         onPressed: () {
                           widget.onSave(_controller.text);
                           Navigator.pop(context);

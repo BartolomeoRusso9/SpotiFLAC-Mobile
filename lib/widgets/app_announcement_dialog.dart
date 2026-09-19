@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/services/app_remote_config_service.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
 
 class AppAnnouncementDialog extends StatelessWidget {
   final RemoteAnnouncement announcement;
@@ -68,7 +69,8 @@ class AppAnnouncementDialog extends StatelessWidget {
 
     final actions = <Widget>[
       if (announcement.hasCta)
-        FilledButton(
+        AppDialogAction(
+          filled: true,
           onPressed: () => _openCta(context),
           child: Text(announcement.ctaLabel!),
         ),
@@ -76,7 +78,7 @@ class AppAnnouncementDialog extends StatelessWidget {
 
     return PopScope(
       canPop: false,
-      child: AlertDialog(
+      child: AppAlertDialog(
         title: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -111,7 +113,7 @@ class AppAnnouncementDialog extends StatelessWidget {
             ),
           ),
         ),
-        actions: actions.isEmpty ? null : actions,
+        actions: actions,
       ),
     );
   }
@@ -122,7 +124,7 @@ Future<void> showAppAnnouncementDialog(
   required RemoteAnnouncement announcement,
   required VoidCallback onDismiss,
 }) {
-  return showDialog<void>(
+  return showAppDialog<void>(
     context: context,
     barrierDismissible: false,
     builder: (context) =>

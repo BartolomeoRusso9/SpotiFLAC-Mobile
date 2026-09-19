@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
+import 'package:spotiflac_android/widgets/app_action_button.dart';
 
 /// Full-width delete action for selection-mode bottom bars: destructive
 /// (error) styling once at least one item is selected, disabled/neutral
@@ -20,7 +21,8 @@ class DestructiveSelectionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: double.infinity,
-      child: FilledButton.icon(
+      child: AppActionButton(
+        isDestructive: true,
         onPressed: count > 0 ? onPressed : null,
         icon: const Icon(Icons.delete_outline),
         label: Text(

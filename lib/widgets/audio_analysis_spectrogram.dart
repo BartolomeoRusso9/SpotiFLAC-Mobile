@@ -28,7 +28,8 @@ class _SpectrogramView extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     const labelColor = Color(0xFFB5B5B5);
 
-    return Card(
+    final card = AppContentCard(
+      preserveColor: true,
       color: Colors.black,
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -41,7 +42,8 @@ class _SpectrogramView extends StatelessWidget {
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
-                    ChoiceChip(
+                    AppChoiceChip(
+                      singleChoice: true,
                       label: Text(context.l10n.audioAnalysisChannels),
                       selected: selectedChannel < 0,
                       onSelected: channelLoading
@@ -51,7 +53,8 @@ class _SpectrogramView extends StatelessWidget {
                     ),
                     for (var channel = 0; channel < channels; channel++) ...[
                       const SizedBox(width: 6),
-                      ChoiceChip(
+                      AppChoiceChip(
+                        singleChoice: true,
                         label: Text('Ch ${channel + 1}'),
                         selected: selectedChannel == channel,
                         onSelected: channelLoading
@@ -141,6 +144,11 @@ class _SpectrogramView extends StatelessWidget {
         ],
       ),
     );
+    // The plot stays black in both appearances; its controls need matching
+    // contrast even when the surrounding Mornye page uses the light theme.
+    return context.isMornye
+        ? Theme(data: MornyeTheme.build(Brightness.dark), child: card)
+        : card;
   }
 
   static List<Color> _legendColors() {

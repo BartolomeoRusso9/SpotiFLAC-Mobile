@@ -6,6 +6,7 @@ import 'package:spotiflac_android/utils/artist_utils.dart';
 import 'package:spotiflac_android/screens/settings/metadata_provider_priority_page.dart';
 import 'package:spotiflac_android/widgets/settings_group.dart';
 import 'package:spotiflac_android/widgets/app_sliver_header.dart';
+import 'package:spotiflac_android/widgets/app_bottom_sheet.dart';
 
 class MetadataSettingsPage extends ConsumerWidget {
   const MetadataSettingsPage({super.key});
@@ -173,7 +174,7 @@ class MetadataSettingsPage extends ConsumerWidget {
   ) {
     const options = [0, 500, 1000, 1500, 2000];
     final colorScheme = Theme.of(context).colorScheme;
-    showModalBottomSheet<void>(
+    showAppModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
       isScrollControlled: true,
@@ -203,7 +204,7 @@ class MetadataSettingsPage extends ConsumerWidget {
                 ),
               ),
               for (final maxDimension in options)
-                ListTile(
+                AppSheetOption(
                   leading: Icon(
                     maxDimension == 0
                         ? Icons.image_outlined
@@ -236,7 +237,7 @@ class MetadataSettingsPage extends ConsumerWidget {
     String currentMode,
   ) {
     final colorScheme = Theme.of(context).colorScheme;
-    showModalBottomSheet<void>(
+    showAppModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
       backgroundColor: colorScheme.surfaceContainerHigh,
@@ -263,7 +264,7 @@ class MetadataSettingsPage extends ConsumerWidget {
                 ),
               ),
             ),
-            ListTile(
+            AppSheetOption(
               leading: const Icon(Icons.segment_outlined),
               title: Text(context.l10n.optionsArtistTagModeJoined),
               subtitle: Text(context.l10n.optionsArtistTagModeJoinedSubtitle),
@@ -277,7 +278,7 @@ class MetadataSettingsPage extends ConsumerWidget {
                 Navigator.pop(context);
               },
             ),
-            ListTile(
+            AppSheetOption(
               leading: const Icon(Icons.library_music_outlined),
               title: Text(context.l10n.optionsArtistTagModeSplitVorbis),
               subtitle: Text(

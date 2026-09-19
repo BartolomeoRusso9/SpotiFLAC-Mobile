@@ -1,6 +1,14 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoIcons, CupertinoTextField;
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/theme/mornye_icons.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
+import 'package:spotiflac_android/widgets/app_bottom_sheet.dart';
+import 'package:spotiflac_android/widgets/app_switch.dart';
+import 'package:spotiflac_android/widgets/app_snack_bar.dart';
+import 'package:spotiflac_android/widgets/mornye_chrome.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/providers/extension_provider.dart';
@@ -94,14 +102,7 @@ class _ExtensionDetailPageState extends ConsumerState<ExtensionDetailPage> {
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: colorScheme.surfaceContainerHighest.withValues(
-                      alpha: 0.3,
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
+                child: _ExtensionOverviewSurface(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -111,7 +112,9 @@ class _ExtensionDetailPageState extends ConsumerState<ExtensionDetailPage> {
                             width: 56,
                             height: 56,
                             decoration: BoxDecoration(
-                              color: hasError
+                              color: context.isMornye
+                                  ? MornyeTheme.controlFill(context)
+                                  : hasError
                                   ? colorScheme.errorContainer
                                   : colorScheme.primaryContainer,
                               borderRadius: BorderRadius.circular(16),
@@ -128,7 +131,13 @@ class _ExtensionDetailPageState extends ConsumerState<ExtensionDetailPage> {
                                       fit: BoxFit.cover,
                                       errorBuilder:
                                           (context, error, stackTrace) => Icon(
-                                            hasError
+                                            context.isMornye
+                                                ? (hasError
+                                                      ? CupertinoIcons
+                                                            .exclamationmark_circle
+                                                      : CupertinoIcons
+                                                            .square_grid_2x2)
+                                                : hasError
                                                 ? Icons.error_outline
                                                 : Icons.extension,
                                             size: 28,
@@ -140,7 +149,12 @@ class _ExtensionDetailPageState extends ConsumerState<ExtensionDetailPage> {
                                     ),
                                   )
                                 : Icon(
-                                    hasError
+                                    context.isMornye
+                                        ? (hasError
+                                              ? CupertinoIcons
+                                                    .exclamationmark_circle
+                                              : CupertinoIcons.square_grid_2x2)
+                                        : hasError
                                         ? Icons.error_outline
                                         : Icons.extension,
                                     size: 28,
@@ -169,8 +183,9 @@ class _ExtensionDetailPageState extends ConsumerState<ExtensionDetailPage> {
                               ],
                             ),
                           ),
-                          Switch(
+                          AppSwitch(
                             value: extension.enabled,
+                            semanticLabel: extension.displayName,
                             onChanged: hasError
                                 ? null
                                 : (enabled) => ref
@@ -191,16 +206,21 @@ class _ExtensionDetailPageState extends ConsumerState<ExtensionDetailPage> {
                         ),
                       ],
                       const SizedBox(height: 16),
+                      if (context.isMornye)
+                        Divider(
+                          color: MornyeTheme.metadataDividerColor(context),
+                        ),
                       _InfoRow(
                         label: context.l10n.extensionId,
                         value: extension.id,
                       ),
-                      _InfoRow(
-                        label: context.l10n.extensionsVersion(
-                          extension.version,
+                      if (!context.isMornye)
+                        _InfoRow(
+                          label: context.l10n.extensionsVersion(
+                            extension.version,
+                          ),
+                          value: '',
                         ),
-                        value: '',
-                      ),
                       if (hasError && extension.errorMessage != null)
                         _InfoRow(
                           label: context.l10n.extensionError,
@@ -232,6 +252,7 @@ class _ExtensionDetailPageState extends ConsumerState<ExtensionDetailPage> {
               else
                 SliverToBoxAdapter(
                   child: SettingsGroup(
+                    glass: true,
                     children: extension.settings.asMap().entries.map((entry) {
                       final index = entry.key;
                       final setting = entry.value;
@@ -257,6 +278,7 @@ class _ExtensionDetailPageState extends ConsumerState<ExtensionDetailPage> {
               ),
               SliverToBoxAdapter(
                 child: SettingsGroup(
+                  glass: true,
                   children: [
                     _HealthSummaryItem(
                       status: healthStatus,
@@ -286,6 +308,7 @@ class _ExtensionDetailPageState extends ConsumerState<ExtensionDetailPage> {
               ),
               SliverToBoxAdapter(
                 child: SettingsGroup(
+                  glass: true,
                   children: [
                     _URLHandlerInfo(patterns: extension.urlHandler!.patterns),
                   ],
@@ -302,6 +325,7 @@ class _ExtensionDetailPageState extends ConsumerState<ExtensionDetailPage> {
               ),
               SliverToBoxAdapter(
                 child: SettingsGroup(
+                  glass: true,
                   children: extension.qualityOptions.asMap().entries.map((
                     entry,
                   ) {
@@ -325,6 +349,7 @@ class _ExtensionDetailPageState extends ConsumerState<ExtensionDetailPage> {
               ),
               SliverToBoxAdapter(
                 child: SettingsGroup(
+                  glass: true,
                   children: extension.postProcessing!.hooks.asMap().entries.map(
                     (entry) {
                       final index = entry.key;
@@ -348,6 +373,7 @@ class _ExtensionDetailPageState extends ConsumerState<ExtensionDetailPage> {
               ),
               SliverToBoxAdapter(
                 child: SettingsGroup(
+                  glass: true,
                   children: extension.permissions.asMap().entries.map((entry) {
                     final index = entry.key;
                     final permission = entry.value;
@@ -367,6 +393,7 @@ class _ExtensionDetailPageState extends ConsumerState<ExtensionDetailPage> {
             ),
             SliverToBoxAdapter(
               child: SettingsGroup(
+                glass: true,
                 children: [
                   _CapabilityItem(
                     icon: Icons.search,
@@ -437,10 +464,10 @@ class _ExtensionDetailPageState extends ConsumerState<ExtensionDetailPage> {
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: OutlinedButton.icon(
+                child: AppDialogAction(
                   onPressed: () => _confirmRemove(context),
-                  icon: const Icon(Icons.delete_outline),
-                  label: Text(context.l10n.extensionRemoveButton),
+                  isDestructive: true,
+                  outlined: true,
                   style: OutlinedButton.styleFrom(
                     foregroundColor: colorScheme.error,
                     side: BorderSide(color: colorScheme.error),
@@ -448,6 +475,18 @@ class _ExtensionDetailPageState extends ConsumerState<ExtensionDetailPage> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        context.isMornye
+                            ? CupertinoIcons.trash
+                            : Icons.delete_outline,
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(child: Text(context.l10n.extensionRemoveButton)),
+                    ],
                   ),
                 ),
               ),
@@ -492,17 +531,20 @@ class _ExtensionDetailPageState extends ConsumerState<ExtensionDetailPage> {
 
   Future<void> _confirmRemove(BuildContext context) async {
     final colorScheme = Theme.of(context).colorScheme;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => AppAlertDialog(
         title: Text(context.l10n.dialogRemoveExtension),
         content: Text(context.l10n.dialogRemoveExtensionMessage),
         actions: [
-          TextButton(
+          AppDialogAction(
+            isDefault: true,
             onPressed: () => Navigator.pop(context, false),
             child: Text(context.l10n.dialogCancel),
           ),
-          FilledButton(
+          AppDialogAction(
+            filled: true,
+            isDestructive: true,
             onPressed: () => Navigator.pop(context, true),
             style: FilledButton.styleFrom(backgroundColor: colorScheme.error),
             child: Text(context.l10n.dialogRemove),
@@ -521,6 +563,44 @@ class _ExtensionDetailPageState extends ConsumerState<ExtensionDetailPage> {
       }
     }
   }
+}
+
+class _ExtensionOverviewSurface extends StatelessWidget {
+  const _ExtensionOverviewSurface({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final content = Padding(padding: const EdgeInsets.all(20), child: child);
+    if (context.isMornye) return MornyeGlassPanel(child: content);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(
+          context,
+        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: content,
+    );
+  }
+}
+
+class _ExtensionDivider extends StatelessWidget {
+  const _ExtensionDivider({this.indent = 56});
+
+  final double indent;
+
+  @override
+  Widget build(BuildContext context) => Divider(
+    height: 1,
+    thickness: context.isMornye ? 0.5 : 1,
+    indent: indent,
+    endIndent: 16,
+    color: context.isMornye
+        ? MornyeTheme.metadataDividerColor(context)
+        : Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.3),
+  );
 }
 
 /// Long OAuth URLs: selectable text so users can copy without relying on snackbars.
@@ -626,8 +706,10 @@ class _CapabilityItem extends StatelessWidget {
           child: Row(
             children: [
               Icon(
-                icon,
-                color: enabled ? colorScheme.primary : colorScheme.outline,
+                context.isMornye ? mornyeIconFor(icon) : icon,
+                color: context.isMornye || enabled
+                    ? colorScheme.primary
+                    : colorScheme.outline,
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -648,20 +730,19 @@ class _CapabilityItem extends StatelessWidget {
                 ),
               ),
               Icon(
-                enabled ? Icons.check_circle : Icons.cancel_outlined,
-                color: enabled ? colorScheme.primary : colorScheme.outline,
+                context.isMornye
+                    ? (enabled
+                          ? CupertinoIcons.check_mark_circled_solid
+                          : CupertinoIcons.xmark_circle)
+                    : (enabled ? Icons.check_circle : Icons.cancel_outlined),
+                color: context.isMornye || enabled
+                    ? colorScheme.primary
+                    : colorScheme.outline,
               ),
             ],
           ),
         ),
-        if (showDivider)
-          Divider(
-            height: 1,
-            thickness: 1,
-            indent: 56,
-            endIndent: 16,
-            color: colorScheme.outlineVariant.withValues(alpha: 0.3),
-          ),
+        if (showDivider) const _ExtensionDivider(),
       ],
     );
   }
@@ -680,7 +761,15 @@ Color _healthStatusColor(ColorScheme colorScheme, String status) {
   }
 }
 
-IconData _healthStatusIcon(String status) {
+IconData _healthStatusIcon(BuildContext context, String status) {
+  if (context.isMornye) {
+    return switch (status) {
+      'online' => CupertinoIcons.check_mark_circled_solid,
+      'degraded' => CupertinoIcons.exclamationmark_triangle,
+      'offline' => CupertinoIcons.exclamationmark_circle,
+      _ => CupertinoIcons.question_circle,
+    };
+  }
   switch (status) {
     case 'online':
       return Icons.check_circle;
@@ -732,7 +821,7 @@ class _HealthSummaryItem extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
-              Icon(_healthStatusIcon(statusValue), color: color),
+              Icon(_healthStatusIcon(context, statusValue), color: color),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
@@ -773,18 +862,16 @@ class _HealthSummaryItem extends StatelessWidget {
                           color: colorScheme.primary,
                         ),
                       )
-                    : const Icon(Icons.refresh),
+                    : Icon(
+                        context.isMornye
+                            ? CupertinoIcons.refresh
+                            : Icons.refresh,
+                      ),
               ),
             ],
           ),
         ),
-        Divider(
-          height: 1,
-          thickness: 1,
-          indent: 56,
-          endIndent: 16,
-          color: colorScheme.outlineVariant.withValues(alpha: 0.3),
-        ),
+        const _ExtensionDivider(),
       ],
     );
   }
@@ -822,7 +909,7 @@ class _HealthCheckItem extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(_healthStatusIcon(check.status), color: color),
+              Icon(_healthStatusIcon(context, check.status), color: color),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
@@ -858,14 +945,7 @@ class _HealthCheckItem extends StatelessWidget {
             ],
           ),
         ),
-        if (showDivider)
-          Divider(
-            height: 1,
-            thickness: 1,
-            indent: 56,
-            endIndent: 16,
-            color: colorScheme.outlineVariant.withValues(alpha: 0.3),
-          ),
+        if (showDivider) const _ExtensionDivider(),
       ],
     );
   }
@@ -899,7 +979,12 @@ class _PermissionItem extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
-              Icon(icon, color: colorScheme.onSurfaceVariant),
+              Icon(
+                context.isMornye ? mornyeIconFor(icon) : icon,
+                color: context.isMornye
+                    ? colorScheme.primary
+                    : colorScheme.onSurfaceVariant,
+              ),
               const SizedBox(width: 16),
               Expanded(
                 child: Text(
@@ -910,14 +995,7 @@ class _PermissionItem extends StatelessWidget {
             ],
           ),
         ),
-        if (showDivider)
-          Divider(
-            height: 1,
-            thickness: 1,
-            indent: 56,
-            endIndent: 16,
-            color: colorScheme.outlineVariant.withValues(alpha: 0.3),
-          ),
+        if (showDivider) const _ExtensionDivider(),
       ],
     );
   }
@@ -954,20 +1032,49 @@ class _SettingItemState extends State<_SettingItem> {
     Widget trailing;
     switch (widget.setting.type) {
       case 'boolean':
-        trailing = Switch(
+        trailing = AppSwitch(
           value: widget.value as bool? ?? false,
+          semanticLabel: widget.setting.label,
           onChanged: widget.onChanged,
         );
         break;
       case 'select':
-        trailing = DropdownButton<String>(
-          value: widget.value as String?,
-          items: widget.setting.options?.map((opt) {
-            return DropdownMenuItem(value: opt, child: Text(opt));
-          }).toList(),
-          onChanged: widget.onChanged,
-          underline: const SizedBox(),
-        );
+        trailing = context.isMornye
+            ? ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.sizeOf(context).width * 0.42,
+                ),
+                child: TextButton(
+                  onPressed: widget.setting.options?.isNotEmpty == true
+                      ? _showOptions
+                      : null,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          widget.value as String? ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Icon(
+                        CupertinoIcons.chevron_up_chevron_down,
+                        size: 16,
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            : DropdownButton<String>(
+                value: widget.value as String?,
+                items: widget.setting.options?.map((opt) {
+                  return DropdownMenuItem(value: opt, child: Text(opt));
+                }).toList(),
+                onChanged: widget.onChanged,
+                underline: const SizedBox(),
+              );
         break;
       case 'button':
         trailing = _isLoading
@@ -983,7 +1090,7 @@ class _SettingItemState extends State<_SettingItem> {
         break;
       default:
         trailing = Icon(
-          Icons.chevron_right,
+          context.isMornye ? CupertinoIcons.chevron_right : Icons.chevron_right,
           color: colorScheme.onSurfaceVariant,
         );
     }
@@ -1015,14 +1122,7 @@ class _SettingItemState extends State<_SettingItem> {
               ],
             ),
           ),
-          if (widget.showDivider)
-            Divider(
-              height: 1,
-              thickness: 1,
-              indent: 16,
-              endIndent: 16,
-              color: colorScheme.outlineVariant.withValues(alpha: 0.3),
-            ),
+          if (widget.showDivider) const _ExtensionDivider(indent: 16),
         ],
       );
     }
@@ -1079,22 +1179,40 @@ class _SettingItemState extends State<_SettingItem> {
             ),
           ),
         ),
-        if (widget.showDivider)
-          Divider(
-            height: 1,
-            thickness: 1,
-            indent: 16,
-            endIndent: 16,
-            color: colorScheme.outlineVariant.withValues(alpha: 0.3),
-          ),
+        if (widget.showDivider) const _ExtensionDivider(indent: 16),
       ],
     );
   }
 
+  Future<void> _showOptions() async {
+    final value = await showAppBottomSheet<String>(
+      context: context,
+      title: widget.setting.label,
+      maxHeightFactor: 0.7,
+      builder: (sheetContext) => SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final option in widget.setting.options ?? <String>[])
+              AppSheetOption(
+                title: Text(option),
+                trailing: option == widget.value
+                    ? const Icon(CupertinoIcons.check_mark)
+                    : null,
+                onTap: () => Navigator.pop(sheetContext, option),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (mounted && value != null) widget.onChanged(value);
+  }
+
   Future<void> _invokeAction(BuildContext context) async {
     if (widget.setting.action == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.l10n.snackbarNoActionDefined)),
+      showAppSnackBar(
+        context,
+        content: Text(context.l10n.snackbarNoActionDefined),
       );
       return;
     }
@@ -1121,13 +1239,12 @@ class _SettingItemState extends State<_SettingItem> {
               payload['error'] as String? ??
               result['error'] as String? ??
               context.l10n.extensionActionFailed;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                context.friendlyError(
-                  error,
-                  fallback: context.l10n.extensionActionFailed,
-                ),
+          showAppSnackBar(
+            context,
+            content: Text(
+              context.friendlyError(
+                error,
+                fallback: context.l10n.extensionActionFailed,
               ),
             ),
           );
@@ -1143,29 +1260,25 @@ class _SettingItemState extends State<_SettingItem> {
               browserMode: 'external_first',
             );
             if (!launched && context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    context.l10n.snackbarError('Could not open browser'),
-                  ),
+              showAppSnackBar(
+                context,
+                content: Text(
+                  context.l10n.snackbarError('Could not open browser'),
                 ),
               );
             }
           }
           final message = payload['message'] as String?;
           if (message != null && message.isNotEmpty && context.mounted) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text(message)));
+            showAppSnackBar(context, content: Text(message));
           }
         }
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(context.l10n.snackbarError(context.friendlyError(e))),
-          ),
+        showAppSnackBar(
+          context,
+          content: Text(context.l10n.snackbarError(context.friendlyError(e))),
         );
       }
     } finally {
@@ -1181,34 +1294,51 @@ class _SettingItemState extends State<_SettingItem> {
     );
     final colorScheme = Theme.of(context).colorScheme;
 
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => AppAlertDialog(
         title: Text(widget.setting.label),
-        content: TextField(
-          controller: controller,
-          keyboardType: widget.setting.type == 'number'
-              ? TextInputType.number
-              : TextInputType.text,
-          decoration: InputDecoration(
-            hintText:
-                widget.setting.description ?? context.l10n.extensionEnterValue,
-            filled: true,
-            fillColor: colorScheme.surfaceContainerHighest.withValues(
-              alpha: 0.3,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
-          ),
-        ),
+        content: context.isMornye
+            ? Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: CupertinoTextField(
+                  controller: controller,
+                  keyboardType: widget.setting.type == 'number'
+                      ? TextInputType.number
+                      : TextInputType.text,
+                  placeholder:
+                      widget.setting.description ??
+                      context.l10n.extensionEnterValue,
+                  padding: const EdgeInsets.all(12),
+                ),
+              )
+            : TextField(
+                controller: controller,
+                keyboardType: widget.setting.type == 'number'
+                    ? TextInputType.number
+                    : TextInputType.text,
+                decoration: InputDecoration(
+                  hintText:
+                      widget.setting.description ??
+                      context.l10n.extensionEnterValue,
+                  filled: true,
+                  fillColor: colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.3,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
         actions: [
-          TextButton(
+          AppDialogAction(
             onPressed: () => Navigator.pop(context),
             child: Text(context.l10n.dialogCancel),
           ),
-          FilledButton(
+          AppDialogAction(
+            filled: true,
+            isDefault: true,
             onPressed: () {
               final newValue = widget.setting.type == 'number'
                   ? num.tryParse(controller.text)
@@ -1220,7 +1350,7 @@ class _SettingItemState extends State<_SettingItem> {
           ),
         ],
       ),
-    );
+    ).then((_) => controller.dispose());
   }
 }
 
@@ -1245,12 +1375,18 @@ class _PostProcessingHookItem extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: colorScheme.tertiaryContainer,
+                  color: context.isMornye
+                      ? Colors.transparent
+                      : colorScheme.tertiaryContainer,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
-                  Icons.auto_fix_high,
-                  color: colorScheme.onTertiaryContainer,
+                  context.isMornye
+                      ? CupertinoIcons.wand_stars
+                      : Icons.auto_fix_high,
+                  color: context.isMornye
+                      ? colorScheme.primary
+                      : colorScheme.onTertiaryContainer,
                   size: 20,
                 ),
               ),
@@ -1322,14 +1458,7 @@ class _PostProcessingHookItem extends StatelessWidget {
             ],
           ),
         ),
-        if (showDivider)
-          Divider(
-            height: 1,
-            thickness: 1,
-            indent: 72,
-            endIndent: 16,
-            color: colorScheme.outlineVariant.withValues(alpha: 0.3),
-          ),
+        if (showDivider) const _ExtensionDivider(indent: 72),
       ],
     );
   }
@@ -1355,12 +1484,16 @@ class _URLHandlerInfo extends StatelessWidget {
                 width: 48,
                 height: 48,
                 decoration: BoxDecoration(
-                  color: colorScheme.tertiaryContainer,
+                  color: context.isMornye
+                      ? Colors.transparent
+                      : colorScheme.tertiaryContainer,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
-                  Icons.link,
-                  color: colorScheme.onTertiaryContainer,
+                  context.isMornye ? CupertinoIcons.link : Icons.link,
+                  color: context.isMornye
+                      ? colorScheme.primary
+                      : colorScheme.onTertiaryContainer,
                   size: 24,
                 ),
               ),
@@ -1467,12 +1600,18 @@ class _QualityOptionItem extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: colorScheme.secondaryContainer,
+                  color: context.isMornye
+                      ? Colors.transparent
+                      : colorScheme.secondaryContainer,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
-                  Icons.high_quality,
-                  color: colorScheme.onSecondaryContainer,
+                  context.isMornye
+                      ? CupertinoIcons.waveform
+                      : Icons.high_quality,
+                  color: context.isMornye
+                      ? colorScheme.primary
+                      : colorScheme.onSecondaryContainer,
                   size: 20,
                 ),
               ),
@@ -1497,14 +1636,16 @@ class _QualityOptionItem extends StatelessWidget {
                         ),
                       ),
                     ],
-                    const SizedBox(height: 4),
-                    Text(
-                      quality.id,
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: colorScheme.primary,
-                        fontFamily: 'monospace',
+                    if (!context.isMornye) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        quality.id,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: colorScheme.primary,
+                          fontFamily: 'monospace',
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
@@ -1530,14 +1671,7 @@ class _QualityOptionItem extends StatelessWidget {
             ],
           ),
         ),
-        if (showDivider)
-          Divider(
-            height: 1,
-            thickness: 1,
-            indent: 72,
-            endIndent: 16,
-            color: colorScheme.outlineVariant.withValues(alpha: 0.3),
-          ),
+        if (showDivider) const _ExtensionDivider(indent: 72),
       ],
     );
   }

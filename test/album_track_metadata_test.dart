@@ -8,6 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:spotiflac_android/l10n/app_localizations.dart';
 import 'package:spotiflac_android/models/track.dart';
 import 'package:spotiflac_android/screens/album_screen.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/widgets/audio_quality_badges.dart';
 import 'package:spotiflac_android/widgets/track_list_tile.dart';
 
 void main() {
@@ -31,6 +33,9 @@ void main() {
       'copyright': 'Example Copyright',
       'comment': 'Example Comment',
       'upc': '0123456789012',
+      'audio_quality': '16-bit',
+      'audio_modes': 'DOLBY_ATMOS',
+      'explicit': true,
     };
     var albumRequested = false;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -48,6 +53,7 @@ void main() {
                 'name': 'Example Album',
                 'total_tracks': 1,
                 'album_type': 'album',
+                'audio_traits': ['lossless', 'dolby_atmos'],
               },
             });
           }
@@ -66,6 +72,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         child: MaterialApp(
+          theme: MornyeTheme.build(Brightness.light),
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: const AlbumScreen(
@@ -91,6 +98,12 @@ void main() {
     expect(albumTrack.albumId, 'metadata-album');
     expect(albumTrack.albumType, 'album');
     expect(albumTrack.totalTracks, 1);
+    expect(albumTrack.audioQuality, '16-bit');
+    expect(find.text('Lossless'), findsOneWidget);
+    expect(find.text('Dolby Atmos'), findsOneWidget);
+    expect(find.byType(AudioQualityBadge), findsNothing);
+    expect(find.byType(DolbyAtmosBadge), findsNothing);
+    expect(find.byType(ExplicitBadge), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
     await tester.pumpAndSettle();
   });

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/widgets/mornye_player_slider.dart';
 
 /// Previews scrubbing locally and seeks once when the gesture ends.
 class PlaybackSeekSlider extends StatefulWidget {
@@ -37,6 +39,43 @@ class _PlaybackSeekSliderState extends State<PlaybackSeekSlider> {
     final durationMs = widget.duration.inMilliseconds;
     final enabled = durationMs > 0;
     final maxMs = enabled ? durationMs.toDouble() : 1.0;
+    if (context.isMornye) {
+      final currentMs = (_previewMs ?? widget.position.inMilliseconds)
+          .clamp(0, maxMs)
+          .toDouble();
+      String percentage(double milliseconds) =>
+          '${(milliseconds / maxMs * 100).clamp(0, 100).round()}%';
+      return LayoutBuilder(
+        builder: (context, constraints) => Semantics(
+          slider: true,
+          enabled: enabled,
+          excludeSemantics: true,
+          value: percentage(currentMs),
+          increasedValue: enabled
+              ? percentage((currentMs + 5000).clamp(0, maxMs).toDouble())
+              : null,
+          decreasedValue: enabled
+              ? percentage((currentMs - 5000).clamp(0, maxMs).toDouble())
+              : null,
+          onIncrease: enabled
+              ? () => _commit((currentMs + 5000).clamp(0, maxMs).toDouble())
+              : null,
+          onDecrease: enabled
+              ? () => _commit((currentMs - 5000).clamp(0, maxMs).toDouble())
+              : null,
+          child: IgnorePointer(
+            ignoring: !enabled,
+            child: MornyePlayerSlider(
+              value: enabled ? currentMs : 0,
+              max: maxMs,
+              onChangeStart: (_) => _gestureGeneration++,
+              onChanged: (value) => setState(() => _previewMs = value),
+              onChangeEnd: _commit,
+            ),
+          ),
+        ),
+      );
+    }
     return Slider(
       value: enabled
           ? (_previewMs ?? widget.position.inMilliseconds.toDouble()).clamp(

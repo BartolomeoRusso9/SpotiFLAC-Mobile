@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:spotiflac_android/theme/mornye_icons.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/widgets/app_action_button.dart';
 import '../l10n/app_localizations.dart';
 import 'package:spotiflac_android/services/batch_metadata_re_enrich.dart';
 import 'package:spotiflac_android/widgets/app_bottom_sheet.dart';
@@ -156,50 +160,34 @@ class _ReEnrichFieldSheetState extends State<_ReEnrichFieldSheet> {
                 ),
               ),
             ),
-            SettingsGroup(
+            _options(
               children: [
-                ListTile(
-                  leading: const Icon(Icons.fingerprint),
-                  title: Text(l10n.trackReEnrichModeIsrc),
-                  subtitle: Text(l10n.trackReEnrichModeIsrcSubtitle),
-                  trailing: _mode == ReEnrichBatchMode.isrcOnly
-                      ? Icon(Icons.check, color: colorScheme.primary)
-                      : null,
-                  onTap: () =>
-                      setState(() => _mode = ReEnrichBatchMode.isrcOnly),
+                _modeOption(
+                  icon: Icons.fingerprint,
+                  title: l10n.trackReEnrichModeIsrc,
+                  subtitle: l10n.trackReEnrichModeIsrcSubtitle,
+                  mode: ReEnrichBatchMode.isrcOnly,
                 ),
                 const Divider(height: 1, indent: 56),
-                ListTile(
-                  leading: const Icon(Icons.playlist_add_check),
-                  title: Text(l10n.trackReEnrichModeMissing),
-                  subtitle: Text(l10n.trackReEnrichModeMissingSubtitle),
-                  trailing: _mode == ReEnrichBatchMode.missingOnly
-                      ? Icon(Icons.check, color: colorScheme.primary)
-                      : null,
-                  onTap: () =>
-                      setState(() => _mode = ReEnrichBatchMode.missingOnly),
+                _modeOption(
+                  icon: Icons.playlist_add_check,
+                  title: l10n.trackReEnrichModeMissing,
+                  subtitle: l10n.trackReEnrichModeMissingSubtitle,
+                  mode: ReEnrichBatchMode.missingOnly,
                 ),
                 const Divider(height: 1, indent: 56),
-                ListTile(
-                  leading: const Icon(Icons.tune),
-                  title: Text(l10n.trackReEnrichModeReplace),
-                  subtitle: Text(l10n.trackReEnrichModeReplaceSubtitle),
-                  trailing: _mode == ReEnrichBatchMode.selectedFields
-                      ? Icon(Icons.check, color: colorScheme.primary)
-                      : null,
-                  onTap: () =>
-                      setState(() => _mode = ReEnrichBatchMode.selectedFields),
+                _modeOption(
+                  icon: Icons.tune,
+                  title: l10n.trackReEnrichModeReplace,
+                  subtitle: l10n.trackReEnrichModeReplaceSubtitle,
+                  mode: ReEnrichBatchMode.selectedFields,
                 ),
                 const Divider(height: 1, indent: 56),
-                ListTile(
-                  leading: const Icon(Icons.edit_note),
-                  title: Text(l10n.trackReEnrichModeManual),
-                  subtitle: Text(l10n.trackReEnrichModeManualSubtitle),
-                  trailing: _mode == ReEnrichBatchMode.manualValues
-                      ? Icon(Icons.check, color: colorScheme.primary)
-                      : null,
-                  onTap: () =>
-                      setState(() => _mode = ReEnrichBatchMode.manualValues),
+                _modeOption(
+                  icon: Icons.edit_note,
+                  title: l10n.trackReEnrichModeManual,
+                  subtitle: l10n.trackReEnrichModeManualSubtitle,
+                  mode: ReEnrichBatchMode.manualValues,
                 ),
               ],
             ),
@@ -215,26 +203,20 @@ class _ReEnrichFieldSheetState extends State<_ReEnrichFieldSheet> {
                   ),
                 ),
               ),
-              SettingsGroup(
+              _options(
                 children: [
-                  CheckboxListTile(
-                    title: Text(
-                      l10n.trackReEnrichSelectAll,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
+                  _fieldToggle(
+                    title: l10n.trackReEnrichSelectAll,
                     value: _allSelected,
-                    tristate: true,
                     onChanged: _toggleAll,
-                    controlAffinity: ListTileControlAffinity.leading,
                   ),
                   for (final field in ReEnrichFields.all) ...[
                     const Divider(height: 1, indent: 56),
-                    CheckboxListTile(
-                      secondary: Icon(_iconFor(field), size: 20),
-                      title: Text(_labelFor(field, l10n)),
+                    _fieldToggle(
+                      icon: _iconFor(field),
+                      title: _labelFor(field, l10n),
                       value: _selected.contains(field),
                       onChanged: (value) => _toggle(field, value),
-                      controlAffinity: ListTileControlAffinity.leading,
                     ),
                   ],
                 ],
@@ -264,7 +246,8 @@ class _ReEnrichFieldSheetState extends State<_ReEnrichFieldSheet> {
                   ],
                 ),
               ),
-              SettingsGroup(
+              _options(
+                grouped: false,
                 children: [
                   for (
                     var index = 0;
@@ -274,19 +257,50 @@ class _ReEnrichFieldSheetState extends State<_ReEnrichFieldSheet> {
                     if (index > 0) const Divider(height: 1),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-                      child: TextField(
-                        controller:
-                            _manualControllers[manualBatchMetadataFields[index]],
-                        onChanged: (_) => setState(() {}),
-                        decoration: InputDecoration(
-                          labelText: _manualLabelFor(
-                            manualBatchMetadataFields[index],
-                            l10n,
-                          ),
-                          border: const OutlineInputBorder(),
-                          isDense: true,
-                        ),
-                      ),
+                      child: context.isMornye
+                          ? Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _manualLabelFor(
+                                    manualBatchMetadataFields[index],
+                                    l10n,
+                                  ),
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        color: colorScheme.onSurfaceVariant,
+                                      ),
+                                ),
+                                const SizedBox(height: 6),
+                                CupertinoTextField(
+                                  controller:
+                                      _manualControllers[manualBatchMetadataFields[index]],
+                                  onChanged: (_) => setState(() {}),
+                                  style: Theme.of(context).textTheme.bodyLarge,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 12,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: MornyeTheme.controlFill(context),
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : TextField(
+                              controller:
+                                  _manualControllers[manualBatchMetadataFields[index]],
+                              onChanged: (_) => setState(() {}),
+                              decoration: InputDecoration(
+                                labelText: _manualLabelFor(
+                                  manualBatchMetadataFields[index],
+                                  l10n,
+                                ),
+                                border: const OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                            ),
                     ),
                   ],
                 ],
@@ -297,7 +311,7 @@ class _ReEnrichFieldSheetState extends State<_ReEnrichFieldSheet> {
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
               child: SizedBox(
                 width: double.infinity,
-                child: FilledButton.icon(
+                child: AppActionButton(
                   onPressed:
                       (_mode == ReEnrichBatchMode.selectedFields &&
                               _selected.isEmpty) ||
@@ -317,6 +331,128 @@ class _ReEnrichFieldSheetState extends State<_ReEnrichFieldSheet> {
                 ),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _options({required List<Widget> children, bool grouped = true}) {
+    if (!context.isMornye) return SettingsGroup(children: children);
+    final content = Column(mainAxisSize: MainAxisSize.min, children: children);
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: grouped ? 16 : 4, vertical: 4),
+      child: grouped
+          ? Material(
+              color: MornyeTheme.controlFill(context),
+              borderRadius: BorderRadius.circular(28),
+              clipBehavior: Clip.antiAlias,
+              child: content,
+            )
+          : content,
+    );
+  }
+
+  Widget _modeOption({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required ReEnrichBatchMode mode,
+  }) {
+    void select() => setState(() => _mode = mode);
+    final scheme = Theme.of(context).colorScheme;
+    if (!context.isMornye) {
+      return ListTile(
+        leading: Icon(icon),
+        title: Text(title),
+        subtitle: Text(subtitle),
+        trailing: _mode == mode
+            ? Icon(Icons.check, color: scheme.primary)
+            : null,
+        onTap: select,
+      );
+    }
+    return Semantics(
+      selected: _mode == mode,
+      child: CupertinoButton(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        onPressed: select,
+        child: Row(
+          children: [
+            Icon(mornyeIconFor(icon), color: scheme.primary, size: 24),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: Theme.of(context).textTheme.bodyLarge),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            SizedBox(
+              width: 20,
+              child: _mode == mode
+                  ? Icon(
+                      CupertinoIcons.checkmark,
+                      color: scheme.primary,
+                      size: 20,
+                    )
+                  : null,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _fieldToggle({
+    required String title,
+    required bool value,
+    required ValueChanged<bool?> onChanged,
+    IconData? icon,
+  }) {
+    if (!context.isMornye) {
+      return CheckboxListTile(
+        title: Text(title),
+        value: value,
+        onChanged: onChanged,
+        secondary: icon == null ? null : Icon(icon, size: 20),
+        controlAffinity: ListTileControlAffinity.leading,
+      );
+    }
+    final scheme = Theme.of(context).colorScheme;
+    return Semantics(
+      checked: value,
+      child: CupertinoButton(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        onPressed: () => onChanged(!value),
+        child: Row(
+          children: [
+            Icon(
+              value
+                  ? CupertinoIcons.check_mark_circled_solid
+                  : CupertinoIcons.circle,
+              color: value ? scheme.primary : scheme.onSurfaceVariant,
+              size: 24,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(title, style: Theme.of(context).textTheme.bodyLarge),
+            ),
+            if (icon != null)
+              Icon(
+                mornyeIconFor(icon),
+                color: scheme.onSurfaceVariant,
+                size: 20,
+              ),
           ],
         ),
       ),

@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
+import 'package:spotiflac_android/widgets/app_switch.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -86,17 +88,19 @@ class _LibrarySettingsPageState extends ConsumerState<LibrarySettingsPage> {
       return true;
     } else if (status.isPermanentlyDenied) {
       if (mounted) {
-        final shouldOpen = await showDialog<bool>(
+        final shouldOpen = await showAppDialog<bool>(
           context: context,
-          builder: (context) => AlertDialog(
+          builder: (context) => AppAlertDialog(
             title: Text(context.l10n.libraryStorageAccessRequired),
             content: Text(context.l10n.libraryStorageAccessMessage),
             actions: [
-              TextButton(
+              AppDialogAction(
                 onPressed: () => Navigator.pop(context, false),
                 child: Text(context.l10n.dialogCancel),
               ),
-              FilledButton(
+              AppDialogAction(
+                filled: true,
+                isDefault: true,
                 onPressed: () => Navigator.pop(context, true),
                 child: Text(context.l10n.setupOpenSettings),
               ),
@@ -201,17 +205,20 @@ class _LibrarySettingsPageState extends ConsumerState<LibrarySettingsPage> {
   }
 
   Future<void> _clearLibrary() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => AppAlertDialog(
         title: Text(context.l10n.libraryClearConfirmTitle),
         content: Text(context.l10n.libraryClearConfirmMessage),
         actions: [
-          TextButton(
+          AppDialogAction(
+            isDefault: true,
             onPressed: () => Navigator.pop(context, false),
             child: Text(context.l10n.dialogCancel),
           ),
-          FilledButton(
+          AppDialogAction(
+            filled: true,
+            isDestructive: true,
             onPressed: () => Navigator.pop(context, true),
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(context).colorScheme.error,
@@ -246,17 +253,20 @@ class _LibrarySettingsPageState extends ConsumerState<LibrarySettingsPage> {
   }
 
   Future<void> _removeSource(LocalLibrarySource source) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => AppAlertDialog(
         title: Text(context.l10n.libraryRemoveFolder),
         content: Text(context.l10n.libraryRemoveFolderMessage),
         actions: [
-          TextButton(
+          AppDialogAction(
+            isDefault: true,
             onPressed: () => Navigator.pop(context, false),
             child: Text(context.l10n.dialogCancel),
           ),
-          FilledButton(
+          AppDialogAction(
+            filled: true,
+            isDestructive: true,
             onPressed: () => Navigator.pop(context, true),
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(context).colorScheme.error,
@@ -291,7 +301,7 @@ class _LibrarySettingsPageState extends ConsumerState<LibrarySettingsPage> {
 
   void _showAutoScanPicker(BuildContext context, String current) {
     final colorScheme = Theme.of(context).colorScheme;
-    showModalBottomSheet<void>(
+    showAppModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
       backgroundColor: colorScheme.surfaceContainerHigh,
@@ -397,7 +407,7 @@ class _LibrarySettingsPageState extends ConsumerState<LibrarySettingsPage> {
       ('singles', Icons.music_note, context.l10n.historyFilterSingles),
       ('playlists', Icons.queue_music, context.l10n.searchPlaylists),
     ];
-    showModalBottomSheet<void>(
+    showAppModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
       backgroundColor: colorScheme.surfaceContainerHigh,
@@ -484,7 +494,7 @@ class _LibrarySettingsPageState extends ConsumerState<LibrarySettingsPage> {
         context.l10n.libraryQualityLabelFileFormat,
       ),
     ];
-    showModalBottomSheet<void>(
+    showAppModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
       backgroundColor: colorScheme.surfaceContainerHigh,
@@ -1008,21 +1018,21 @@ class _LibrarySourceSettingsItem extends StatelessWidget {
       builder: (context) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          ListTile(
+          AppSheetOption(
             enabled: canScan,
             leading: const Icon(Icons.refresh_rounded),
             title: Text(context.l10n.libraryScan),
             subtitle: Text(context.l10n.libraryScanSubtitle),
             onTap: canScan ? () => Navigator.pop(context, 'scan') : null,
           ),
-          ListTile(
+          AppSheetOption(
             enabled: canScan,
             leading: const Icon(Icons.sync_rounded),
             title: Text(context.l10n.libraryForceFullScan),
             subtitle: Text(context.l10n.libraryForceFullScanSubtitle),
             onTap: canScan ? () => Navigator.pop(context, 'full_scan') : null,
           ),
-          ListTile(
+          AppSheetOption(
             leading: Icon(
               Icons.delete_outline,
               color: Theme.of(context).colorScheme.error,
@@ -1099,7 +1109,9 @@ class _LibrarySourceSettingsItem extends StatelessWidget {
                   determinate: totalFiles > 0 && !isFinalizing,
                 ),
               ),
-            Switch.adaptive(
+            AppSwitch(
+              adaptive: true,
+              semanticLabel: title,
               value: source.enabled,
               onChanged: enabled ? onEnabledChanged : null,
             ),
@@ -1531,7 +1543,7 @@ class _AutoScanOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
+    return AppSheetOption(
       leading: Icon(icon),
       title: Text(title),
       trailing: selected ? Icon(Icons.check, color: colorScheme.primary) : null,

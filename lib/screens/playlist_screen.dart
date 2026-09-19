@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:spotiflac_android/screens/track_history_snapshot.dart';
 import 'package:spotiflac_android/widgets/album_detail_header.dart';
 import 'package:spotiflac_android/screens/selection_mode_mixin.dart';
@@ -15,7 +16,6 @@ import 'package:spotiflac_android/providers/library_collections_provider.dart';
 import 'package:spotiflac_android/utils/image_cache_utils.dart';
 import 'package:spotiflac_android/utils/cover_art_utils.dart';
 import 'package:spotiflac_android/utils/adaptive_layout.dart';
-import 'package:spotiflac_android/utils/nav_bar_inset.dart';
 import 'package:spotiflac_android/utils/provider_resource_ids.dart';
 import 'package:spotiflac_android/widgets/playlist_picker_sheet.dart';
 import 'package:spotiflac_android/widgets/animation_utils.dart';
@@ -26,6 +26,8 @@ import 'package:spotiflac_android/widgets/track_detail_actions.dart';
 import 'package:spotiflac_android/screens/collapsing_header_scroll_mixin.dart';
 import 'package:spotiflac_android/widgets/error_card.dart';
 import 'package:spotiflac_android/widgets/downloadable_cover.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/widgets/mornye_artist_header.dart';
 
 class PlaylistScreen extends ConsumerStatefulWidget {
   final String playlistName;
@@ -253,8 +255,21 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (context.isMornye) {
+      return MornyeArtistSurface(
+        imageSource: _coverUrl,
+        neutralActions: true,
+        child: Builder(builder: _buildPage),
+      );
+    }
+    return _buildPage(context);
+  }
+
+  Widget _buildPage(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final bottomPadding = MediaQuery.paddingOf(context).bottom;
+    final bottomPadding = isSelectionMode
+        ? MediaQuery.paddingOf(context).bottom
+        : 0.0;
 
     pruneSelection({
       for (var index = 0; index < _tracks.length; index++)
@@ -265,7 +280,6 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen>
       scrollController: scrollController,
       isSelectionMode: isSelectionMode,
       onExitSelectionMode: exitSelectionMode,
-      bottomInset: context.navBarBottomInset,
       selectionBar: _buildSelectionBottomBar(
         context,
         colorScheme,
@@ -310,6 +324,8 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen>
 
     return AlbumDetailHeader(
       title: _playlistName,
+      immersive: context.isMornye,
+      squareArtwork: !hasMotion,
       expandedHeight: expandedHeight,
       showTitleInAppBar: showTitleInAppBar,
       background: hasMotion
@@ -343,11 +359,24 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen>
       actions: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          _buildLoveAllButton(),
-          const SizedBox(width: 12),
-          Flexible(child: _buildDownloadAllCenterButton(context)),
-          const SizedBox(width: 12),
-          _buildAddToPlaylistButton(context),
+          if (context.isMornye) ...[
+            _buildLoveAllButton(),
+            const SizedBox(width: 16),
+            Flexible(
+              child: SizedBox(
+                width: 172,
+                child: _buildDownloadAllCenterButton(context),
+              ),
+            ),
+            const SizedBox(width: 16),
+            _buildAddToPlaylistButton(context),
+          ] else ...[
+            _buildLoveAllButton(),
+            const SizedBox(width: 12),
+            Flexible(child: _buildDownloadAllCenterButton(context)),
+            const SizedBox(width: 12),
+            _buildAddToPlaylistButton(context),
+          ],
         ],
       ),
     );
@@ -363,10 +392,12 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen>
 
   Widget _buildTrackList(BuildContext context, ColorScheme colorScheme) {
     if (_isLoading) {
-      return const SliverToBoxAdapter(
+      return SliverToBoxAdapter(
         child: Padding(
-          padding: EdgeInsets.all(16),
-          child: TrackListSkeleton(itemCount: 8),
+          padding: context.isMornye
+              ? EdgeInsets.zero
+              : const EdgeInsets.all(16),
+          child: const TrackListSkeleton(itemCount: 8),
         ),
       );
     }
@@ -488,6 +519,7 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen>
 
     return HeaderCircleButton(
       icon: allLoved ? Icons.favorite : Icons.favorite_border,
+      tonal: true,
       iconColor: allLoved ? Theme.of(context).colorScheme.error : null,
       tooltip: allLoved
           ? context.l10n.trackOptionRemoveFromLoved
@@ -498,8 +530,13 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen>
 
   Widget _buildDownloadAllCenterButton(BuildContext context) {
     return HeaderFilledButton(
-      icon: Icons.download_rounded,
-      label: context.l10n.downloadAllCount(_tracks.length),
+      icon: context.isMornye
+          ? CupertinoIcons.arrow_down_circle_fill
+          : Icons.download_rounded,
+      tonal: true,
+      label: context.isMornye
+          ? context.l10n.dialogDownload
+          : context.l10n.downloadAllCount(_tracks.length),
       onPressed: _tracks.isEmpty ? null : () => _confirmDownloadAll(context),
     );
   }
@@ -507,6 +544,7 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen>
   Widget _buildAddToPlaylistButton(BuildContext context) {
     return HeaderCircleButton(
       icon: Icons.playlist_add,
+      tonal: true,
       tooltip: context.l10n.tooltipAddToPlaylist,
       onPressed: _tracks.isEmpty
           ? null

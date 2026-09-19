@@ -13,12 +13,14 @@ import 'package:spotiflac_android/services/ffmpeg_service.dart';
 import 'package:spotiflac_android/services/library_database.dart';
 import 'package:spotiflac_android/services/platform_bridge.dart';
 import 'package:spotiflac_android/services/replaygain_service.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/utils/audio_conversion_utils.dart';
 import 'package:spotiflac_android/utils/file_access.dart';
 import 'package:spotiflac_android/utils/int_utils.dart';
 import 'package:spotiflac_android/utils/lyrics_metadata_helper.dart';
 import 'package:spotiflac_android/utils/logger.dart';
 import 'package:spotiflac_android/widgets/batch_convert_sheet.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
 import 'package:spotiflac_android/widgets/batch_progress_dialog.dart';
 import 'package:spotiflac_android/utils/saf_display_path.dart';
 
@@ -97,6 +99,8 @@ Future<void> showBatchConvertSheet(
     context: modalContext,
     useRootNavigator: true,
     isScrollControlled: true,
+    backgroundColor: modalContext.isMornye ? Colors.transparent : null,
+    elevation: modalContext.isMornye ? 0 : null,
     builder: (sheetContext) => BatchConvertSheet(
       formats: formats,
       title: sheetTitle,
@@ -165,9 +169,9 @@ Future<void> _performBatchConversion(
 
   final isLossless = isLosslessConversionTarget(targetFormat);
   final losslessLabels = context.l10n.losslessConversionLabels;
-  final confirmed = await showDialog<bool>(
+  final confirmed = await showAppDialog<bool>(
     context: context,
-    builder: (ctx) => AlertDialog(
+    builder: (ctx) => AppAlertDialog(
       title: Text(context.l10n.selectionBatchConvertConfirmTitle),
       content: Text(
         keepOriginal
@@ -197,11 +201,13 @@ Future<void> _performBatchConversion(
               ),
       ),
       actions: [
-        TextButton(
+        AppDialogAction(
           onPressed: () => Navigator.pop(ctx, false),
           child: Text(context.l10n.dialogCancel),
         ),
-        FilledButton(
+        AppDialogAction(
+          filled: true,
+          isDefault: true,
           onPressed: () => Navigator.pop(ctx, true),
           child: Text(context.l10n.trackConvertFormat),
         ),
@@ -546,19 +552,21 @@ Future<void> runBatchReplayGain(
 
   onConfirmOpen?.call();
 
-  final confirmed = await showDialog<bool>(
+  final confirmed = await showAppDialog<bool>(
     context: context,
-    builder: (ctx) => AlertDialog(
+    builder: (ctx) => AppAlertDialog(
       title: Text(ctx.l10n.replayGainBatchConfirmTitle),
       content: Text(
         ctx.l10n.replayGainBatchConfirmMessage(selectedItems.length),
       ),
       actions: [
-        TextButton(
+        AppDialogAction(
           onPressed: () => Navigator.pop(ctx, false),
           child: Text(ctx.l10n.dialogCancel),
         ),
-        FilledButton(
+        AppDialogAction(
+          filled: true,
+          isDefault: true,
           onPressed: () => Navigator.pop(ctx, true),
           child: Text(ctx.l10n.replayGainBatchConfirmTitle),
         ),

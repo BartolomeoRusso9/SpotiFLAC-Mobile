@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/theme/cover_palette.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -16,7 +17,6 @@ import 'package:spotiflac_android/utils/confirm_and_delete_tracks.dart';
 import 'package:spotiflac_android/utils/cover_art_utils.dart';
 import 'package:spotiflac_android/utils/file_access.dart';
 import 'package:spotiflac_android/utils/image_cache_utils.dart';
-import 'package:spotiflac_android/utils/nav_bar_inset.dart';
 import 'package:spotiflac_android/providers/download_queue_provider.dart';
 import 'package:spotiflac_android/providers/settings_provider.dart';
 import 'package:spotiflac_android/providers/playback_provider.dart';
@@ -34,6 +34,7 @@ import 'package:spotiflac_android/widgets/selection_action_button.dart';
 import 'package:spotiflac_android/widgets/selection_bottom_bar.dart';
 import 'package:spotiflac_android/widgets/disc_separator_chip.dart';
 import 'package:spotiflac_android/widgets/album_detail_header.dart';
+import 'package:spotiflac_android/widgets/mornye_artist_header.dart';
 
 class DownloadedAlbumScreen extends ConsumerStatefulWidget {
   final String albumName;
@@ -250,13 +251,6 @@ class _DownloadedAlbumScreenState extends ConsumerState<DownloadedAlbumScreen>
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final qualityLabelMode = ref.watch(
-      settingsProvider.select((s) => s.libraryQualityLabelMode),
-    );
-    final bottomPadding = MediaQuery.paddingOf(context).bottom;
-    final bottomInset = context.navBarBottomInset;
-
     final tracksValue = ref.watch(
       downloadedAlbumTracksProvider(
         DownloadedAlbumTracksRequest(
@@ -286,6 +280,25 @@ class _DownloadedAlbumScreenState extends ConsumerState<DownloadedAlbumScreen>
 
     pruneSelection(tracks.map((t) => t.id).toSet());
 
+    if (context.isMornye) {
+      return MornyeArtistSurface(
+        imageSource: _resolveAlbumEmbeddedCoverPath(tracks) ?? widget.coverUrl,
+        neutralActions: true,
+        child: Builder(builder: (context) => _buildPage(context, tracks)),
+      );
+    }
+    return _buildPage(context, tracks);
+  }
+
+  Widget _buildPage(BuildContext context, List<DownloadHistoryItem> tracks) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final qualityLabelMode = ref.watch(
+      settingsProvider.select((s) => s.libraryQualityLabelMode),
+    );
+    final bottomPadding = isSelectionMode
+        ? MediaQuery.paddingOf(context).bottom
+        : 0.0;
+
     return CollectionScaffold(
       scrollController: scrollController,
       isSelectionMode: isSelectionMode,
@@ -298,7 +311,6 @@ class _DownloadedAlbumScreenState extends ConsumerState<DownloadedAlbumScreen>
         tracks,
         bottomPadding,
       ),
-      bottomInset: bottomInset,
     );
   }
 
@@ -363,6 +375,7 @@ class _DownloadedAlbumScreenState extends ConsumerState<DownloadedAlbumScreen>
 
     return AlbumDetailHeader(
       title: widget.albumName,
+      immersive: context.isMornye,
       expandedHeight: expandedHeight,
       showTitleInAppBar: showTitleInAppBar,
       background: background,
@@ -379,9 +392,11 @@ class _DownloadedAlbumScreenState extends ConsumerState<DownloadedAlbumScreen>
       subtitle: Text(
         widget.artistName,
         style: TextStyle(
-          color: HeaderPalette.of(context).onSurfaceVariant,
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
+          color: context.isMornye
+              ? colorScheme.primary
+              : HeaderPalette.of(context).onSurfaceVariant,
+          fontSize: context.isMornye ? 20 : 16,
+          fontWeight: context.isMornye ? FontWeight.w400 : FontWeight.w600,
         ),
         textAlign: TextAlign.center,
         maxLines: 1,

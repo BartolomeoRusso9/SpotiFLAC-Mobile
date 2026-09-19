@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart'
+    show CupertinoButton, CupertinoDynamicColor, kCupertinoModalBarrierColor;
 import 'package:spotiflac_android/theme/app_tokens.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/widgets/mornye_chrome.dart';
+import 'package:spotiflac_android/theme/mornye_icons.dart';
 
 /// The drag handle shown at the top of every modal sheet.
 ///
@@ -131,7 +136,7 @@ class AppBottomSheet extends StatelessWidget {
             ),
             child: Text(
               subtitle!,
-              maxLines: 1,
+              maxLines: context.isMornye ? 3 : 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
@@ -179,7 +184,7 @@ Future<T?> showAppBottomSheet<T>({
   bool showHandle = true,
   Color? backgroundColor,
 }) {
-  return showModalBottomSheet<T>(
+  return showAppModalBottomSheet<T>(
     context: context,
     isScrollControlled: isScrollControlled,
     isDismissible: isDismissible,
@@ -194,4 +199,129 @@ Future<T?> showAppBottomSheet<T>({
       child: builder(sheetContext),
     ),
   );
+}
+
+/// Adaptive surface for sheets which already supply their own header/layout.
+Future<T?> showAppModalBottomSheet<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  bool isScrollControlled = false,
+  bool isDismissible = true,
+  bool enableDrag = true,
+  bool useRootNavigator = false,
+  bool useSafeArea = false,
+  BoxConstraints? constraints,
+  Color? backgroundColor,
+}) {
+  final mornye = context.isMornye;
+  return showModalBottomSheet<T>(
+    context: context,
+    isScrollControlled: isScrollControlled,
+    isDismissible: isDismissible,
+    enableDrag: enableDrag,
+    useRootNavigator: useRootNavigator,
+    useSafeArea: useSafeArea,
+    constraints: constraints,
+    backgroundColor: mornye ? Colors.transparent : backgroundColor,
+    barrierColor: mornye
+        ? CupertinoDynamicColor.resolve(kCupertinoModalBarrierColor, context)
+        : null,
+    elevation: mornye ? 0 : null,
+    builder: (context) => mornye
+        ? MornyeGlassPanel.overlay(child: Builder(builder: builder))
+        : builder(context),
+  );
+}
+
+/// Flat rows sit directly on a sheet's glass; Material keeps its ListTile.
+class AppSheetOption extends StatelessWidget {
+  const AppSheetOption({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.leading,
+    this.trailing,
+    this.onTap,
+    this.contentPadding,
+    this.enabled = true,
+  });
+
+  final Widget title;
+  final Widget? subtitle;
+  final Widget? leading;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+  final EdgeInsetsGeometry? contentPadding;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!context.isMornye) {
+      return ListTile(
+        title: title,
+        subtitle: subtitle,
+        leading: leading,
+        trailing: trailing,
+        onTap: onTap,
+        contentPadding: contentPadding,
+        enabled: enabled,
+      );
+    }
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    Widget adaptedIcon(Widget widget, double size) {
+      if (widget case Icon(:final icon?)) {
+        return Icon(
+          mornyeIconFor(icon),
+          size: size,
+          color: enabled ? widget.color ?? scheme.primary : theme.disabledColor,
+        );
+      }
+      return widget;
+    }
+
+    return CupertinoButton(
+      onPressed: enabled ? onTap : null,
+      padding:
+          contentPadding ??
+          const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+      child: Row(
+        children: [
+          if (leading != null) ...[
+            adaptedIcon(leading!, 24),
+            const SizedBox(width: 16),
+          ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                DefaultTextStyle(
+                  style: theme.textTheme.bodyLarge!.copyWith(
+                    color: enabled ? scheme.onSurface : theme.disabledColor,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  child: title,
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 4),
+                  DefaultTextStyle(
+                    style: theme.textTheme.bodySmall!.copyWith(
+                      color: enabled
+                          ? scheme.onSurfaceVariant
+                          : theme.disabledColor,
+                    ),
+                    child: subtitle!,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (trailing != null) ...[
+            const SizedBox(width: 12),
+            adaptedIcon(trailing!, 20),
+          ],
+        ],
+      ),
+    );
+  }
 }

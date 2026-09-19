@@ -194,12 +194,18 @@ class ExtensionNotifier extends Notifier<ExtensionState> {
         lyricsFetchOptions: snapshot.lyricsFetchOptions,
         allowedDirectories: allowedDirectories,
       );
-      await loadExtensions(extensionsDir);
+      final loaded = await loadExtensions(extensionsDir);
       final loadError = state.error;
-      if (loadError != null) throw StateError(loadError);
+      if (!loaded) {
+        throw StateError(loadError ?? 'Failed to load installed extensions');
+      }
       await loadProviderPriority();
       await loadMetadataProviderPriority();
-      state = state.copyWith(isInitialized: true, isLoading: false);
+      state = state.copyWith(
+        isInitialized: true,
+        isLoading: false,
+        error: loadError,
+      );
       await _syncDownloadDirectory(ref.read(settingsProvider));
       _log.i('Extension system initialized');
     } catch (e) {
@@ -234,17 +240,32 @@ class ExtensionNotifier extends Notifier<ExtensionState> {
     }
   }
 
-  Future<void> loadExtensions(String dirPath) async {
+  Future<bool> loadExtensions(String dirPath) async {
     state = state.copyWith(isLoading: true, error: null);
 
     try {
       final result = await PlatformBridge.loadExtensionsFromDir(dirPath);
       _log.d('Load extensions result: $result');
+      final loadErrors = (result['errors'] as List<dynamic>? ?? const [])
+          .whereType<String>()
+          .where((error) => error.trim().isNotEmpty)
+          .toList();
       await refreshExtensions();
-      state = state.copyWith(isLoading: false, error: state.error);
+      final refreshError = state.error;
+      state = state.copyWith(
+        isLoading: false,
+        error:
+            refreshError ?? (loadErrors.isEmpty ? null : loadErrors.join('\n')),
+      );
+      // Native loading can succeed overall while individual packages fail.
+      // Keep working extensions usable, but do not treat an unreadable install
+      // directory as an empty, successfully initialized extension system.
+      return refreshError == null &&
+          (loadErrors.isEmpty || state.extensions.isNotEmpty);
     } catch (e) {
       _log.e('Failed to load extensions: $e');
       state = state.copyWith(isLoading: false, error: e.toString());
+      return false;
     }
   }
 

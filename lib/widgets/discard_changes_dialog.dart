@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
 
 /// Shared discard-unsaved-changes confirmation dialog used by priority /
@@ -7,17 +8,20 @@ Future<bool> showDiscardChangesDialog(
   BuildContext context, {
   String? content,
 }) async {
-  final result = await showDialog<bool>(
+  final result = await showAppDialog<bool>(
     context: context,
-    builder: (context) => AlertDialog(
+    builder: (context) => AppAlertDialog(
       title: Text(context.l10n.dialogDiscardChanges),
       content: Text(content ?? context.l10n.dialogUnsavedChanges),
       actions: [
-        TextButton(
+        AppDialogAction(
+          isDefault: true,
           onPressed: () => Navigator.pop(context, false),
           child: Text(context.l10n.dialogCancel),
         ),
-        FilledButton(
+        AppDialogAction(
+          filled: true,
+          isDestructive: true,
           onPressed: () => Navigator.pop(context, true),
           child: Text(context.l10n.dialogDiscard),
         ),

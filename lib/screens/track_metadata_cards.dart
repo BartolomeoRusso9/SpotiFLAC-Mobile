@@ -308,10 +308,9 @@ extension _TrackMetadataCards on _TrackMetadataScreenState {
     ColorScheme colorScheme,
     int? fileSize,
   ) {
-    return Card(
-      elevation: 0,
-      color: settingsGroupColor(context),
-      shape: _sectionCardShape(colorScheme),
+    return _metadataSectionSurface(
+      context,
+      colorScheme,
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -319,13 +318,19 @@ extension _TrackMetadataCards on _TrackMetadataScreenState {
           children: [
             Row(
               children: [
-                Icon(Icons.info_outline, size: 20, color: colorScheme.primary),
+                Icon(
+                  context.isMornye ? CupertinoIcons.info : Icons.info_outline,
+                  size: 20,
+                  color: colorScheme.primary,
+                ),
                 const SizedBox(width: 8),
-                Text(
-                  context.l10n.trackMetadata,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: colorScheme.onSurface,
+                Expanded(
+                  child: Text(
+                    context.l10n.trackMetadata,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: colorScheme.onSurface,
+                    ),
                   ),
                 ),
               ],
@@ -364,6 +369,13 @@ extension _TrackMetadataCards on _TrackMetadataScreenState {
                     buttonLabel = context.l10n.trackOpenInService('Qobuz');
                   } else {
                     buttonLabel = context.l10n.trackOpenInSpotify;
+                  }
+                  if (context.isMornye) {
+                    return HeaderFilledButton(
+                      icon: CupertinoIcons.arrow_up_right_square,
+                      label: buttonLabel,
+                      onPressed: () => _openServiceUrl(context),
+                    );
                   }
                   return OutlinedButton.icon(
                     onPressed: () => _openServiceUrl(context),
@@ -578,6 +590,28 @@ extension _TrackMetadataCards on _TrackMetadataScreenState {
             metadata.label == 'Amazon ASIN' ||
             metadata.label == 'Tidal ID' ||
             metadata.label == 'Qobuz ID';
+        if (context.isMornye) {
+          return MornyeMetadataRow(
+            label: metadata.label,
+            value: metadata.value,
+            showDivider: metadata != items.last,
+            trailing: isCopyable
+                ? Icon(
+                    CupertinoIcons.doc_on_doc,
+                    size: 16,
+                    color: colorScheme.onSurfaceVariant,
+                  )
+                : null,
+            onTap: isCopyable
+                ? () => _copyToClipboard(context, metadata.rawValue)
+                : null,
+            onLongPress: () => _showMetadataCopySheet(
+              context,
+              metadata: metadata,
+              allMetadata: items,
+            ),
+          );
+        }
         return InkWell(
           onTap: isCopyable
               ? () => _copyToClipboard(context, metadata.rawValue)
@@ -719,10 +753,9 @@ extension _TrackMetadataCards on _TrackMetadataScreenState {
     final resolvedQuality = _displayAudioQuality;
     final lossyBitrateLabel = _extractLossyBitrateLabel(resolvedQuality);
 
-    return Card(
-      elevation: 0,
-      color: settingsGroupColor(context),
-      shape: _sectionCardShape(colorScheme),
+    return _metadataSectionSurface(
+      context,
+      colorScheme,
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -731,16 +764,20 @@ extension _TrackMetadataCards on _TrackMetadataScreenState {
             Row(
               children: [
                 Icon(
-                  Icons.folder_outlined,
+                  context.isMornye
+                      ? CupertinoIcons.folder
+                      : Icons.folder_outlined,
                   size: 20,
                   color: colorScheme.primary,
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  context.l10n.trackFileInfo,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: colorScheme.onSurface,
+                Expanded(
+                  child: Text(
+                    context.l10n.trackFileInfo,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: colorScheme.onSurface,
+                    ),
                   ),
                 ),
               ],
@@ -933,7 +970,7 @@ extension _TrackMetadataCards on _TrackMetadataScreenState {
                     ),
                     const SizedBox(width: 8),
                     Icon(
-                      Icons.copy,
+                      context.isMornye ? CupertinoIcons.doc_on_doc : Icons.copy,
                       size: 18,
                       color: colorScheme.onSurfaceVariant,
                     ),

@@ -272,7 +272,12 @@ class _TrackItemWithStatus extends ConsumerWidget {
           splashColor: colorScheme.primary.withValues(alpha: 0.12),
           highlightColor: colorScheme.primary.withValues(alpha: 0.08),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+            padding: EdgeInsets.fromLTRB(
+              12,
+              context.isMornye ? 12 : 10,
+              6,
+              context.isMornye ? 12 : 10,
+            ),
             child: Row(
               children: [
                 Semantics(
@@ -314,7 +319,9 @@ class _TrackItemWithStatus extends ConsumerWidget {
                       Text(
                         track.name,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w500,
+                          fontWeight: context.isMornye
+                              ? FontWeight.w600
+                              : FontWeight.w500,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -485,7 +492,10 @@ class _CollectionItemWidget extends StatelessWidget {
           splashColor: colorScheme.primary.withValues(alpha: 0.12),
           highlightColor: colorScheme.primary.withValues(alpha: 0.08),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: context.isMornye ? 12 : 10,
+            ),
             child: Row(
               children: [
                 cover,
@@ -497,7 +507,9 @@ class _CollectionItemWidget extends StatelessWidget {
                       Text(
                         item.name,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w500,
+                          fontWeight: context.isMornye
+                              ? FontWeight.w600
+                              : FontWeight.w500,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -521,9 +533,11 @@ class _CollectionItemWidget extends StatelessWidget {
                   ),
                 ),
                 Icon(
-                  Icons.chevron_right,
+                  context.isMornye
+                      ? mornyeIconFor(Icons.chevron_right)
+                      : Icons.chevron_right,
                   color: colorScheme.onSurfaceVariant,
-                  size: 24,
+                  size: context.isMornye ? 18 : 24,
                 ),
               ],
             ),
@@ -686,6 +700,8 @@ class _LoadingOrErrorScaffold extends StatelessWidget {
   final String? error;
   final Widget loadingBody;
   final VoidCallback onRetry;
+  final bool collectionHeader;
+  final String? coverUrl;
 
   const _LoadingOrErrorScaffold({
     required this.title,
@@ -693,13 +709,62 @@ class _LoadingOrErrorScaffold extends StatelessWidget {
     required this.error,
     required this.loadingBody,
     required this.onRetry,
+    this.collectionHeader = false,
+    this.coverUrl,
   });
 
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
+      if (context.isMornye && collectionHeader) {
+        return MornyeArtistSurface(
+          imageSource: coverUrl,
+          neutralActions: true,
+          child: Builder(
+            builder: (context) => Scaffold(
+              extendBodyBehindAppBar: true,
+              appBar: AppBar(
+                backgroundColor: Colors.transparent,
+                surfaceTintColor: Colors.transparent,
+                elevation: 0,
+                leadingWidth: 68,
+                leading: Padding(
+                  padding: const EdgeInsets.only(left: 12),
+                  child: HeaderCircleButton(
+                    icon: Icons.arrow_back,
+                    tooltip: MaterialLocalizations.of(
+                      context,
+                    ).backButtonTooltip,
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ),
+              ),
+              body: MediaQuery.removePadding(
+                context: context,
+                removeTop: true,
+                child: loadingBody,
+              ),
+            ),
+          ),
+        );
+      }
       return Scaffold(
-        appBar: AppBar(title: Text(title)),
+        appBar: AppBar(
+          title: Text(title),
+          leadingWidth: context.isMornye ? 68 : null,
+          leading: context.isMornye
+              ? Padding(
+                  padding: const EdgeInsets.only(left: 12),
+                  child: HeaderCircleButton(
+                    icon: Icons.arrow_back,
+                    tooltip: MaterialLocalizations.of(
+                      context,
+                    ).backButtonTooltip,
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                )
+              : null,
+        ),
         body: loadingBody,
       );
     }
@@ -780,6 +845,52 @@ class _ArtistLoadingScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (context.isMornye) {
+      return MornyeArtistSurface(
+        imageSource: coverUrl,
+        child: Builder(
+          builder: (context) => Scaffold(
+            body: CustomScrollView(
+              slivers: [
+                ...MornyeArtistHeader(
+                  name: artistName,
+                  showTitle: false,
+                  artwork: coverUrl != null && coverUrl!.isNotEmpty
+                      ? CachedCoverImage(
+                          imageUrl: coverUrl!,
+                          fit: BoxFit.cover,
+                          alignment: Alignment.topCenter,
+                          memCacheWidth: 800,
+                        )
+                      : const ShimmerLoading(
+                          child: SkeletonBox(
+                            width: double.infinity,
+                            height: 342,
+                            borderRadius: 0,
+                          ),
+                        ),
+                  actions: const [
+                    ShimmerLoading(
+                      child: Row(
+                        spacing: 24,
+                        children: [
+                          SkeletonBox(width: 44, height: 44, borderRadius: 22),
+                          SkeletonBox(width: 60, height: 60, borderRadius: 30),
+                          SkeletonBox(width: 44, height: 44, borderRadius: 22),
+                        ],
+                      ),
+                    ),
+                  ],
+                ).buildSlivers(context),
+                const SliverToBoxAdapter(
+                  child: ArtistScreenSkeleton(showCoverHeader: false),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     final colorScheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final edgeInset = detailHeaderEdgeInset(context);
@@ -1039,6 +1150,8 @@ class _ExtensionAlbumScreenState extends ConsumerState<ExtensionAlbumScreen> {
     if (_isLoading || _error != null) {
       return _LoadingOrErrorScaffold(
         title: widget.albumName,
+        collectionHeader: true,
+        coverUrl: widget.coverUrl,
         isLoading: _isLoading,
         error: _error,
         loadingBody: const AlbumTrackListSkeleton(
@@ -1173,6 +1286,8 @@ class _ExtensionPlaylistScreenState
       return SkeletonCrossfade(
         child: _LoadingOrErrorScaffold(
           title: widget.playlistName,
+          collectionHeader: true,
+          coverUrl: widget.coverUrl,
           isLoading: _isLoading,
           error: _error,
           loadingBody: const TrackListSkeleton(
@@ -1302,7 +1417,7 @@ class _ExtensionArtistScreenState extends ConsumerState<ExtensionArtistScreen>
       name: (data['name'] ?? '').toString(),
       artists: (data['artists'] ?? '').toString(),
       releaseDate: (data['release_date'] ?? '').toString(),
-      totalTracks: data['total_tracks'] as int? ?? 0,
+      totalTracks: int.tryParse(data['total_tracks']?.toString() ?? '') ?? 0,
       coverUrl: normalizeCoverReference(data['cover_url']?.toString()),
       albumType: (data['album_type'] ?? 'album').toString(),
       providerId: (data['provider_id'] ?? widget.extensionId).toString(),

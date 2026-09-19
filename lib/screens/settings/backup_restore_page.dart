@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart' show ShareParams, SharePlus, XFile;
 import 'package:spotiflac_android/l10n/l10n.dart';
@@ -176,11 +177,11 @@ class _BackupRestorePageState extends ConsumerState<BackupRestorePage> {
 
   Future<bool?> _confirmRestore(BackupBundle bundle) {
     final l10n = context.l10n;
-    return showDialog<bool>(
+    return showAppDialog<bool>(
       context: context,
       builder: (dialogContext) {
         final theme = Theme.of(dialogContext);
-        return AlertDialog(
+        return AppAlertDialog(
           title: Text(l10n.backupRestoreConfirmTitle),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -233,11 +234,14 @@ class _BackupRestorePageState extends ConsumerState<BackupRestorePage> {
             ],
           ),
           actions: [
-            TextButton(
+            AppDialogAction(
+              isDefault: true,
               onPressed: () => Navigator.of(dialogContext).pop(false),
               child: Text(l10n.dialogCancel),
             ),
-            FilledButton(
+            AppDialogAction(
+              filled: true,
+              isDestructive: true,
               onPressed: () => Navigator.of(dialogContext).pop(true),
               child: Text(l10n.backupRestoreConfirmButton),
             ),

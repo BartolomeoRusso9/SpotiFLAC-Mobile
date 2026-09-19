@@ -97,7 +97,9 @@ class _MotionHeaderBannerState extends State<MotionHeaderBanner>
 
     final controller = VideoPlayerController.networkUrl(
       Uri.parse(url),
-      formatHint: VideoFormat.hls,
+      formatHint: Uri.parse(url).path.toLowerCase().endsWith('.m3u8')
+          ? VideoFormat.hls
+          : null,
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
     );
     _controller = controller;

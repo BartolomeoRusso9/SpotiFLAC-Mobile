@@ -77,16 +77,21 @@ class LibraryDatabase {
         columns: ['id', 'path'],
         where: localSources,
       );
+      final localSourceIds = sources.map((source) => source['id']).toSet();
       final rows = await txn.query(
         'library',
-        columns: ['id', 'file_path', 'cover_path'],
-        where:
-            'source_id IN (SELECT id FROM library_sources WHERE $localSources)',
+        columns: ['id', 'source_id', 'file_path', 'cover_path'],
       );
       final batch = txn.batch();
       for (final row in rows) {
         final updates = <String, Object?>{};
         for (final column in ['file_path', 'cover_path']) {
+          // Bookmarks own external audio paths, but extracted covers always
+          // live in our sandbox, including covers from bookmarked folders.
+          if (column == 'file_path' &&
+              !localSourceIds.contains(row['source_id'])) {
+            continue;
+          }
           final previous = row[column] as String?;
           if (previous == null) continue;
           final current = rebaseIosSandboxPath(previous, documents.path);

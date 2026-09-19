@@ -148,7 +148,7 @@ class _CrossExtensionShareTile extends StatelessWidget {
     final url = result.url;
     final hasUrl = result.found && url != null && url.isNotEmpty;
 
-    final tile = ListTile(
+    final tile = AppSheetOption(
       contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
       leading: Container(
         width: 44,

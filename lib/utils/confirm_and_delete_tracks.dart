@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
 
 /// Shows a delete-confirmation dialog, deletes the given [ids] one by one via
 /// [deleteItem], then shows a "deleted N tracks" snackbar.
@@ -17,17 +18,20 @@ Future<int?> confirmAndDeleteTracks({
   Future<void> Function(List<String> ids)? persistDeletedItems,
   required VoidCallback onExitSelectionMode,
 }) async {
-  final confirmed = await showDialog<bool>(
+  final confirmed = await showAppDialog<bool>(
     context: context,
-    builder: (ctx) => AlertDialog(
+    builder: (ctx) => AppAlertDialog(
       title: Text(context.l10n.downloadedAlbumDeleteSelected),
       content: Text(context.l10n.downloadedAlbumDeleteMessage(ids.length)),
       actions: [
-        TextButton(
+        AppDialogAction(
+          isDefault: true,
           onPressed: () => Navigator.pop(ctx, false),
           child: Text(context.l10n.dialogCancel),
         ),
-        FilledButton(
+        AppDialogAction(
+          filled: true,
+          isDestructive: true,
           onPressed: () => Navigator.pop(ctx, true),
           style: FilledButton.styleFrom(
             backgroundColor: Theme.of(context).colorScheme.error,

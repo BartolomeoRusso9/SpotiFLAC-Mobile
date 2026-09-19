@@ -1,11 +1,17 @@
 import 'dart:io';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/models/track.dart';
 import 'package:spotiflac_android/providers/library_collections_provider.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/widgets/app_action_button.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
+import 'package:spotiflac_android/widgets/app_bottom_sheet.dart';
 import 'package:spotiflac_android/widgets/cached_cover_image.dart';
+import 'package:spotiflac_android/widgets/mornye_chrome.dart';
 
 Future<void> showAddTrackToPlaylistSheet(
   BuildContext context,
@@ -28,13 +34,17 @@ Future<void> showAddTracksToPlaylistSheet(
   await showModalBottomSheet<void>(
     context: context,
     useRootNavigator: true,
-    showDragHandle: true,
+    showDragHandle: !context.isMornye,
+    backgroundColor: context.isMornye ? Colors.transparent : null,
     isScrollControlled: true,
     builder: (sheetContext) {
-      return _PlaylistPickerSheetContent(
+      final content = _PlaylistPickerSheetContent(
         tracks: tracks,
         playlistNamePrefill: playlistNamePrefill,
       );
+      return sheetContext.isMornye
+          ? MornyeGlassPanel(tintOpacity: 0.78, child: content)
+          : content;
     },
   );
 }
@@ -111,8 +121,7 @@ class _PlaylistPickerSheetContentState
       final track = widget.tracks.first;
       subtitle = '${track.name} • ${track.artistName}';
     } else {
-      subtitle =
-          '${widget.tracks.length} ${widget.tracks.length == 1 ? 'track' : 'tracks'}';
+      subtitle = context.l10n.tracksCount(widget.tracks.length);
     }
 
     final resolvedPlaylists = playlistSummariesValue.asData?.value ?? const [];
@@ -124,18 +133,59 @@ class _PlaylistPickerSheetContentState
     final idsToAdd = _selectedPlaylistIds.difference(effectiveDisabledIds);
     final hasNewSelections = idsToAdd.isNotEmpty;
 
+    void onDone() {
+      if (hasNewSelections) {
+        _handleDone(resolvedPlaylists);
+      } else {
+        Navigator.of(context).pop();
+      }
+    }
+
     return SafeArea(
+      top: false,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          ListTile(
-            leading: const Icon(Icons.playlist_add),
-            title: Text(context.l10n.collectionAddToPlaylist),
-            subtitle: Text(subtitle),
-          ),
+          if (context.isMornye) ...[
+            const AppSheetHandle(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+              child: SizedBox(
+                width: double.infinity,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      context.l10n.collectionAddToPlaylist,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ] else
+            ListTile(
+              leading: const Icon(Icons.playlist_add),
+              title: Text(context.l10n.collectionAddToPlaylist),
+              subtitle: Text(subtitle),
+            ),
           const Divider(height: 1),
-          ListTile(
-            leading: const Icon(Icons.add_circle_outline),
+          _PlaylistPickerRow(
+            leading: Icon(
+              context.isMornye
+                  ? CupertinoIcons.add_circled
+                  : Icons.add_circle_outline,
+              color: Theme.of(context).colorScheme.primary,
+            ),
             title: Text(context.l10n.collectionCreatePlaylist),
             onTap: () async {
               final name = await _promptPlaylistName(
@@ -147,6 +197,7 @@ class _PlaylistPickerSheetContentState
               }
               final playlistId = await notifier.createPlaylist(name.trim());
               await notifier.addTracksToPlaylist(playlistId, widget.tracks);
+              if (!mounted) return;
               setState(() {
                 _committedPlaylistIds.add(playlistId);
                 _selectedPlaylistIds.remove(playlistId);
@@ -188,10 +239,10 @@ class _PlaylistPickerSheetContentState
                           _selectedPlaylistIds.contains(playlist.id) ||
                           isAlreadyIn;
 
-                      return ListTile(
+                      return _PlaylistPickerRow(
                         leading: _PlaylistPickerThumbnail(
                           playlist: playlist,
-                          isSelected: isSelected,
+                          isSelected: !context.isMornye && isSelected,
                         ),
                         title: Text(playlist.name),
                         subtitle: Text(
@@ -200,6 +251,7 @@ class _PlaylistPickerSheetContentState
                           ),
                         ),
                         enabled: !isAlreadyIn,
+                        selected: isSelected,
                         onTap: !isAlreadyIn
                             ? () {
                                 setState(() {
@@ -241,16 +293,16 @@ class _PlaylistPickerSheetContentState
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
             child: SizedBox(
               width: double.infinity,
-              child: FilledButton(
-                onPressed: () {
-                  if (hasNewSelections) {
-                    _handleDone(resolvedPlaylists);
-                  } else {
-                    Navigator.of(context).pop();
-                  }
-                },
-                child: Text(context.l10n.dialogDone),
-              ),
+              child: context.isMornye
+                  ? AppActionButton(
+                      onPressed: onDone,
+                      icon: const Icon(CupertinoIcons.checkmark),
+                      label: Text(context.l10n.dialogDone),
+                    )
+                  : FilledButton(
+                      onPressed: onDone,
+                      child: Text(context.l10n.dialogDone),
+                    ),
             ),
           ),
         ],
@@ -266,10 +318,10 @@ Future<String?> _promptPlaylistName(
   final controller = TextEditingController(text: playlistNamePrefill);
   final formKey = GlobalKey<FormState>();
 
-  final result = await showDialog<String>(
+  final result = await showAppDialog<String>(
     context: context,
     builder: (dialogContext) {
-      return AlertDialog(
+      return AppAlertDialog(
         title: Text(dialogContext.l10n.collectionCreatePlaylist),
         content: Form(
           key: formKey,
@@ -294,11 +346,13 @@ Future<String?> _promptPlaylistName(
           ),
         ),
         actions: [
-          TextButton(
+          AppDialogAction(
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: Text(dialogContext.l10n.dialogCancel),
           ),
-          FilledButton(
+          AppDialogAction(
+            filled: true,
+            isDefault: true,
             onPressed: () {
               if (formKey.currentState?.validate() != true) return;
               Navigator.of(dialogContext).pop(controller.text.trim());
@@ -311,6 +365,92 @@ Future<String?> _promptPlaylistName(
   );
 
   return result;
+}
+
+class _PlaylistPickerRow extends StatelessWidget {
+  const _PlaylistPickerRow({
+    required this.leading,
+    required this.title,
+    this.subtitle,
+    this.enabled = true,
+    this.selected,
+    this.onTap,
+  });
+
+  final Widget leading;
+  final Widget title;
+  final Widget? subtitle;
+  final bool enabled;
+  final bool? selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!context.isMornye) {
+      return ListTile(
+        leading: leading,
+        title: title,
+        subtitle: subtitle,
+        enabled: enabled,
+        onTap: onTap,
+      );
+    }
+    final theme = Theme.of(context);
+    return Semantics(
+      selected: selected,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CupertinoButton(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            onPressed: enabled ? onTap : null,
+            child: Opacity(
+              opacity: enabled ? 1 : 0.5,
+              child: Row(
+                children: [
+                  leading,
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        DefaultTextStyle(
+                          style: theme.textTheme.bodyLarge!,
+                          child: title,
+                        ),
+                        if (subtitle != null) ...[
+                          const SizedBox(height: 3),
+                          DefaultTextStyle(
+                            style: theme.textTheme.bodyMedium!.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                            child: subtitle!,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (selected != null) ...[
+                    const SizedBox(width: 14),
+                    Icon(
+                      selected!
+                          ? CupertinoIcons.checkmark_circle_fill
+                          : CupertinoIcons.circle,
+                      size: 24,
+                      color: selected!
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const Divider(height: 0.5, thickness: 0.5, indent: 20, endIndent: 20),
+        ],
+      ),
+    );
+  }
 }
 
 class _PlaylistPickerThumbnail extends StatelessWidget {
@@ -383,7 +523,7 @@ class _PlaylistPickerThumbnail extends StatelessWidget {
         cacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).round(),
         cacheHeight: (size * MediaQuery.devicePixelRatioOf(context)).round(),
         filterQuality: FilterQuality.low,
-        errorBuilder: (_, _, _) => _iconFallback(colorScheme, size),
+        errorBuilder: (_, _, _) => _iconFallback(context, colorScheme, size),
       );
     }
 
@@ -394,14 +534,18 @@ class _PlaylistPickerThumbnail extends StatelessWidget {
         width: size,
         height: size,
         networkCacheWidth: (size * 2).toInt(),
-        placeholder: (_) => _iconFallback(colorScheme, size),
+        placeholder: (_) => _iconFallback(context, colorScheme, size),
       );
     }
 
-    return _iconFallback(colorScheme, size);
+    return _iconFallback(context, colorScheme, size);
   }
 
-  Widget _iconFallback(ColorScheme colorScheme, double size) {
+  Widget _iconFallback(
+    BuildContext context,
+    ColorScheme colorScheme,
+    double size,
+  ) {
     return Container(
       width: size,
       height: size,
@@ -409,7 +553,10 @@ class _PlaylistPickerThumbnail extends StatelessWidget {
         color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Icon(Icons.queue_music, color: colorScheme.onSurfaceVariant),
+      child: Icon(
+        context.isMornye ? CupertinoIcons.music_note_list : Icons.queue_music,
+        color: colorScheme.onSurfaceVariant,
+      ),
     );
   }
 }

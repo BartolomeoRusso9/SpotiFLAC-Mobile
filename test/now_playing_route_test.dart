@@ -1,0 +1,166 @@
+import 'dart:ui' as ui;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:spotiflac_android/l10n/l10n.dart';
+import 'package:spotiflac_android/providers/music_player_provider.dart';
+import 'package:spotiflac_android/screens/now_playing_screen.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+
+const _sheet = Key('player-sheet');
+
+class _TestPlayerRoute extends NowPlayingRoute {
+  @override
+  Widget buildPage(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+  ) => const ColoredBox(key: _sheet, color: Colors.black);
+}
+
+void main() {
+  for (final brightness in Brightness.values) {
+    testWidgets(
+      'player fills safe areas and reveals the page only when dragged in $brightness',
+      (tester) async {
+        tester.view.physicalSize = const Size(393, 852);
+        tester.view.devicePixelRatio = 1;
+        tester.view.padding = FakeViewPadding(top: 59, bottom: 34);
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(tester.view.resetPadding);
+        final navigator = GlobalKey<NavigatorState>();
+        final capture = GlobalKey();
+        const background = Color(0xffff00ff);
+        final theme = MornyeTheme.build(brightness);
+        final playerBackground = theme.colorScheme.surface;
+        await tester.pumpWidget(
+          RepaintBoundary(
+            key: capture,
+            child: ProviderScope(
+              overrides: [
+                currentMediaItemProvider.overrideWith(
+                  (ref) => Stream.value(null),
+                ),
+              ],
+              child: MaterialApp(
+                navigatorKey: navigator,
+                theme: theme,
+                localizationsDelegates: AppLocalizations.localizationsDelegates,
+                supportedLocales: AppLocalizations.supportedLocales,
+                home: ColoredBox(
+                  color: background,
+                  child: const SizedBox.expand(),
+                ),
+              ),
+            ),
+          ),
+        );
+        final route = NowPlayingRoute();
+        navigator.currentState!.push(route);
+        await tester.pumpAndSettle();
+
+        Future<void> expectColorAt(int x, int y, Color expected) async {
+          final pixel = await tester.runAsync(() async {
+            final boundary = tester.renderObject<RenderRepaintBoundary>(
+              find.byKey(capture),
+            );
+            final image = await boundary.toImage();
+            final bytes = (await image.toByteData(
+              format: ui.ImageByteFormat.rawRgba,
+            ))!;
+            final offset = (y * image.width + x) * 4;
+            final color = Color.fromARGB(
+              bytes.getUint8(offset + 3),
+              bytes.getUint8(offset),
+              bytes.getUint8(offset + 1),
+              bytes.getUint8(offset + 2),
+            );
+            image.dispose();
+            return color;
+          });
+          expect(pixel, expected);
+        }
+
+        await expectColorAt(196, 30, playerBackground);
+        await expectColorAt(1, 1, playerBackground);
+        await expectColorAt(196, 840, playerBackground);
+        expect(tester.getTopLeft(find.byType(AppBar).last).dy, 0);
+        expect(
+          tester.getTopLeft(find.byIcon(Icons.keyboard_arrow_down)).dy,
+          greaterThanOrEqualTo(59),
+        );
+        route.startDrag();
+        route.updateDrag(
+          DragUpdateDetails(
+            globalPosition: const Offset(0, 213),
+            delta: const Offset(0, 213),
+            primaryDelta: 213,
+          ),
+          852,
+        );
+        await tester.pump();
+        await expectColorAt(196, 100, background);
+        await expectColorAt(196, 243, playerBackground);
+        route.cancelDrag();
+        await tester.pumpAndSettle();
+        await expectColorAt(196, 30, playerBackground);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  for (final dismiss in [false, true]) {
+    testWidgets('Player drag settles without a position jump (pop: $dismiss)', (
+      tester,
+    ) async {
+      final navigator = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        MaterialApp(navigatorKey: navigator, home: const SizedBox()),
+      );
+      final route = _TestPlayerRoute();
+      navigator.currentState!.push(route);
+      await tester.pumpAndSettle();
+      final height = tester.getSize(find.byKey(_sheet)).height;
+
+      route.startDrag();
+      route.updateDrag(
+        DragUpdateDetails(
+          globalPosition: Offset(0, height * 0.4),
+          primaryDelta: height * 0.4,
+          delta: Offset(0, height * 0.4),
+        ),
+        height,
+      );
+      await tester.pump();
+      final releasedTop = tester.getTopLeft(find.byKey(_sheet)).dy;
+      if (dismiss) {
+        route.endDrag(DragEndDetails(primaryVelocity: 0), height);
+      } else {
+        route.cancelDrag();
+      }
+      await tester.pump();
+      expect(
+        tester.getTopLeft(find.byKey(_sheet)).dy,
+        closeTo(releasedTop, 0.1),
+      );
+
+      var previousTop = releasedTop;
+      for (var frame = 0; frame < 5; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        final top = tester.getTopLeft(find.byKey(_sheet)).dy;
+        expect(top, dismiss ? greaterThan(previousTop) : lessThan(previousTop));
+        previousTop = top;
+      }
+      await tester.pumpAndSettle();
+      if (dismiss) {
+        expect(find.byKey(_sheet), findsNothing);
+      } else {
+        expect(tester.getTopLeft(find.byKey(_sheet)).dy, 0);
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+}

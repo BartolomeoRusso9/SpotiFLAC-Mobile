@@ -7,10 +7,14 @@ import 'package:spotiflac_android/services/discord_presence_service.dart';
 import 'package:audio_session/audio_session.dart'
     show AudioSession, AudioSessionConfiguration, AudioInterruptionType;
 import 'package:audioplayers/audioplayers.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:spotiflac_android/services/app_state_database.dart';
+import 'package:spotiflac_android/services/library_database.dart';
 import 'package:spotiflac_android/services/platform_bridge.dart';
 import 'package:spotiflac_android/services/playback_normalization.dart';
 import 'package:spotiflac_android/utils/int_utils.dart';
+import 'package:spotiflac_android/utils/ios_container_paths.dart';
+import 'package:spotiflac_android/utils/playback_artwork.dart';
 import 'package:spotiflac_android/utils/logger.dart';
 import 'package:spotiflac_android/utils/string_utils.dart';
 
@@ -117,20 +121,36 @@ class PlayableMedia {
     if (explicit) 'explicit': true,
   };
 
-  static PlayableMedia? fromJson(Map<String, dynamic> json) {
+  static PlayableMedia? fromJson(
+    Map<String, dynamic> json, {
+    String? iosDocumentsPath,
+  }) {
     final id = json['id'] as String?;
     final source = json['source'] as String?;
     if (id == null || id.isEmpty || source == null || source.isEmpty) {
       return null;
     }
     final durationMs = (json['durationMs'] as num?)?.toInt();
+    var artwork = json['artUri'] as String?;
+    if (artwork != null && iosDocumentsPath != null) {
+      final uri = Uri.tryParse(artwork);
+      if (uri != null && uri.scheme == 'file' && uri.host.isEmpty) {
+        try {
+          final path = uri.toFilePath();
+          final rebased = rebaseIosSandboxPath(path, iosDocumentsPath);
+          if (rebased != path) artwork = Uri.file(rebased).toString();
+        } on UnsupportedError {
+          // Leave malformed or non-local artwork URIs to the image fallback.
+        }
+      }
+    }
     return PlayableMedia(
       id: id,
       source: source,
       title: json['title'] as String? ?? '',
       artist: json['artist'] as String? ?? '',
       album: json['album'] as String? ?? '',
-      artUri: json['artUri'] as String?,
+      artUri: artwork,
       duration: (durationMs != null && durationMs > 0)
           ? Duration(milliseconds: durationMs)
           : null,
@@ -1571,15 +1591,45 @@ Future<void> restorePersistedPlaybackSession() async {
 
     final items = <PlayableMedia>[];
     final keptOriginalIndices = <int>[];
+    final iosDocumentsPath = Platform.isIOS
+        ? (await getApplicationDocumentsDirectory()).path
+        : null;
+    var artworkRelocated = false;
     for (var i = 0; i < rawMedia.length; i++) {
       final entry = rawMedia[i];
       if (entry is! Map) continue;
-      final media = PlayableMedia.fromJson(Map<String, dynamic>.from(entry));
+      final media = PlayableMedia.fromJson(
+        Map<String, dynamic>.from(entry),
+        iosDocumentsPath: iosDocumentsPath,
+      );
       if (media == null) continue;
       if (!media.isContentUri && !await File(media.source).exists()) {
         continue;
       }
-      items.add(media);
+      final artwork = await resolveRestoredArtworkUri(
+        media.artUri,
+        loadLibraryCoverPath: () async {
+          final database = LibraryDatabase.instance;
+          final row = await database.getById(media.id);
+          if (row != null) return row['coverPath'] as String?;
+          final matches = await database.findByTrackAndArtist(
+            media.title,
+            media.artist,
+          );
+          for (final row in matches) {
+            if (row['filePath'] == media.source) {
+              return row['coverPath'] as String?;
+            }
+          }
+          return null;
+        },
+      );
+      items.add(
+        artwork == media.artUri
+            ? media
+            : PlayableMedia.fromJson({...media.toJson(), 'artUri': artwork})!,
+      );
+      artworkRelocated |= artwork != entry['artUri'];
       keptOriginalIndices.add(i);
     }
     if (items.isEmpty) {
@@ -1607,7 +1657,7 @@ Future<void> restorePersistedPlaybackSession() async {
       index: index,
       position: position,
       shuffle: session['shuffle'] == true,
-      queueNeedsRewrite: items.length != rawMedia.length,
+      queueNeedsRewrite: items.length != rawMedia.length || artworkRelocated,
       repeatMode: AudioServiceRepeatMode.values.firstWhere(
         (mode) => mode.name == session['repeat'],
         orElse: () => AudioServiceRepeatMode.none,

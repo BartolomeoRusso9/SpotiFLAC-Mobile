@@ -140,7 +140,7 @@ class _OpenOnPlatformSheetState extends State<OpenOnPlatformSheet> {
               SettingsGroup(
                 children: [
                   for (final entry in entries)
-                    ListTile(
+                    AppSheetOption(
                       title: Text(_displayName(entry.key)),
                       trailing: Icon(
                         Icons.open_in_new,

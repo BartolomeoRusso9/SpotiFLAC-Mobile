@@ -6,14 +6,17 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:analyzer/source/line_info.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:spotiflac_android/l10n/app_localizations.dart';
 import 'package:spotiflac_android/theme/app_theme.dart';
 import 'package:spotiflac_android/theme/app_tokens.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/theme/cover_palette.dart';
 import 'package:spotiflac_android/widgets/app_bottom_sheet.dart';
 import 'package:spotiflac_android/widgets/album_detail_header.dart';
 import 'package:spotiflac_android/widgets/app_search_field.dart';
+import 'package:spotiflac_android/widgets/mornye_chrome.dart';
 import 'package:spotiflac_android/widgets/app_sliver_header.dart';
 import 'package:spotiflac_android/widgets/collection_scaffold.dart';
 import 'package:spotiflac_android/widgets/selection_action_button.dart';
@@ -77,7 +80,42 @@ void main() {
         AppTheme.dark(isAmoled: true).extension<AppTokens>(),
         AppTokens.standard,
       );
+      expect(
+        MornyeTheme.build(Brightness.light).extension<AppTokens>(),
+        MornyeTheme.tokens,
+      );
+      expect(
+        MornyeTheme.build(Brightness.dark).colorScheme.primary,
+        MornyeTheme.darkAccent,
+      );
     });
+
+    testWidgets(
+      'Mornye keeps a font family and Cupertino tracking in text roles',
+      (tester) async {
+        final theme = MornyeTheme.build(Brightness.light);
+        final apple = theme.platform == TargetPlatform.iOS;
+        for (final role in [
+          theme.textTheme.bodyLarge,
+          theme.textTheme.bodyMedium,
+          theme.textTheme.titleMedium,
+          theme.textTheme.titleSmall,
+          theme.textTheme.labelLarge,
+          theme.textTheme.labelSmall,
+        ]) {
+          expect(role?.fontFamily, apple ? 'CupertinoSystemText' : 'Inter');
+          expect(role?.letterSpacing, lessThan(0));
+        }
+        expect(
+          theme.textTheme.headlineLarge?.fontFamily,
+          apple ? 'CupertinoSystemDisplay' : 'Inter',
+        );
+      },
+      variant: const TargetPlatformVariant({
+        TargetPlatform.iOS,
+        TargetPlatform.android,
+      }),
+    );
 
     testWidgets('context.tokens falls back to the standard scale', (
       tester,
@@ -185,6 +223,87 @@ void main() {
   });
 
   group('AppSearchField', () {
+    for (final direction in TextDirection.values) {
+      testWidgets(
+        'glass theme selector preserves logical selection in $direction',
+        (tester) async {
+          var selected = 0;
+          await tester.pumpWidget(
+            ProviderScope(
+              child: MaterialApp(
+                theme: MornyeTheme.build(Brightness.light),
+                home: Scaffold(
+                  body: Directionality(
+                    textDirection: direction,
+                    child: StatefulBuilder(
+                      builder: (context, setState) => MornyeSegmentedControl(
+                        labels: const ['System', 'Light', 'Dark'],
+                        selectedIndex: selected,
+                        onChanged: (index) => setState(() => selected = index),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle(const Duration(milliseconds: 16));
+          final systemX = tester.getCenter(find.text('System').first).dx;
+          final darkX = tester.getCenter(find.text('Dark').first).dx;
+          expect(systemX < darkX, direction == TextDirection.ltr);
+          // The package puts a transparent tap layer above the drawn labels.
+          await tester.tapAt(tester.getCenter(find.text('Dark').first));
+          await tester.pumpAndSettle(const Duration(milliseconds: 16));
+          expect(selected, 2);
+          await tester.tapAt(tester.getCenter(find.text('System').first));
+          await tester.pumpAndSettle(const Duration(milliseconds: 16));
+          expect(selected, 0);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+
+    testWidgets('glass search keeps text editing, submit and clear usable', (
+      tester,
+    ) async {
+      final controller = TextEditingController();
+      final changes = <String>[];
+      String? submitted;
+      var cleared = false;
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            theme: MornyeTheme.build(Brightness.dark),
+            home: Scaffold(
+              body: AppSearchField(
+                controller: controller,
+                hintText: 'Search library',
+                clearTooltip: 'Clear search',
+                onChanged: changes.add,
+                onSubmitted: (value) => submitted = value,
+                onClear: () => cleared = true,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byType(MornyeGlass), findsOneWidget);
+      await tester.tap(find.byType(TextField));
+      await tester.enterText(find.byType(TextField), 'Album');
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pump();
+      expect(changes, ['Album']);
+      expect(submitted, 'Album');
+      await tester.tap(find.byTooltip('Clear search'));
+      await tester.pump();
+      expect(controller.text, isEmpty);
+      expect(cleared, isTrue);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('uses the shared filled search style and clears input', (
       tester,
     ) async {

@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/widgets/app_snack_bar.dart';
+import 'package:spotiflac_android/widgets/app_switch.dart';
 import 'package:spotiflac_android/widgets/extension_row.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
@@ -14,6 +16,9 @@ import 'package:spotiflac_android/screens/settings/extension_detail_page.dart';
 import 'package:spotiflac_android/screens/settings/metadata_provider_priority_page.dart';
 import 'package:spotiflac_android/screens/settings/provider_priority_page.dart';
 import 'package:spotiflac_android/services/extension_storage_service.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/widgets/app_action_button.dart';
+import 'package:spotiflac_android/widgets/mornye_chrome.dart';
 import 'package:spotiflac_android/widgets/settings_group.dart';
 import 'package:spotiflac_android/widgets/app_sliver_header.dart';
 
@@ -51,6 +56,17 @@ class _ExtensionsPageState extends ConsumerState<ExtensionsPage> {
   Widget build(BuildContext context) {
     final extState = ref.watch(extensionProvider);
     final colorScheme = Theme.of(context).colorScheme;
+    final installButton = AppActionButton(
+      onPressed: _installExtension,
+      icon: const Icon(Icons.add),
+      label: Text(context.l10n.extensionsInstallButton),
+      outlined: context.isMornye,
+      glass: false,
+      style: FilledButton.styleFrom(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+    );
 
     return PopScope(
       canPop: true,
@@ -186,23 +202,19 @@ class _ExtensionsPageState extends ConsumerState<ExtensionsPage> {
                 label: context.l10n.extensionsInstallButton,
                 child: Padding(
                   padding: const EdgeInsets.all(16),
-                  child: FilledButton.icon(
-                    onPressed: _installExtension,
-                    icon: const Icon(Icons.add),
-                    label: Text(context.l10n.extensionsInstallButton),
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                  ),
+                  child: context.isMornye
+                      ? MornyeGlassPanel.overlay(
+                          radius: 28,
+                          child: installButton,
+                        )
+                      : installButton,
                 ),
               ),
             ),
 
             SliverToBoxAdapter(
               child: SettingsInfoCard(
+                glass: true,
                 icon: Icons.info_outline,
                 tone: SettingsInfoTone.warning,
                 message: context.l10n.extensionsInfoTip,
@@ -226,8 +238,9 @@ class _ExtensionsPageState extends ConsumerState<ExtensionsPage> {
     });
     if (hasInvalidFile) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.snackbarSelectExtFile)),
+        showAppSnackBar(
+          context,
+          content: Text(context.l10n.snackbarSelectExtFile),
         );
       }
       return;
@@ -265,9 +278,7 @@ class _ExtensionsPageState extends ConsumerState<ExtensionsPage> {
         final message = _getInstallResultMessage(installResult);
         ref.read(extensionProvider.notifier).clearError();
 
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(message)));
+        showAppSnackBar(context, content: Text(message));
       }
     } finally {
       try {
@@ -366,8 +377,9 @@ class _ExtensionItem extends StatelessWidget {
               : serviceHealthColor ?? colorScheme.onSurfaceVariant,
         ),
       ),
-      trailing: Switch(
+      trailing: AppSwitch(
         value: extension.enabled,
+        semanticLabel: extension.displayName,
         onChanged: hasError ? null : onToggle,
       ),
     );
@@ -411,6 +423,27 @@ class _DownloadPriorityItem extends ConsumerWidget {
     final hasDownloadExtensions = extState.extensions.any(
       (e) => e.enabled && e.hasDownloadProvider,
     );
+
+    if (context.isMornye) {
+      return Opacity(
+        opacity: hasDownloadExtensions ? 1 : 0.5,
+        child: SettingsItem(
+          icon: Icons.download,
+          title: context.l10n.extensionsDownloadPriority,
+          subtitle: hasDownloadExtensions
+              ? context.l10n.extensionsDownloadPrioritySubtitle
+              : context.l10n.extensionsNoDownloadProvider,
+          onTap: hasDownloadExtensions
+              ? () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const ProviderPriorityPage(),
+                  ),
+                )
+              : null,
+        ),
+      );
+    }
 
     final content = InkWell(
       onTap: hasDownloadExtensions
@@ -483,6 +516,27 @@ class _MetadataPriorityItem extends ConsumerWidget {
       (e) => e.enabled && e.hasMetadataProvider,
     );
 
+    if (context.isMornye) {
+      return Opacity(
+        opacity: hasMetadataExtensions ? 1 : 0.5,
+        child: SettingsItem(
+          icon: Icons.search,
+          title: context.l10n.extensionsMetadataPriority,
+          subtitle: hasMetadataExtensions
+              ? context.l10n.extensionsMetadataPrioritySubtitle
+              : context.l10n.extensionsNoMetadataProvider,
+          onTap: hasMetadataExtensions
+              ? () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const MetadataProviderPriorityPage(),
+                  ),
+                )
+              : null,
+        ),
+      );
+    }
+
     final content = InkWell(
       onTap: hasMetadataExtensions
           ? () => Navigator.push(
@@ -553,6 +607,27 @@ class _DownloadFallbackItem extends ConsumerWidget {
     final hasDownloadExtensions = extState.extensions.any(
       (e) => e.enabled && e.hasDownloadProvider,
     );
+
+    if (context.isMornye) {
+      return Opacity(
+        opacity: hasDownloadExtensions ? 1 : 0.5,
+        child: SettingsItem(
+          icon: Icons.alt_route,
+          title: context.l10n.extensionsFallbackTitle,
+          subtitle: hasDownloadExtensions
+              ? context.l10n.extensionsFallbackSubtitle
+              : context.l10n.extensionsNoDownloadProvider,
+          onTap: hasDownloadExtensions
+              ? () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const DownloadFallbackExtensionsPage(),
+                  ),
+                )
+              : null,
+        ),
+      );
+    }
 
     final content = InkWell(
       onTap: hasDownloadExtensions
@@ -638,6 +713,27 @@ class _SearchProviderSelector extends ConsumerWidget {
           .where((e) => e.id == resolvedProviderId)
           .firstOrNull;
       currentProviderName = ext?.displayName ?? resolvedProviderId;
+    }
+
+    if (context.isMornye) {
+      return Opacity(
+        opacity: hasAnyProvider ? 1 : 0.5,
+        child: SettingsItem(
+          icon: Icons.manage_search,
+          title: context.l10n.extensionsSearchProvider,
+          subtitle: hasAnyProvider
+              ? currentProviderName
+              : context.l10n.extensionsNoCustomSearch,
+          onTap: hasAnyProvider
+              ? () => _showSearchProviderPicker(
+                  context,
+                  ref,
+                  settings,
+                  searchProviders,
+                )
+              : null,
+        ),
+      );
     }
 
     final content = Column(
@@ -793,6 +889,23 @@ class _HomeFeedProviderSelector extends ConsumerWidget {
           .where((e) => e.id == settings.homeFeedProvider)
           .firstOrNull;
       currentProviderName = ext?.displayName ?? settings.homeFeedProvider!;
+    }
+
+    if (context.isMornye) {
+      return SettingsItem(
+        icon: Icons.explore_outlined,
+        title: context.l10n.extensionsHomeFeedProvider,
+        subtitle: !hasAnyProvider && !homeFeedDisabled
+            ? context.l10n.extensionsNoHomeFeedExtensions
+            : currentProviderName,
+        showDivider: false,
+        onTap: () => _showHomeFeedProviderPicker(
+          context,
+          ref,
+          settings,
+          homeFeedProviders,
+        ),
+      );
     }
 
     final content = Column(

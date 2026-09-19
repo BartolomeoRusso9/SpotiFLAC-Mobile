@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:spotiflac_android/theme/app_tokens.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/widgets/app_action_button.dart';
 
 /// Icon+label pill used in selection-mode bottom bars. Disabled state dims
 /// both the fill and the content to 50% alpha.
@@ -19,6 +21,16 @@ class SelectionActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (context.isMornye) {
+      return AppActionButton(
+        outlined: true,
+        tonal: true,
+        onPressed: onPressed,
+        icon: Icon(icon),
+        label: Text(label, maxLines: 2, overflow: TextOverflow.ellipsis),
+        fontSize: 15,
+      );
+    }
     final isDisabled = onPressed == null;
     return Semantics(
       button: true,

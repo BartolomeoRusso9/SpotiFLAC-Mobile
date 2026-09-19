@@ -42,7 +42,6 @@ extension _QueueTabFilterWidgets on _QueueTabState {
     required bool hasMoreLibrary,
     required bool isPageLoading,
     required List<DownloadHistoryItem> inMemoryHistoryItems,
-    double bottomInset = 0,
   }) {
     final historyItems = filterData.historyItems;
     final showFilteringIndicator = filterData.showFilteringIndicator;
@@ -749,7 +748,7 @@ extension _QueueTabFilterWidgets on _QueueTabState {
           SliverToBoxAdapter(
             child: SizedBox(height: _isSelectionMode ? 100 : 16),
           ),
-        SliverToBoxAdapter(child: SizedBox(height: bottomInset)),
+        const NavBarSliverSpacer(),
       ],
     );
 
@@ -777,17 +776,19 @@ extension _QueueTabFilterWidgets on _QueueTabState {
     WidgetRef ref,
     ColorScheme colorScheme,
   ) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => AppAlertDialog(
         title: Text(context.l10n.queueClearAll),
         content: Text(context.l10n.queueClearAllMessage),
         actions: [
-          TextButton(
+          AppDialogAction(
             onPressed: () => Navigator.pop(ctx, false),
             child: Text(context.l10n.dialogCancel),
           ),
-          FilledButton(
+          AppDialogAction(
+            filled: true,
+            isDestructive: true,
             onPressed: () => Navigator.pop(ctx, true),
             style: FilledButton.styleFrom(backgroundColor: colorScheme.error),
             child: Text(context.l10n.dialogClear),

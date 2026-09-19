@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/models/track.dart';
@@ -30,6 +31,8 @@ void downloadSingleTrack(
   }
 
   if (settings.askQualityBeforeDownload || forceQualityPicker) {
+    // A context menu may be disposed before the quality picker is submitted.
+    final container = ProviderScope.containerOf(context, listen: false);
     DownloadServicePicker.show(
       context,
       trackName: track.name,
@@ -37,7 +40,7 @@ void downloadSingleTrack(
       coverUrl: track.coverUrl,
       recommendedService: recommendedService,
       onSelect: (quality, service) {
-        ref
+        container
             .read(downloadQueueProvider.notifier)
             .addToQueue(
               track,
@@ -82,20 +85,19 @@ void confirmDownloadAllDialog(
   VoidCallback onConfirm,
 ) {
   if (trackCount == 0) return;
-  showDialog<void>(
+  showAppDialog<void>(
     context: context,
     builder: (dialogContext) {
-      final colorScheme = Theme.of(dialogContext).colorScheme;
-      return AlertDialog(
-        backgroundColor: colorScheme.surfaceContainerHigh,
+      return AppAlertDialog(
         title: Text(context.l10n.dialogDownloadAllTitle),
         content: Text(context.l10n.dialogDownloadAllMessage(trackCount)),
         actions: [
-          TextButton(
+          AppDialogAction(
             onPressed: () => Navigator.pop(dialogContext),
             child: Text(context.l10n.dialogCancel),
           ),
-          FilledButton(
+          AppDialogAction(
+            filled: true,
             onPressed: () {
               Navigator.pop(dialogContext);
               onConfirm();

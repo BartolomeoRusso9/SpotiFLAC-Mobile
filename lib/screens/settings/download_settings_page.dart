@@ -10,6 +10,7 @@ import 'package:spotiflac_android/utils/audio_format_utils.dart';
 import 'package:spotiflac_android/widgets/app_bottom_sheet.dart';
 import 'package:spotiflac_android/widgets/settings_group.dart';
 import 'package:spotiflac_android/widgets/app_sliver_header.dart';
+import 'package:spotiflac_android/widgets/app_search_field.dart';
 
 class DownloadSettingsPage extends ConsumerStatefulWidget {
   const DownloadSettingsPage({super.key});
@@ -403,7 +404,7 @@ class _DownloadSettingsPageState extends ConsumerState<DownloadSettingsPage> {
         mainAxisSize: MainAxisSize.min,
         children: [
           for (final format in autoConvertFormats)
-            ListTile(
+            AppSheetOption(
               leading: Icon(
                 format == 'opus'
                     ? Icons.graphic_eq
@@ -451,7 +452,7 @@ class _DownloadSettingsPageState extends ConsumerState<DownloadSettingsPage> {
         mainAxisSize: MainAxisSize.min,
         children: [
           for (final bitrate in autoConvertBitrates)
-            ListTile(
+            AppSheetOption(
               leading: const Icon(Icons.speed_outlined),
               title: Text(bitrate.replaceAll('k', ' kbps')),
               trailing: normalizedCurrent == bitrate
@@ -479,7 +480,7 @@ class _DownloadSettingsPageState extends ConsumerState<DownloadSettingsPage> {
     String current,
   ) {
     final colorScheme = Theme.of(context).colorScheme;
-    showModalBottomSheet<void>(
+    showAppModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
       backgroundColor: colorScheme.surfaceContainerHigh,
@@ -506,7 +507,7 @@ class _DownloadSettingsPageState extends ConsumerState<DownloadSettingsPage> {
                 ),
               ),
             ),
-            ListTile(
+            AppSheetOption(
               leading: const Icon(Icons.signal_cellular_alt),
               title: Text(context.l10n.settingsDownloadNetworkAny),
               subtitle: Text(context.l10n.downloadNetworkAnySubtitle),
@@ -520,7 +521,7 @@ class _DownloadSettingsPageState extends ConsumerState<DownloadSettingsPage> {
                 Navigator.pop(context);
               },
             ),
-            ListTile(
+            AppSheetOption(
               leading: const Icon(Icons.wifi),
               title: Text(context.l10n.settingsDownloadNetworkWifiOnly),
               subtitle: Text(context.l10n.downloadNetworkWifiOnlySubtitle),
@@ -547,7 +548,7 @@ class _DownloadSettingsPageState extends ConsumerState<DownloadSettingsPage> {
     int current,
   ) {
     final colorScheme = Theme.of(context).colorScheme;
-    showModalBottomSheet<void>(
+    showAppModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
       backgroundColor: colorScheme.surfaceContainerHigh,
@@ -575,7 +576,7 @@ class _DownloadSettingsPageState extends ConsumerState<DownloadSettingsPage> {
               ),
             ),
             for (final count in const [1, 2, 3])
-              ListTile(
+              AppSheetOption(
                 leading: Icon(
                   count == 1
                       ? Icons.looks_one_outlined
@@ -797,7 +798,7 @@ class _DownloadSettingsPageState extends ConsumerState<DownloadSettingsPage> {
     ];
     final colorScheme = Theme.of(context).colorScheme;
     final normalizedCurrent = current.trim().toUpperCase();
-    showModalBottomSheet<void>(
+    showAppModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
       backgroundColor: colorScheme.surfaceContainerHigh,
@@ -883,25 +884,12 @@ class _RegionPickerSheetState extends State<_RegionPickerSheet> {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: TextField(
+              child: AppSearchField(
                 controller: _searchController,
-                autofocus: false,
-                textInputAction: TextInputAction.search,
                 onChanged: (value) => setState(() => _query = value),
-                decoration: InputDecoration(
-                  hintText: MaterialLocalizations.of(context).searchFieldLabel,
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: _query.isEmpty
-                      ? null
-                      : IconButton(
-                          tooltip: context.l10n.dialogClear,
-                          icon: const Icon(Icons.close),
-                          onPressed: () {
-                            _searchController.clear();
-                            setState(() => _query = '');
-                          },
-                        ),
-                ),
+                hintText: MaterialLocalizations.of(context).searchFieldLabel,
+                clearTooltip: context.l10n.dialogClear,
+                onClear: () => setState(() => _query = ''),
               ),
             ),
             Expanded(
@@ -920,7 +908,7 @@ class _RegionPickerSheetState extends State<_RegionPickerSheet> {
                         final code = matches[index];
                         final isSelected = code == widget.selected;
                         final countryName = widget.countryNameOf(context, code);
-                        return ListTile(
+                        return AppSheetOption(
                           title: Text(countryName != code ? countryName : code),
                           subtitle: countryName != code ? Text(code) : null,
                           trailing: isSelected

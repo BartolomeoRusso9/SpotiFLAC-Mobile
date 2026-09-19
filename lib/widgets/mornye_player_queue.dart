@@ -1,0 +1,232 @@
+import 'package:audio_service/audio_service.dart';
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:spotiflac_android/l10n/l10n.dart';
+import 'package:spotiflac_android/providers/music_player_provider.dart';
+import 'package:spotiflac_android/widgets/player_artwork.dart';
+import 'package:spotiflac_android/widgets/mornye_context_menu.dart';
+
+/// Upcoming tracks share the player's artwork backdrop and transport controls.
+class MornyePlayerQueue extends ConsumerWidget {
+  const MornyePlayerQueue({
+    super.key,
+    required this.colorScheme,
+    required this.onShuffleLibrary,
+  });
+
+  final ColorScheme colorScheme;
+  final VoidCallback onShuffleLibrary;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final queue = ref.watch(playQueueProvider).value ?? const <MediaItem>[];
+    final currentId = ref.watch(
+      currentMediaItemProvider.select((item) => item.value?.id),
+    );
+    final playback = ref.watch(
+      playbackStateProvider.select(
+        (state) => (
+          index: state.value?.queueIndex,
+          shuffle: state.value?.shuffleMode == AudioServiceShuffleMode.all,
+          repeat: state.value?.repeatMode ?? AudioServiceRepeatMode.none,
+        ),
+      ),
+    );
+    final reportedIndex = playback.index;
+    final currentIndex =
+        reportedIndex != null &&
+            reportedIndex >= 0 &&
+            reportedIndex < queue.length &&
+            queue[reportedIndex].id == currentId
+        ? reportedIndex
+        : queue.indexWhere((item) => item.id == currentId);
+    final start = currentIndex + 1;
+    final count = queue.length - start;
+    final controller = ref.read(musicPlayerControllerProvider);
+    final type = Theme.of(context).textTheme;
+    final repeatLabel = switch (playback.repeat) {
+      AudioServiceRepeatMode.one => context.l10n.nowPlayingRepeatOne,
+      AudioServiceRepeatMode.none => context.l10n.nowPlayingRepeatOff,
+      _ => context.l10n.nowPlayingRepeatAll,
+    };
+
+    Widget modeButton({
+      required IconData icon,
+      required String label,
+      required bool selected,
+      required VoidCallback onPressed,
+    }) => Expanded(
+      child: Semantics(
+        selected: selected,
+        child: Tooltip(
+          message: label,
+          child: FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.white.withValues(
+                alpha: selected ? 0.3 : 0.12,
+              ),
+              foregroundColor: Colors.white,
+              minimumSize: const Size(0, 44),
+              shape: const StadiumBorder(),
+            ),
+            onPressed: onPressed,
+            child: Icon(icon, semanticLabel: label, size: 24),
+          ),
+        ),
+      ),
+    );
+
+    return CustomScrollView(
+      key: const PageStorageKey('mornye-player-queue'),
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          sliver: SliverToBoxAdapter(
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    modeButton(
+                      icon: CupertinoIcons.shuffle,
+                      label: playback.shuffle
+                          ? context.l10n.nowPlayingShuffleOn
+                          : context.l10n.nowPlayingPlayInOrder,
+                      selected: playback.shuffle,
+                      onPressed: () => controller.setShuffle(!playback.shuffle),
+                    ),
+                    const SizedBox(width: 12),
+                    modeButton(
+                      icon: playback.repeat == AudioServiceRepeatMode.one
+                          ? CupertinoIcons.repeat_1
+                          : CupertinoIcons.repeat,
+                      label: repeatLabel,
+                      selected: playback.repeat != AudioServiceRepeatMode.none,
+                      onPressed: () =>
+                          controller.setRepeatMode(switch (playback.repeat) {
+                            AudioServiceRepeatMode.none =>
+                              AudioServiceRepeatMode.all,
+                            AudioServiceRepeatMode.all =>
+                              AudioServiceRepeatMode.one,
+                            _ => AudioServiceRepeatMode.none,
+                          }),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        context.l10n.mornyeContinuePlaying,
+                        style: type.titleLarge?.copyWith(color: Colors.white),
+                      ),
+                    ),
+                    Builder(
+                      builder: (buttonContext) => IconButton(
+                        tooltip: MaterialLocalizations.of(
+                          context,
+                        ).moreButtonTooltip,
+                        icon: const Icon(
+                          CupertinoIcons.ellipsis,
+                          color: Colors.white,
+                        ),
+                        onPressed: () => showMornyeContextMenu<void>(
+                          context: buttonContext,
+                          builder: (menuContext) => MornyeContextMenu(
+                            groups: [
+                              [
+                                MornyeMenuAction(
+                                  icon: CupertinoIcons.shuffle,
+                                  label: context.l10n.nowPlayingShuffleLibrary,
+                                  onPressed: () {
+                                    Navigator.pop(menuContext);
+                                    onShuffleLibrary();
+                                  },
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (count == 0)
+          SliverPadding(
+            padding: const EdgeInsets.all(28),
+            sliver: SliverToBoxAdapter(
+              child: Text(
+                context.l10n.nowPlayingQueueEmpty,
+                style: type.bodyMedium?.copyWith(color: Colors.white70),
+              ),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            sliver: SliverReorderableList(
+              itemCount: count,
+              onReorderItem: (oldIndex, newIndex) =>
+                  controller.moveQueueItem(start + oldIndex, start + newIndex),
+              proxyDecorator: (child, index, animation) => Material(
+                color: colorScheme.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(12),
+                child: child,
+              ),
+              itemBuilder: (context, index) {
+                final item = queue[start + index];
+                return ListTile(
+                  key: ValueKey('${item.id}_${start + index}'),
+                  contentPadding: const EdgeInsets.only(left: 12),
+                  minVerticalPadding: 6,
+                  leading: ClipRRect(
+                    borderRadius: BorderRadius.circular(5),
+                    child: SizedBox.square(
+                      dimension: 40,
+                      child: PlayerArtwork(
+                        artUri: item.artUri?.toString(),
+                        colorScheme: colorScheme,
+                        cacheWidth: 120,
+                        iconSize: 22,
+                      ),
+                    ),
+                  ),
+                  title: Text(
+                    item.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: type.bodyLarge?.copyWith(color: Colors.white),
+                  ),
+                  subtitle: Text(
+                    item.artist ?? '',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: type.bodySmall?.copyWith(color: Colors.white70),
+                  ),
+                  trailing: ReorderableDragStartListener(
+                    index: index,
+                    child: const ColoredBox(
+                      color: Colors.transparent,
+                      child: SizedBox.square(
+                        dimension: 44,
+                        child: Icon(
+                          CupertinoIcons.line_horizontal_3,
+                          color: Colors.white38,
+                        ),
+                      ),
+                    ),
+                  ),
+                  onTap: () => controller.jumpTo(start + index),
+                );
+              },
+            ),
+          ),
+      ],
+    );
+  }
+}

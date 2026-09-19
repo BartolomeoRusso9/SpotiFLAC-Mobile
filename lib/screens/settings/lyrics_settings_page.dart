@@ -6,6 +6,9 @@ import 'package:spotiflac_android/providers/settings_provider.dart';
 import 'package:spotiflac_android/screens/settings/lyrics_provider_priority_page.dart';
 import 'package:spotiflac_android/widgets/settings_group.dart';
 import 'package:spotiflac_android/widgets/app_sliver_header.dart';
+import 'package:spotiflac_android/widgets/app_bottom_sheet.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
 
 class LyricsSettingsPage extends ConsumerWidget {
   const LyricsSettingsPage({super.key});
@@ -214,7 +217,7 @@ class LyricsSettingsPage extends ConsumerWidget {
     String current,
   ) {
     final colorScheme = Theme.of(context).colorScheme;
-    showModalBottomSheet<void>(
+    showAppModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
       backgroundColor: colorScheme.surfaceContainerHigh,
@@ -241,7 +244,7 @@ class LyricsSettingsPage extends ConsumerWidget {
                 ),
               ),
             ),
-            ListTile(
+            AppSheetOption(
               leading: const Icon(Icons.audiotrack),
               title: Text(context.l10n.lyricsModeEmbed),
               subtitle: Text(context.l10n.lyricsModeEmbedSubtitle),
@@ -251,7 +254,7 @@ class LyricsSettingsPage extends ConsumerWidget {
                 Navigator.pop(context);
               },
             ),
-            ListTile(
+            AppSheetOption(
               leading: const Icon(Icons.insert_drive_file_outlined),
               title: Text(context.l10n.lyricsModeExternal),
               subtitle: Text(context.l10n.lyricsModeExternalSubtitle),
@@ -261,7 +264,7 @@ class LyricsSettingsPage extends ConsumerWidget {
                 Navigator.pop(context);
               },
             ),
-            ListTile(
+            AppSheetOption(
               leading: const Icon(Icons.library_music_outlined),
               title: Text(context.l10n.lyricsModeBoth),
               subtitle: Text(context.l10n.lyricsModeBothSubtitle),
@@ -286,7 +289,7 @@ class LyricsSettingsPage extends ConsumerWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final controller = TextEditingController(text: currentLanguage);
 
-    showModalBottomSheet<void>(
+    showAppModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
       backgroundColor: colorScheme.surfaceContainerHigh,
@@ -325,38 +328,55 @@ class LyricsSettingsPage extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text(context.l10n.dialogCancel),
-                ),
-                const SizedBox(width: 8),
-                TextButton(
-                  onPressed: () {
-                    ref
-                        .read(settingsProvider.notifier)
-                        .setMusixmatchLanguage('');
-                    Navigator.pop(context);
-                  },
-                  child: Text(context.l10n.downloadMusixmatchAuto),
-                ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: () {
-                    final normalized = controller.text
-                        .trim()
-                        .toLowerCase()
-                        .replaceAll(RegExp(r'[^a-z0-9\-_]'), '');
-                    ref
-                        .read(settingsProvider.notifier)
-                        .setMusixmatchLanguage(normalized);
-                    Navigator.pop(context);
-                  },
-                  child: Text(context.l10n.dialogSave),
-                ),
-              ],
+            Builder(
+              builder: (context) {
+                final actions = [
+                  AppDialogAction(
+                    onPressed: () => Navigator.pop(context),
+                    child: Text(context.l10n.dialogCancel),
+                  ),
+                  AppDialogAction(
+                    onPressed: () {
+                      ref
+                          .read(settingsProvider.notifier)
+                          .setMusixmatchLanguage('');
+                      Navigator.pop(context);
+                    },
+                    child: Text(context.l10n.downloadMusixmatchAuto),
+                  ),
+                  AppDialogAction(
+                    filled: true,
+                    onPressed: () {
+                      final normalized = controller.text
+                          .trim()
+                          .toLowerCase()
+                          .replaceAll(RegExp(r'[^a-z0-9\-_]'), '');
+                      ref
+                          .read(settingsProvider.notifier)
+                          .setMusixmatchLanguage(normalized);
+                      Navigator.pop(context);
+                    },
+                    child: Text(context.l10n.dialogSave),
+                  ),
+                ];
+                return context.isMornye
+                    ? Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: actions,
+                      )
+                    : Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          actions[0],
+                          const SizedBox(width: 8),
+                          actions[1],
+                          const SizedBox(width: 8),
+                          actions[2],
+                        ],
+                      );
+              },
             ),
           ],
         ),

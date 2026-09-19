@@ -1107,6 +1107,7 @@ void main() {
         useDynamicColor: false,
         seedColorValue: 0xff123456,
         useAmoled: true,
+        style: AppThemeStyle.mornye,
       );
 
       final decoded = ThemeSettings.fromJson(settings.toJson());
@@ -1117,9 +1118,14 @@ void main() {
       expect(decoded.seedColor, const Color(0xff123456));
       expect(copied.themeMode, ThemeMode.light);
       expect(copied.useAmoled, isTrue);
+      expect(decoded.style, AppThemeStyle.mornye);
       expect(
         ThemeSettings.fromJson({'theme_mode': 'invalid'}).themeMode,
         ThemeMode.system,
+      );
+      expect(
+        ThemeSettings.fromJson({'theme_style': 'invalid'}).style,
+        AppThemeStyle.material,
       );
     });
   });

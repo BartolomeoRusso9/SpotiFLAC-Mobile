@@ -1,10 +1,15 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spotiflac_android/providers/extension_provider.dart';
 import 'package:spotiflac_android/providers/settings_provider.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
+import 'package:spotiflac_android/theme/mornye_icons.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/widgets/app_bottom_sheet.dart';
+import 'package:spotiflac_android/widgets/mornye_chrome.dart';
 
 class DownloadServicePicker extends ConsumerStatefulWidget {
   final String? trackName;
@@ -39,19 +44,41 @@ class DownloadServicePicker extends ConsumerStatefulWidget {
     showModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
-      backgroundColor: colorScheme.surfaceContainerHigh,
+      backgroundColor: context.isMornye
+          ? Colors.transparent
+          : colorScheme.surfaceContainerHigh,
+      elevation: context.isMornye ? 0 : null,
+      barrierColor: context.isMornye
+          ? Colors.black.withValues(alpha: 0.26)
+          : null,
       isScrollControlled: true,
-      showDragHandle: true,
+      showDragHandle: !context.isMornye,
       constraints: BoxConstraints(
         maxHeight: MediaQuery.sizeOf(context).height * 0.88,
       ),
-      builder: (context) => DownloadServicePicker(
-        trackName: trackName,
-        artistName: artistName,
-        coverUrl: coverUrl,
-        onSelect: onSelect,
-        recommendedService: recommendedService,
-      ),
+      builder: (context) {
+        final picker = DownloadServicePicker(
+          trackName: trackName,
+          artistName: artistName,
+          coverUrl: coverUrl,
+          onSelect: onSelect,
+          recommendedService: recommendedService,
+        );
+        return context.isMornye
+            ? MornyeGlassPanel.overlay(
+                tintOpacity: colorScheme.brightness == Brightness.dark
+                    ? 0.68
+                    : 0.75,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const AppSheetHandle(),
+                    Flexible(child: picker),
+                  ],
+                ),
+              )
+            : picker;
+      },
     );
   }
 }
@@ -120,6 +147,18 @@ class _DownloadServicePickerState extends ConsumerState<DownloadServicePicker> {
     final downloadExtensions = _downloadExtensions();
     final hasProviders = downloadExtensions.isNotEmpty;
     final qualityOptions = _getQualityOptions(downloadExtensions);
+    final qualityRows = [
+      for (final quality in qualityOptions)
+        _QualityOption(
+          title: _localizedQualityLabel(context, quality),
+          subtitle: _localizedQualityDescription(context, quality),
+          icon: _getQualityIcon(quality.id),
+          onTap: () {
+            Navigator.pop(context);
+            widget.onSelect(quality.id, _selectedService);
+          },
+        ),
+    ];
 
     return SafeArea(
       top: false,
@@ -160,9 +199,8 @@ class _DownloadServicePickerState extends ConsumerState<DownloadServicePicker> {
                       children: [
                         for (final ext in downloadExtensions)
                           _ServiceChip(
-                            label: widget.recommendedService == ext.id
-                                ? '${ext.displayName} (Recommended)'
-                                : ext.displayName,
+                            label: ext.displayName,
+                            isRecommended: widget.recommendedService == ext.id,
                             healthStatus: ext.hasServiceHealth
                                 ? extensionState.healthStatuses[ext.id]?.status
                                 : null,
@@ -179,7 +217,12 @@ class _DownloadServicePickerState extends ConsumerState<DownloadServicePicker> {
             ),
             if (hasProviders) ...[
               Padding(
-                padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+                padding: EdgeInsets.fromLTRB(
+                  24,
+                  context.isMornye ? 24 : 16,
+                  24,
+                  context.isMornye ? 12 : 8,
+                ),
                 child: Text(
                   context.l10n.downloadSelectQuality,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -187,16 +230,32 @@ class _DownloadServicePickerState extends ConsumerState<DownloadServicePicker> {
                   ),
                 ),
               ),
-              for (final quality in qualityOptions)
-                _QualityOption(
-                  title: _localizedQualityLabel(context, quality),
-                  subtitle: _localizedQualityDescription(context, quality),
-                  icon: _getQualityIcon(quality.id),
-                  onTap: () {
-                    Navigator.pop(context);
-                    widget.onSelect(quality.id, _selectedService);
-                  },
-                ),
+              if (context.isMornye)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Material(
+                    color: MornyeTheme.controlFill(context),
+                    borderRadius: BorderRadius.circular(24),
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (var i = 0; i < qualityRows.length; i++) ...[
+                          if (i > 0)
+                            Divider(
+                              height: 0.5,
+                              indent: 52,
+                              endIndent: 16,
+                              color: MornyeTheme.metadataDividerColor(context),
+                            ),
+                          qualityRows[i],
+                        ],
+                      ],
+                    ),
+                  ),
+                )
+              else
+                ...qualityRows,
             ],
 
             const SizedBox(height: 16),
@@ -273,6 +332,53 @@ class _QualityOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    if (context.isMornye) {
+      return CupertinoButton(
+        padding: const EdgeInsets.all(16),
+        onPressed: onTap,
+        child: Row(
+          children: [
+            SizedBox(
+              width: 24,
+              child: Icon(
+                mornyeIconFor(icon),
+                color: colorScheme.primary,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (subtitle.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Icon(
+              CupertinoIcons.chevron_right,
+              size: 14,
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      );
+    }
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
       leading: Container(
@@ -298,6 +404,7 @@ class _QualityOption extends StatelessWidget {
 class _ServiceChip extends StatelessWidget {
   final String label;
   final bool isSelected;
+  final bool isRecommended;
   final VoidCallback? onTap;
   final String? iconPath;
   final String? healthStatus;
@@ -306,6 +413,7 @@ class _ServiceChip extends StatelessWidget {
     required this.label,
     required this.isSelected,
     required this.onTap,
+    this.isRecommended = false,
     this.iconPath,
     this.healthStatus,
   });
@@ -313,6 +421,76 @@ class _ServiceChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final accessibleLabel = isRecommended ? '$label (Recommended)' : label;
+    if (context.isMornye) {
+      final foreground = isSelected
+          ? colorScheme.primary
+          : colorScheme.onSurface;
+      return Semantics(
+        button: true,
+        selected: isSelected,
+        hint: isRecommended ? 'Recommended' : null,
+        child: CupertinoButton(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          borderRadius: BorderRadius.circular(24),
+          color: isSelected
+              ? colorScheme.primary.withValues(alpha: 0.14)
+              : MornyeTheme.controlFill(context),
+          onPressed: onTap,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isSelected) ...[
+                Icon(CupertinoIcons.checkmark, color: foreground, size: 18),
+                const SizedBox(width: 8),
+              ],
+              if (iconPath != null) ...[
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: Image.file(
+                    File(iconPath!),
+                    width: 18,
+                    height: 18,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => Icon(
+                      CupertinoIcons.square_grid_2x2,
+                      size: 18,
+                      color: foreground,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              Flexible(
+                child: Text(
+                  label,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: foreground,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                  ),
+                ),
+              ),
+              if (isRecommended) ...[
+                const SizedBox(width: 6),
+                Tooltip(
+                  message: accessibleLabel,
+                  excludeFromSemantics: true,
+                  child: Icon(
+                    CupertinoIcons.star_fill,
+                    size: 12,
+                    color: foreground,
+                  ),
+                ),
+              ],
+              if (healthStatus != null) ...[
+                const SizedBox(width: 8),
+                _ServiceHealthDot(status: healthStatus!),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -356,7 +534,7 @@ class _ServiceChip extends StatelessWidget {
               const SizedBox(width: 6),
             ],
             Text(
-              label,
+              accessibleLabel,
               style: TextStyle(
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                 color: isSelected

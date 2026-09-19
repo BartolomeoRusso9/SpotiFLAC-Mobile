@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart' show ShareParams, SharePlus;
 import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/utils/logger.dart';
 import 'package:spotiflac_android/widgets/settings_group.dart';
 import 'package:spotiflac_android/widgets/app_sliver_header.dart';
+import 'package:spotiflac_android/widgets/app_search_field.dart';
 import 'package:spotiflac_android/utils/ordered_range_selection.dart';
 
 final RegExp _domainPattern = RegExp(
@@ -197,17 +199,20 @@ class _LogScreenState extends State<LogScreen> {
   }
 
   void _clearLogs() {
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => AppAlertDialog(
         title: Text(context.l10n.logClearLogsTitle),
         content: Text(context.l10n.logClearLogsMessage),
         actions: [
-          TextButton(
+          AppDialogAction(
+            isDefault: true,
             onPressed: () => Navigator.pop(context),
             child: Text(context.l10n.dialogCancel),
           ),
-          FilledButton(
+          AppDialogAction(
+            filled: true,
+            isDestructive: true,
             onPressed: () {
               _selectionMode = false;
               _selectedEntries.clear();
@@ -426,43 +431,13 @@ class _LogScreenState extends State<LogScreen> {
                       horizontal: 20,
                       vertical: 12,
                     ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.search, color: colorScheme.onSurfaceVariant),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: TextField(
-                            controller: _searchController,
-                            decoration: InputDecoration(
-                              hintText: context.l10n.logSearchHint,
-                              isDense: true,
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 12,
-                              ),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide.none,
-                              ),
-                              filled: true,
-                              fillColor: colorScheme.surfaceContainerHighest,
-                              suffixIcon: _searchQuery.isNotEmpty
-                                  ? IconButton(
-                                      tooltip: context.l10n.logClearSearch,
-                                      icon: const Icon(Icons.clear, size: 20),
-                                      onPressed: () {
-                                        _searchController.clear();
-                                        setState(() => _searchQuery = '');
-                                      },
-                                    )
-                                  : null,
-                            ),
-                            onChanged: (value) {
-                              setState(() => _searchQuery = value);
-                            },
-                          ),
-                        ),
-                      ],
+                    child: AppSearchField(
+                      controller: _searchController,
+                      hintText: context.l10n.logSearchHint,
+                      clearTooltip: context.l10n.logClearSearch,
+                      onClear: () => setState(() => _searchQuery = ''),
+                      onChanged: (value) =>
+                          setState(() => _searchQuery = value),
                     ),
                   ),
                 ],

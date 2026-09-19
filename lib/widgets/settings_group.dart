@@ -1,7 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
+import 'package:spotiflac_android/widgets/app_switch.dart';
 import 'package:spotiflac_android/theme/app_tokens.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/theme/mornye_icons.dart';
+import 'package:spotiflac_android/widgets/mornye_chrome.dart';
 import 'package:spotiflac_android/utils/adaptive_layout.dart';
 
 /// Background fill for grouped cards, matching the Settings group look. Blends a
@@ -9,6 +14,7 @@ import 'package:spotiflac_android/utils/adaptive_layout.dart';
 /// black) dark themes as well as normal light/dark themes.
 Color settingsGroupColor(BuildContext context) {
   final colorScheme = Theme.of(context).colorScheme;
+  if (context.isMornye) return colorScheme.surfaceContainer;
   final isDark = Theme.of(context).brightness == Brightness.dark;
   return isDark
       ? Color.alphaBlend(
@@ -182,8 +188,14 @@ class _SettingsSearchTargetState extends State<SettingsSearchTarget> {
 class SettingsGroup extends StatelessWidget {
   final List<Widget> children;
   final EdgeInsetsGeometry? margin;
+  final bool glass;
 
-  const SettingsGroup({super.key, required this.children, this.margin});
+  const SettingsGroup({
+    super.key,
+    required this.children,
+    this.margin,
+    this.glass = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -193,14 +205,34 @@ class SettingsGroup extends StatelessWidget {
     final decoration = BoxDecoration(
       color: cardColor,
       borderRadius: BorderRadius.circular(context.tokens.radiusCard),
-      border: Border.all(
-        color: colorScheme.outlineVariant.withValues(alpha: 0.5),
-      ),
+      border: context.isMornye
+          ? null
+          : Border.all(
+              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+            ),
     );
     final child = Material(
       color: Colors.transparent,
       child: Column(mainAxisSize: MainAxisSize.min, children: children),
     );
+
+    if (glass && context.isMornye) {
+      return LayoutBuilder(
+        builder: (context, constraints) => Padding(
+          padding:
+              margin ??
+              EdgeInsets.symmetric(
+                horizontal:
+                    16 +
+                    (constraints.hasBoundedWidth
+                        ? wideInsetForWidth(constraints.maxWidth)
+                        : 0),
+                vertical: 4,
+              ),
+          child: MornyeGlassPanel(child: child),
+        ),
+      );
+    }
 
     // Explicit caller margin wins as-is. Otherwise center on wide surfaces
     // using the incoming constraint (not screen width) so groups nested in an
@@ -263,64 +295,90 @@ class SettingsItem extends StatelessWidget {
           splashColor: colorScheme.primary.withValues(alpha: 0.12),
           highlightColor: Colors.transparent,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            child: Row(
-              children: [
-                if (icon != null) ...[
-                  Icon(icon, color: colorScheme.onSurfaceVariant, size: 24),
-                  const SizedBox(width: 16),
-                ],
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Flexible(
-                            child: Text(
-                              title,
-                              style: Theme.of(context).textTheme.bodyLarge,
+            padding: EdgeInsets.symmetric(
+              horizontal: context.isMornye ? 16 : 20,
+              vertical: context.isMornye ? 10 : 16,
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: context.isMornye ? 28 : 0),
+              child: Row(
+                children: [
+                  if (icon != null) ...[
+                    Icon(
+                      context.isMornye ? mornyeIconFor(icon!) : icon,
+                      color: context.isMornye
+                          ? colorScheme.primary
+                          : colorScheme.onSurfaceVariant,
+                      size: 24,
+                    ),
+                    SizedBox(width: context.isMornye ? 12 : 16),
+                  ],
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                title,
+                                style: Theme.of(context).textTheme.bodyLarge,
+                              ),
                             ),
-                          ),
-                          if (titleTrailing != null) ...[
-                            const SizedBox(width: 8),
-                            titleTrailing!,
+                            if (titleTrailing != null) ...[
+                              const SizedBox(width: 8),
+                              titleTrailing!,
+                            ],
                           ],
-                        ],
-                      ),
-                      if (subtitle != null) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          subtitle!,
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(color: colorScheme.onSurfaceVariant),
                         ),
+                        if (subtitle != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            subtitle!,
+                            style:
+                                (context.isMornye
+                                        ? Theme.of(context).textTheme.bodySmall
+                                        : Theme.of(
+                                            context,
+                                          ).textTheme.bodyMedium)
+                                    ?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
-                ),
-                if (trailing != null) ...[
-                  const SizedBox(width: 8),
-                  trailing!,
-                ] else if (onTap != null) ...[
-                  const SizedBox(width: 8),
-                  Icon(
-                    Icons.chevron_right,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
+                  if (trailing != null) ...[
+                    const SizedBox(width: 8),
+                    trailing!,
+                  ] else if (onTap != null) ...[
+                    const SizedBox(width: 8),
+                    Icon(
+                      context.isMornye
+                          ? CupertinoIcons.chevron_forward
+                          : Icons.chevron_right,
+                      size: context.isMornye ? 18 : 24,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
         if (showDivider)
           Divider(
             height: 1,
-            thickness: 1,
-            indent: icon != null ? 56 : 20,
-            endIndent: 20,
-            color: colorScheme.outlineVariant.withValues(alpha: 0.3),
+            thickness: context.isMornye ? 0.5 : 1,
+            indent: context.isMornye
+                ? (icon != null ? 52 : 16)
+                : (icon != null ? 56 : 20),
+            endIndent: context.isMornye ? 16 : 20,
+            color: context.isMornye
+                ? colorScheme.outlineVariant
+                : colorScheme.outlineVariant.withValues(alpha: 0.3),
           ),
       ],
     );
@@ -365,18 +423,23 @@ class SettingsSwitchItem extends StatelessWidget {
             splashColor: colorScheme.primary.withValues(alpha: 0.12),
             highlightColor: Colors.transparent,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              padding: EdgeInsets.symmetric(
+                horizontal: context.isMornye ? 16 : 20,
+                vertical: context.isMornye ? 8 : 12,
+              ),
               child: Row(
                 children: [
                   if (icon != null) ...[
                     Icon(
-                      icon,
+                      context.isMornye ? mornyeIconFor(icon!) : icon,
                       color: isDisabled
                           ? colorScheme.outline
+                          : context.isMornye
+                          ? colorScheme.primary
                           : colorScheme.onSurfaceVariant,
                       size: 24,
                     ),
-                    const SizedBox(width: 16),
+                    SizedBox(width: context.isMornye ? 12 : 16),
                   ],
                   Expanded(
                     child: Column(
@@ -418,8 +481,9 @@ class SettingsSwitchItem extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Switch(
+                  AppSwitch(
                     value: value,
+                    semanticLabel: title,
                     onChanged: isDisabled ? null : onChanged,
                   ),
                 ],
@@ -430,10 +494,14 @@ class SettingsSwitchItem extends StatelessWidget {
         if (showDivider)
           Divider(
             height: 1,
-            thickness: 1,
-            indent: icon != null ? 56 : 20,
-            endIndent: 20,
-            color: colorScheme.outlineVariant.withValues(alpha: 0.3),
+            thickness: context.isMornye ? 0.5 : 1,
+            indent: context.isMornye
+                ? (icon != null ? 52 : 16)
+                : (icon != null ? 56 : 20),
+            endIndent: context.isMornye ? 16 : 20,
+            color: context.isMornye
+                ? colorScheme.outlineVariant
+                : colorScheme.outlineVariant.withValues(alpha: 0.3),
           ),
       ],
     );
@@ -451,11 +519,19 @@ class SettingsSectionHeader extends StatelessWidget {
     final content = Padding(
       padding: const EdgeInsets.fromLTRB(32, 24, 32, 8),
       child: Text(
-        title,
-        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-          color: Theme.of(context).colorScheme.primary,
-          fontWeight: FontWeight.w600,
-        ),
+        context.isMornye ? title.toUpperCase() : title,
+        style:
+            (context.isMornye
+                    ? Theme.of(context).textTheme.bodySmall
+                    : Theme.of(context).textTheme.titleSmall)
+                ?.copyWith(
+                  color: context.isMornye
+                      ? Theme.of(context).colorScheme.onSurfaceVariant
+                      : Theme.of(context).colorScheme.primary,
+                  fontWeight: context.isMornye
+                      ? FontWeight.normal
+                      : FontWeight.w600,
+                ),
       ),
     );
     return SettingsSearchTarget(label: title, child: content);
@@ -500,13 +576,17 @@ class SettingsChoiceChip extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
     final borderRadius = BorderRadius.circular(tokens.radiusCover);
 
-    final unselectedColor = isDark
+    final unselectedColor = context.isMornye
+        ? Colors.transparent
+        : isDark
         ? Color.alphaBlend(
             Colors.white.withValues(alpha: 0.05),
             colorScheme.surface,
           )
         : colorScheme.surfaceContainerHigh;
-    final foreground = isSelected
+    final foreground = context.isMornye && isSelected
+        ? colorScheme.onSurface
+        : isSelected
         ? colorScheme.onPrimaryContainer
         : colorScheme.onSurfaceVariant;
 
@@ -528,7 +608,10 @@ class SettingsChoiceChip extends StatelessWidget {
       content = Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: foreground),
+          Icon(
+            context.isMornye ? mornyeIconFor(icon!) : icon,
+            color: foreground,
+          ),
           SizedBox(height: tokens.gapXs + 2),
           labelText,
         ],
@@ -537,7 +620,11 @@ class SettingsChoiceChip extends StatelessWidget {
       content = Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 18, color: foreground),
+          Icon(
+            context.isMornye ? mornyeIconFor(icon!) : icon,
+            size: 18,
+            color: foreground,
+          ),
           SizedBox(width: tokens.gapSm),
           Flexible(child: labelText),
         ],
@@ -545,7 +632,11 @@ class SettingsChoiceChip extends StatelessWidget {
     }
 
     final chip = Material(
-      color: isSelected ? colorScheme.primaryContainer : unselectedColor,
+      color: isSelected
+          ? (context.isMornye
+                ? colorScheme.surfaceContainerHighest
+                : colorScheme.primaryContainer)
+          : unselectedColor,
       borderRadius: borderRadius,
       child: InkWell(
         onTap: onTap,
@@ -608,6 +699,7 @@ class SettingsInfoCard extends StatelessWidget {
     this.tone = SettingsInfoTone.neutral,
     this.action,
     this.margin,
+    this.glass = false,
   });
 
   final String message;
@@ -619,6 +711,9 @@ class SettingsInfoCard extends StatelessWidget {
   final Widget? action;
 
   final EdgeInsetsGeometry? margin;
+
+  /// Uses the shared glass surface in Mornye without changing Material cards.
+  final bool glass;
 
   @override
   Widget build(BuildContext context) {
@@ -641,23 +736,19 @@ class SettingsInfoCard extends StatelessWidget {
       ),
     };
 
-    return Container(
-      margin:
-          margin ??
-          EdgeInsets.symmetric(
-            horizontal: tokens.gapLg,
-            vertical: tokens.gapXs,
-          ),
+    final useGlass = glass && context.isMornye;
+    final textColor = useGlass ? colorScheme.onSurface : foreground;
+    final content = Padding(
       padding: EdgeInsets.all(tokens.gapLg),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: tokens.borderRadiusCard,
-      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 20, color: foreground),
+            Icon(
+              useGlass ? mornyeIconFor(icon!) : icon,
+              size: 20,
+              color: useGlass ? colorScheme.primary : foreground,
+            ),
             SizedBox(width: tokens.gapMd),
           ],
           Expanded(
@@ -669,7 +760,7 @@ class SettingsInfoCard extends StatelessWidget {
                   Text(
                     title!,
                     style: theme.textTheme.bodyMedium?.copyWith(
-                      color: foreground,
+                      color: textColor,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -677,7 +768,7 @@ class SettingsInfoCard extends StatelessWidget {
                 ],
                 Text(
                   message,
-                  style: theme.textTheme.bodySmall?.copyWith(color: foreground),
+                  style: theme.textTheme.bodySmall?.copyWith(color: textColor),
                 ),
                 if (action != null) ...[
                   SizedBox(height: tokens.gapSm),
@@ -688,6 +779,23 @@ class SettingsInfoCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+    return Padding(
+      padding:
+          margin ??
+          EdgeInsets.symmetric(
+            horizontal: tokens.gapLg,
+            vertical: tokens.gapXs,
+          ),
+      child: useGlass
+          ? MornyeGlassPanel.overlay(child: content)
+          : DecoratedBox(
+              decoration: BoxDecoration(
+                color: background,
+                borderRadius: tokens.borderRadiusCard,
+              ),
+              child: content,
+            ),
     );
   }
 }

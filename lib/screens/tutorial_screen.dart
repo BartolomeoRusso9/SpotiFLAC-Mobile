@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:spotiflac_android/providers/settings_provider.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/widgets/scroll_edge_fade.dart';
+import 'package:spotiflac_android/widgets/app_search_field.dart';
 
 class TutorialScreen extends ConsumerStatefulWidget {
   const TutorialScreen({super.key});
@@ -409,29 +410,16 @@ class _InteractiveSearchExampleState extends State<_InteractiveSearchExample> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          TextField(
+          AppSearchField(
             controller: _controller,
+            hintText: context.l10n.tutorialSearchHint,
+            clearTooltip: context.l10n.dialogClear,
+            onClear: () => setState(() => _showResult = false),
             onChanged: (value) {
               setState(() {
                 _showResult = value.isNotEmpty;
               });
             },
-            style: TextStyle(color: colorScheme.onSurface, fontSize: 16),
-            decoration: InputDecoration(
-              hintText: context.l10n.tutorialSearchHint,
-              hintStyle: TextStyle(color: colorScheme.onSurfaceVariant),
-              prefixIcon: Icon(Icons.search, color: colorScheme.primary),
-              filled: true,
-              fillColor: colorScheme.surface,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide.none,
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 20,
-                vertical: 16,
-              ),
-            ),
           ),
 
           AnimatedSize(

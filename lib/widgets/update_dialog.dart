@@ -6,6 +6,9 @@ import 'package:spotiflac_android/services/apk_downloader.dart';
 import 'package:spotiflac_android/services/notification_service.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/utils/string_utils.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
+import 'package:spotiflac_android/widgets/app_action_button.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
 
 class UpdateDialog extends StatefulWidget {
   final UpdateInfo updateInfo;
@@ -133,7 +136,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
 
     return PopScope(
       canPop: !widget.forced,
-      child: Dialog(
+      child: AppDialogSurface(
         backgroundColor: colorScheme.surfaceContainerHigh,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
         child: ConstrainedBox(
@@ -198,7 +201,9 @@ class _UpdateDialogState extends State<UpdateDialog> {
                     vertical: 12,
                   ),
                   decoration: BoxDecoration(
-                    color: isDark
+                    color: context.isMornye
+                        ? MornyeTheme.controlFill(context)
+                        : isDark
                         ? Color.alphaBlend(
                             Colors.white.withValues(alpha: 0.08),
                             colorScheme.surface,
@@ -208,17 +213,23 @@ class _UpdateDialogState extends State<UpdateDialog> {
                             colorScheme.surface,
                           ),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: colorScheme.outlineVariant.withValues(alpha: 0.5),
-                    ),
+                    border: context.isMornye
+                        ? null
+                        : Border.all(
+                            color: colorScheme.outlineVariant.withValues(
+                              alpha: 0.5,
+                            ),
+                          ),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _VersionChip(
-                        version: AppInfo.displayVersion,
-                        label: context.l10n.updateCurrent,
-                        colorScheme: colorScheme,
+                      Flexible(
+                        child: _VersionChip(
+                          version: AppInfo.displayVersion,
+                          label: context.l10n.updateCurrent,
+                          colorScheme: colorScheme,
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Icon(
@@ -227,11 +238,13 @@ class _UpdateDialogState extends State<UpdateDialog> {
                         color: colorScheme.primary,
                       ),
                       const SizedBox(width: 12),
-                      _VersionChip(
-                        version: widget.updateInfo.version,
-                        label: context.l10n.updateNew,
-                        colorScheme: colorScheme,
-                        isNew: true,
+                      Flexible(
+                        child: _VersionChip(
+                          version: widget.updateInfo.version,
+                          label: context.l10n.updateNew,
+                          colorScheme: colorScheme,
+                          isNew: true,
+                        ),
                       ),
                     ],
                   ),
@@ -242,7 +255,9 @@ class _UpdateDialogState extends State<UpdateDialog> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: isDark
+                      color: context.isMornye
+                          ? MornyeTheme.controlFill(context)
+                          : isDark
                           ? Color.alphaBlend(
                               Colors.white.withValues(alpha: 0.05),
                               colorScheme.surface,
@@ -319,7 +334,9 @@ class _UpdateDialogState extends State<UpdateDialog> {
                   Container(
                     constraints: const BoxConstraints(maxHeight: 180),
                     decoration: BoxDecoration(
-                      color: isDark
+                      color: context.isMornye
+                          ? MornyeTheme.controlFill(context)
+                          : isDark
                           ? Color.alphaBlend(
                               Colors.white.withValues(alpha: 0.05),
                               colorScheme.surface,
@@ -351,7 +368,8 @@ class _UpdateDialogState extends State<UpdateDialog> {
                     width: double.infinity,
                     child: widget.forced
                         ? const SizedBox.shrink()
-                        : OutlinedButton(
+                        : AppDialogAction(
+                            outlined: true,
                             onPressed: () => Navigator.pop(context),
                             style: OutlinedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 12),
@@ -367,7 +385,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
                     children: [
                       SizedBox(
                         width: double.infinity,
-                        child: FilledButton.icon(
+                        child: AppActionButton(
                           onPressed: _downloadAndInstall,
                           icon: const Icon(Icons.download_rounded, size: 20),
                           label: Text(context.l10n.updateDownloadInstall),
@@ -384,7 +402,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
                         Row(
                           children: [
                             Expanded(
-                              child: TextButton(
+                              child: AppDialogAction(
                                 onPressed: () {
                                   widget.onDisableUpdates();
                                   Navigator.pop(context);
@@ -407,7 +425,8 @@ class _UpdateDialogState extends State<UpdateDialog> {
                             ),
                             const SizedBox(width: 8),
                             Expanded(
-                              child: OutlinedButton(
+                              child: AppDialogAction(
+                                outlined: true,
                                 onPressed: () {
                                   widget.onDismiss();
                                   Navigator.pop(context);
@@ -529,15 +548,20 @@ class _VersionChip extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
-            color: isNew
+            color: context.isMornye
+                ? Colors.transparent
+                : isNew
                 ? colorScheme.primaryContainer
                 : colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(20),
           ),
           child: Text(
             'v$version',
+            textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: isNew
+              color: context.isMornye && isNew
+                  ? colorScheme.primary
+                  : isNew
                   ? colorScheme.onPrimaryContainer
                   : colorScheme.onSurfaceVariant,
               fontWeight: isNew ? FontWeight.bold : FontWeight.w500,
@@ -555,7 +579,7 @@ Future<void> showUpdateDialog(
   required VoidCallback onDisableUpdates,
   bool forced = false,
 }) async {
-  return showDialog(
+  return showAppDialog<void>(
     context: context,
     barrierDismissible: !forced,
     builder: (context) => UpdateDialog(

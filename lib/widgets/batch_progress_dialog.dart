@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
 
 class _BatchProgress {
   final int current;
@@ -65,7 +66,7 @@ class BatchProgressDialog extends StatefulWidget {
     _activeNotifier = ValueNotifier(const _BatchProgress());
     final notifier = _activeNotifier!;
 
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (_) => BatchProgressDialog._(
@@ -117,7 +118,7 @@ class _BatchProgressDialogState extends State<BatchProgressDialog> {
     final detail = widget._progressNotifier.value.detail;
     final progress = widget.total > 0 ? current / widget.total : 0.0;
 
-    return AlertDialog(
+    return AppAlertDialog(
       backgroundColor: colorScheme.surfaceContainerHigh,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
       content: Column(
@@ -176,7 +177,7 @@ class _BatchProgressDialogState extends State<BatchProgressDialog> {
         ],
       ),
       actions: [
-        TextButton(
+        AppDialogAction(
           onPressed: widget.onCancel,
           child: Text(context.l10n.dialogCancel),
         ),

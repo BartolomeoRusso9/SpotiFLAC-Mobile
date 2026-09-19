@@ -7,6 +7,9 @@ import 'package:spotiflac_android/widgets/collection_scaffold.dart';
 import 'package:spotiflac_android/theme/app_tokens.dart';
 import 'package:spotiflac_android/widgets/track_card.dart';
 import 'package:spotiflac_android/widgets/app_bottom_sheet.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/theme/mornye_icons.dart';
 import 'package:share_plus/share_plus.dart' show ShareParams, SharePlus, XFile;
 import 'package:spotiflac_android/widgets/album_detail_header.dart';
 import 'package:spotiflac_android/widgets/cached_cover_image.dart';
@@ -24,7 +27,6 @@ import 'package:spotiflac_android/providers/playback_provider.dart';
 import 'package:spotiflac_android/providers/local_library_provider.dart';
 import 'package:spotiflac_android/providers/settings_provider.dart';
 import 'package:spotiflac_android/utils/adaptive_layout.dart';
-import 'package:spotiflac_android/utils/nav_bar_inset.dart';
 import 'package:spotiflac_android/utils/cover_art_utils.dart';
 import 'package:spotiflac_android/screens/collapsing_header_scroll_mixin.dart';
 import 'package:spotiflac_android/screens/selection_mode_mixin.dart';
@@ -306,14 +308,14 @@ class _LibraryTracksFolderScreenState
       downloadHistoryVisibleBatchExistsProvider(_folderData.historyRequest),
     );
 
-    final bottomPadding = MediaQuery.paddingOf(context).bottom;
-    final bottomInset = context.navBarBottomInset;
+    final bottomPadding = isSelectionMode
+        ? MediaQuery.paddingOf(context).bottom
+        : 0.0;
 
     return CollectionScaffold(
       scrollController: scrollController,
       isSelectionMode: isSelectionMode,
       onExitSelectionMode: exitSelectionMode,
-      bottomInset: bottomInset,
       selectionBar: _buildSelectionBottomBar(
         context,
         colorScheme,
@@ -762,7 +764,7 @@ class _LibraryTracksFolderScreenState
   void _showCoverOptionsSheet(BuildContext context, bool hasCustomCover) {
     final colorScheme = Theme.of(context).colorScheme;
 
-    showModalBottomSheet<void>(
+    showAppModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
       backgroundColor: colorScheme.surfaceContainerHigh,
@@ -772,23 +774,28 @@ class _LibraryTracksFolderScreenState
           children: [
             const AppSheetHandle(),
             const SizedBox(height: 16),
-            ListTile(
+            AppSheetOption(
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 24,
                 vertical: 4,
               ),
-              leading: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  Icons.image_outlined,
-                  color: colorScheme.onPrimaryContainer,
-                ),
-              ),
+              leading: context.isMornye
+                  ? Icon(
+                      mornyeIconFor(Icons.image_outlined),
+                      color: colorScheme.primary,
+                    )
+                  : Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.image_outlined,
+                        color: colorScheme.onPrimaryContainer,
+                      ),
+                    ),
               title: Text(context.l10n.collectionPlaylistChangeCover),
               onTap: () {
                 Navigator.pop(sheetContext);
@@ -796,23 +803,28 @@ class _LibraryTracksFolderScreenState
               },
             ),
             if (hasCustomCover)
-              ListTile(
+              AppSheetOption(
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 24,
                   vertical: 4,
                 ),
-                leading: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: colorScheme.errorContainer,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    Icons.delete_outline,
-                    color: colorScheme.onErrorContainer,
-                  ),
-                ),
+                leading: context.isMornye
+                    ? Icon(
+                        mornyeIconFor(Icons.delete_outline),
+                        color: colorScheme.primary,
+                      )
+                    : Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: colorScheme.errorContainer,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          Icons.delete_outline,
+                          color: colorScheme.onErrorContainer,
+                        ),
+                      ),
                 title: Text(context.l10n.collectionPlaylistRemoveCover),
                 onTap: () {
                   Navigator.pop(sheetContext);
@@ -834,10 +846,10 @@ class _LibraryTracksFolderScreenState
     final controller = TextEditingController(text: currentName);
     final formKey = GlobalKey<FormState>();
 
-    final nextName = await showDialog<String>(
+    final nextName = await showAppDialog<String>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
+        return AppAlertDialog(
           title: Text(dialogContext.l10n.collectionRenamePlaylist),
           content: Form(
             key: formKey,
@@ -861,11 +873,12 @@ class _LibraryTracksFolderScreenState
             ),
           ),
           actions: [
-            TextButton(
+            AppDialogAction(
               onPressed: () => Navigator.of(dialogContext).pop(),
               child: Text(dialogContext.l10n.dialogCancel),
             ),
-            FilledButton(
+            AppDialogAction(
+              filled: true,
               onPressed: () {
                 if (formKey.currentState?.validate() != true) return;
                 Navigator.of(dialogContext).pop(controller.text.trim());

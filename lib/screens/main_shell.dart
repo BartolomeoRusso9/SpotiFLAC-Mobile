@@ -3,6 +3,8 @@ import 'dart:io';
 import 'dart:ui' show ImageFilter;
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -30,6 +32,8 @@ import 'package:spotiflac_android/widgets/update_dialog.dart';
 import 'package:spotiflac_android/widgets/animation_utils.dart';
 import 'package:spotiflac_android/widgets/settings_group.dart';
 import 'package:spotiflac_android/widgets/mini_player.dart';
+import 'package:spotiflac_android/widgets/mornye_bottom_bar.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/widgets/selection_bottom_bar.dart';
 import 'package:spotiflac_android/utils/logger.dart';
 import 'package:spotiflac_android/utils/adaptive_layout.dart';
@@ -46,6 +50,7 @@ class MainShell extends ConsumerStatefulWidget {
 class _MainShellState extends ConsumerState<MainShell>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   int _currentIndex = 0;
+  final _mornyeChrome = MornyeChromeController();
   // Preserves the PageView element (and its kept-alive tabs) when the body
   // structure swaps between rail and bottom-bar layouts on rotation.
   final GlobalKey _pageViewKey = GlobalKey();
@@ -163,7 +168,7 @@ class _MainShellState extends ConsumerState<MainShell>
 
     _safRepairDialogVisible = true;
     try {
-      await showDialog<void>(
+      await showAppDialog<void>(
         context: context,
         barrierDismissible: false,
         builder: (dialogContext) {
@@ -172,7 +177,7 @@ class _MainShellState extends ConsumerState<MainShell>
             builder: (context, setDialogState) {
               return PopScope(
                 canPop: false,
-                child: AlertDialog(
+                child: AppAlertDialog(
                   icon: Icon(
                     Icons.folder_off_outlined,
                     color: Theme.of(context).colorScheme.error,
@@ -180,7 +185,7 @@ class _MainShellState extends ConsumerState<MainShell>
                   title: Text(context.l10n.downloadFolderAccessLostTitle),
                   content: Text(context.l10n.downloadFolderAccessLostSubtitle),
                   actions: [
-                    TextButton(
+                    AppDialogAction(
                       onPressed: isPickingFolder
                           ? null
                           : () {
@@ -194,7 +199,8 @@ class _MainShellState extends ConsumerState<MainShell>
                             },
                       child: Text(context.l10n.storageAutomaticFolder),
                     ),
-                    FilledButton(
+                    AppDialogAction(
+                      filled: true,
                       onPressed: isPickingFolder
                           ? null
                           : () async {
@@ -393,10 +399,10 @@ class _MainShellState extends ConsumerState<MainShell>
 
     final colorScheme = Theme.of(context).colorScheme;
 
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => AppAlertDialog(
         icon: Icon(
           Icons.folder_special_outlined,
           size: 32,
@@ -417,11 +423,12 @@ class _MainShellState extends ConsumerState<MainShell>
           ),
         ),
         actions: [
-          TextButton(
+          AppDialogAction(
             onPressed: () => Navigator.pop(ctx),
             child: Text(context.l10n.updateLater),
           ),
-          FilledButton(
+          AppDialogAction(
+            filled: true,
             onPressed: () async {
               Navigator.pop(ctx);
               final result = await PlatformBridge.pickSafTree();
@@ -459,6 +466,7 @@ class _MainShellState extends ConsumerState<MainShell>
     _shareSubscription?.cancel();
     _pageController.dispose();
     _tabJumpTransitionController.dispose();
+    _mornyeChrome.dispose();
     super.dispose();
   }
 
@@ -489,6 +497,7 @@ class _MainShellState extends ConsumerState<MainShell>
   }
 
   void _onNavTap(int index) {
+    _mornyeChrome.expand();
     if (index == 0 && _currentIndex == 0) {
       _resetHomeToMain();
       return;
@@ -513,7 +522,12 @@ class _MainShellState extends ConsumerState<MainShell>
       // Jump directly when skipping intermediate tabs to avoid
       // sliding through them. For those jumps, keep a short fade-in
       // so the transition still feels intentional.
-      if (isNonAdjacentJump) {
+      if (context.isMornye) {
+        // The glass pill owns the tab transition. Sliding/fading the whole
+        // page at the same time continuously invalidates its live backdrop.
+        _tabJumpTransitionController.value = 1;
+        _pageController.jumpToPage(index);
+      } else if (isNonAdjacentJump) {
         _pageController.jumpToPage(index);
         _tabJumpTransitionController.forward(from: 0);
       } else {
@@ -527,6 +541,7 @@ class _MainShellState extends ConsumerState<MainShell>
   }
 
   void _onPageChanged(int index) {
+    _mornyeChrome.expand();
     if (_currentIndex != index) {
       ref.read(previewPlayerProvider.notifier).stop();
       setState(() => _currentIndex = index);
@@ -695,7 +710,9 @@ class _MainShellState extends ConsumerState<MainShell>
     final l10n = context.l10n;
     final destinations = <NavigationDestination>[
       NavigationDestination(
-        icon: const Icon(Icons.home_outlined),
+        icon: Icon(
+          context.isMornye ? CupertinoIcons.house_fill : Icons.home_outlined,
+        ),
         selectedIcon: BouncingIcon(child: const Icon(Icons.home)),
         label: l10n.navHome,
       ),
@@ -705,7 +722,11 @@ class _MainShellState extends ConsumerState<MainShell>
           child: Badge(
             isLabelVisible: queueState > 0,
             label: Text('$queueState'),
-            child: const Icon(Icons.library_music_outlined),
+            child: Icon(
+              context.isMornye
+                  ? CupertinoIcons.square_stack_fill
+                  : Icons.library_music_outlined,
+            ),
           ),
         ),
         selectedIcon: SlidingIcon(
@@ -727,7 +748,11 @@ class _MainShellState extends ConsumerState<MainShell>
             child: Badge(
               isLabelVisible: repoUpdatesCount > 0,
               label: Text('$repoUpdatesCount'),
-              child: const Icon(Icons.extension_outlined),
+              child: Icon(
+                context.isMornye
+                    ? CupertinoIcons.square_grid_2x2
+                    : Icons.extension_outlined,
+              ),
             ),
           ),
           selectedIcon: BouncingIcon(
@@ -743,7 +768,9 @@ class _MainShellState extends ConsumerState<MainShell>
           label: l10n.navStore,
         ),
       NavigationDestination(
-        icon: const Icon(Icons.settings_outlined),
+        icon: Icon(
+          context.isMornye ? CupertinoIcons.gear : Icons.settings_outlined,
+        ),
         selectedIcon: SpinIcon(child: const Icon(Icons.settings)),
         label: l10n.navSettings,
       ),
@@ -765,6 +792,11 @@ class _MainShellState extends ConsumerState<MainShell>
     // desktop-width windows keeps all primary destinations at the reachable
     // bottom edge on iPad and large Android tablets.
     final useNavigationRail = useNavigationRailForWidth(screenSize.width);
+    final canMinimizeChrome =
+        context.isMornye &&
+        !useNavigationRail &&
+        MediaQuery.viewInsetsOf(context).bottom == 0 &&
+        MediaQuery.textScalerOf(context).scale(15) <= 20;
 
     final pageView = KeyedSubtree(
       key: _pageViewKey,
@@ -782,7 +814,15 @@ class _MainShellState extends ConsumerState<MainShell>
             key: ValueKey('page-$index'),
             child: TickerMode(
               enabled: index == _currentIndex,
-              child: tabs[index],
+              child: NotificationListener<ScrollNotification>(
+                onNotification: (notification) {
+                  if (canMinimizeChrome && index == _currentIndex) {
+                    return _mornyeChrome.handleScroll(notification);
+                  }
+                  return false;
+                },
+                child: tabs[index],
+              ),
             ),
           ),
         ),
@@ -858,6 +898,45 @@ class _MainShellState extends ConsumerState<MainShell>
               : pageView,
           bottomNavigationBar: Builder(
             builder: (context) {
+              if (context.isMornye) {
+                return ListenableBuilder(
+                  listenable: Listenable.merge([
+                    ShellNavigationService.chromeBrightness,
+                    ShellNavigationService.chromeSurface,
+                  ]),
+                  builder: (context, child) => Theme(
+                    data: ShellNavigationService.chromeBrightness.value == null
+                        ? Theme.of(context)
+                        : MornyeTheme.build(
+                            ShellNavigationService.chromeBrightness.value!,
+                            chromeSurface:
+                                ShellNavigationService.chromeSurface.value,
+                          ),
+                    child: child!,
+                  ),
+                  child: SafeArea(
+                    top: false,
+                    minimum: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                    child: useNavigationRail
+                        ? const MiniPlayer()
+                        : ValueListenableBuilder<bool>(
+                            valueListenable: _mornyeChrome,
+                            builder: (context, collapsed, _) => MornyeBottomBar(
+                              collapsed: canMinimizeChrome && collapsed,
+                              destinations: destinations,
+                              selectedIndex: _currentIndex.clamp(0, maxIndex),
+                              onSelected: _onNavTap,
+                              onExpand: _mornyeChrome.expand,
+                              onSearch:
+                                  ShellNavigationService.requestHomeSearch,
+                              blurEnabled:
+                                  !ref.watch(lowEndDeviceProvider) ||
+                                  ref.watch(backdropBlurEnabledProvider),
+                            ),
+                          ),
+                  ),
+                );
+              }
               final bottomBar = Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -931,6 +1010,9 @@ class _TabNavigator extends StatefulWidget {
 }
 
 class _TabNavigatorState extends State<_TabNavigator> {
+  late final ShellChromeObserver _chromeObserver = ShellChromeObserver(
+    widget.navigatorKey,
+  );
   // Nested navigators get no HeroController from MaterialApp; without one,
   // Hero widgets on routes pushed inside a tab never fly.
   final HeroController _heroController =
@@ -938,6 +1020,7 @@ class _TabNavigatorState extends State<_TabNavigator> {
 
   @override
   void dispose() {
+    _chromeObserver.detach();
     _heroController.dispose();
     super.dispose();
   }
@@ -947,6 +1030,7 @@ class _TabNavigatorState extends State<_TabNavigator> {
     return Navigator(
       key: widget.navigatorKey,
       observers: [
+        _chromeObserver,
         if (widget.heroAnimationsEnabled) _heroController,
         ...widget.observers,
       ],

@@ -58,7 +58,9 @@ extension _TrackMetadataFileActions on _TrackMetadataScreenState {
       context: context,
       useRootNavigator: true,
       isScrollControlled: true,
-      backgroundColor: colorScheme.surface,
+      backgroundColor: context.isMornye
+          ? colorScheme.surfaceContainerLow
+          : colorScheme.surface,
       builder: (sheetContext) => _EditMetadataSheet(
         colorScheme: colorScheme,
         initialValues: initialValues,
@@ -118,18 +120,18 @@ extension _TrackMetadataFileActions on _TrackMetadataScreenState {
     WidgetRef ref,
     ColorScheme colorScheme,
   ) {
-    showDialog<void>(
+    showAppDialog<void>(
       context: screenContext,
-      useRootNavigator: true,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => AppAlertDialog(
         title: Text(dialogContext.l10n.trackDeleteConfirmTitle),
         content: Text(dialogContext.l10n.trackDeleteConfirmMessage),
         actions: [
-          TextButton(
+          AppDialogAction(
             onPressed: () => Navigator.pop(dialogContext),
             child: Text(dialogContext.l10n.dialogCancel),
           ),
-          TextButton(
+          AppDialogAction(
+            isDestructive: true,
             onPressed: () async {
               var fileDeleted = true;
               if (_isLocalItem) {
@@ -180,10 +182,8 @@ extension _TrackMetadataFileActions on _TrackMetadataScreenState {
                 }
               });
             },
-            child: Text(
-              dialogContext.l10n.dialogDelete,
-              style: TextStyle(color: colorScheme.error),
-            ),
+            style: TextButton.styleFrom(foregroundColor: colorScheme.error),
+            child: Text(dialogContext.l10n.dialogDelete),
           ),
         ],
       ),

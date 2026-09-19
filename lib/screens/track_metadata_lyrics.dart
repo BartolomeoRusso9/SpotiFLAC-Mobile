@@ -6,10 +6,9 @@ extension _TrackMetadataLyricsAndSaving on _TrackMetadataScreenState {
     final hasDisplaySource =
         (hasDisplayLyrics || _isInstrumental) &&
         _lyricsSource?.trim().isNotEmpty == true;
-    return Card(
-      elevation: 0,
-      color: settingsGroupColor(context),
-      shape: _sectionCardShape(colorScheme),
+    return _metadataSectionSurface(
+      context,
+      colorScheme,
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -18,22 +17,28 @@ extension _TrackMetadataLyricsAndSaving on _TrackMetadataScreenState {
             Row(
               children: [
                 Icon(
-                  Icons.lyrics_outlined,
+                  context.isMornye
+                      ? CupertinoIcons.quote_bubble
+                      : Icons.lyrics_outlined,
                   size: 20,
                   color: colorScheme.primary,
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  context.l10n.trackLyrics,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: colorScheme.onSurface,
+                Expanded(
+                  child: Text(
+                    context.l10n.trackLyrics,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: colorScheme.onSurface,
+                    ),
                   ),
                 ),
-                const Spacer(),
                 if (hasDisplayLyrics)
                   IconButton(
-                    icon: const Icon(Icons.copy, size: 20),
+                    icon: Icon(
+                      context.isMornye ? CupertinoIcons.doc_on_doc : Icons.copy,
+                      size: 20,
+                    ),
                     onPressed: () => _copyToClipboard(context, _lyrics!),
                     tooltip: context.l10n.trackCopyLyrics,
                   ),

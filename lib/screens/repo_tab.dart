@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/widgets/app_snack_bar.dart';
+import 'package:flutter/cupertino.dart' show CupertinoIcons, CupertinoTextField;
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
 import 'package:spotiflac_android/widgets/extension_row.dart';
 import 'package:spotiflac_android/theme/app_tokens.dart';
 import 'package:spotiflac_android/widgets/app_search_field.dart';
@@ -12,6 +15,11 @@ import 'package:spotiflac_android/widgets/animation_utils.dart';
 import 'package:spotiflac_android/screens/repo/extension_details_screen.dart';
 import 'package:spotiflac_android/services/extension_storage_service.dart';
 import 'package:spotiflac_android/utils/nav_bar_inset.dart';
+import 'package:spotiflac_android/providers/runtime_profile_provider.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/theme/mornye_icons.dart';
+import 'package:spotiflac_android/widgets/mornye_chrome.dart';
+import 'package:spotiflac_android/widgets/extension_repo_card.dart';
 
 class RepoTab extends ConsumerStatefulWidget {
   const RepoTab({super.key});
@@ -80,7 +88,6 @@ class _RepoTabState extends ConsumerState<RepoTab> {
       );
     }
     final colorScheme = Theme.of(context).colorScheme;
-    final bottomInset = context.navBarBottomInset;
 
     return Scaffold(
       body: RefreshIndicator(
@@ -93,7 +100,9 @@ class _RepoTabState extends ConsumerState<RepoTab> {
               actions: [
                 if (hasRegistryUrl)
                   IconButton(
-                    icon: const Icon(Icons.link),
+                    icon: Icon(
+                      context.isMornye ? CupertinoIcons.link : Icons.link,
+                    ),
                     tooltip: context.l10n.storeChangeRepoTooltip,
                     onPressed: () => _showChangeRepoDialog(registryUrl),
                   ),
@@ -103,7 +112,10 @@ class _RepoTabState extends ConsumerState<RepoTab> {
             if (!hasRegistryUrl)
               SliverFillRemaining(
                 hasScrollBody: false,
-                child: _buildSetupRepoState(colorScheme, error),
+                child: Builder(
+                  builder: (context) =>
+                      _buildSetupRepoState(context, colorScheme, error),
+                ),
               )
             else ...[
               SliverToBoxAdapter(
@@ -220,34 +232,65 @@ class _RepoTabState extends ConsumerState<RepoTab> {
                   ),
                 ),
 
-                SliverToBoxAdapter(
-                  child: SettingsGroup(
-                    children: filteredExtensions.asMap().entries.map((entry) {
-                      final index = entry.key;
-                      final ext = entry.value;
-                      return _ExtensionItem(
-                        extension: ext,
-                        showDivider: index < filteredExtensions.length - 1,
-                        isDownloading: downloadingId == ext.id,
-                        onInstall: () => _installExtension(ext),
-                        onUpdate: () => _updateExtension(ext),
-                        onTap: () => _showExtensionDetails(ext),
-                      );
-                    }).toList(),
+                if (context.isMornye)
+                  SliverToBoxAdapter(
+                    child: ExtensionRepoCard(
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: filteredExtensions.asMap().entries.map((
+                          entry,
+                        ) {
+                          final index = entry.key;
+                          final ext = entry.value;
+                          return _ExtensionItem(
+                            extension: ext,
+                            showDivider: index < filteredExtensions.length - 1,
+                            isDownloading: downloadingId == ext.id,
+                            onInstall: () => _installExtension(ext),
+                            onUpdate: () => _updateExtension(ext),
+                            onTap: () => _showExtensionDetails(ext),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  )
+                else
+                  SliverToBoxAdapter(
+                    child: SettingsGroup(
+                      children: filteredExtensions.asMap().entries.map((entry) {
+                        final index = entry.key;
+                        final ext = entry.value;
+                        return _ExtensionItem(
+                          extension: ext,
+                          showDivider: index < filteredExtensions.length - 1,
+                          isDownloading: downloadingId == ext.id,
+                          onInstall: () => _installExtension(ext),
+                          onUpdate: () => _updateExtension(ext),
+                          onTap: () => _showExtensionDetails(ext),
+                        );
+                      }).toList(),
+                    ),
                   ),
-                ),
 
                 const SliverToBoxAdapter(child: SizedBox(height: 16)),
               ],
             ],
-            SliverToBoxAdapter(child: SizedBox(height: bottomInset)),
+            const NavBarSliverSpacer(),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildSetupRepoState(ColorScheme colorScheme, String? error) {
+  Widget _buildSetupRepoState(
+    BuildContext context,
+    ColorScheme colorScheme,
+    String? error,
+  ) {
     // Bottom padding keeps the content optically centered in the area
     // visible above the translucent nav bar.
     return Padding(
@@ -358,9 +401,9 @@ class _RepoTabState extends ConsumerState<RepoTab> {
 
   void _showChangeRepoDialog(String currentUrl) {
     final changeUrlController = TextEditingController(text: currentUrl);
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => AppAlertDialog(
         title: Text(context.l10n.storeRepoDialogTitle),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -383,47 +426,57 @@ class _RepoTabState extends ConsumerState<RepoTab> {
               overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 16),
-            TextField(
-              controller: changeUrlController,
-              decoration: InputDecoration(
-                hintText: context.l10n.storeRepoUrlHint,
-                labelText: context.l10n.storeNewRepoUrlLabel,
-                prefixIcon: const Icon(Icons.link),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(28),
-                  borderSide: BorderSide(
-                    color: Theme.of(context).colorScheme.outlineVariant,
+            if (context.isMornye)
+              CupertinoTextField(
+                controller: changeUrlController,
+                placeholder: context.l10n.storeNewRepoUrlLabel,
+                keyboardType: TextInputType.url,
+                autocorrect: false,
+                padding: const EdgeInsets.all(12),
+              )
+            else
+              TextField(
+                controller: changeUrlController,
+                decoration: InputDecoration(
+                  hintText: context.l10n.storeRepoUrlHint,
+                  labelText: context.l10n.storeNewRepoUrlLabel,
+                  prefixIcon: const Icon(Icons.link),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(28),
+                    borderSide: BorderSide(
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(28),
+                    borderSide: BorderSide(
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(28),
+                    borderSide: BorderSide(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 2,
+                    ),
+                  ),
+                  filled: true,
+                  fillColor: Theme.of(
+                    context,
+                  ).colorScheme.surfaceContainerHighest,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 16,
                   ),
                 ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(28),
-                  borderSide: BorderSide(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                  ),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(28),
-                  borderSide: BorderSide(
-                    color: Theme.of(context).colorScheme.primary,
-                    width: 2,
-                  ),
-                ),
-                filled: true,
-                fillColor: Theme.of(
-                  context,
-                ).colorScheme.surfaceContainerHighest,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 16,
-                ),
+                keyboardType: TextInputType.url,
+                autocorrect: false,
               ),
-              keyboardType: TextInputType.url,
-              autocorrect: false,
-            ),
           ],
         ),
         actions: [
-          TextButton(
+          AppDialogAction(
+            isDestructive: true,
             onPressed: () {
               Navigator.of(context).pop();
               ref.read(repoProvider.notifier).removeRegistryUrl();
@@ -433,11 +486,13 @@ class _RepoTabState extends ConsumerState<RepoTab> {
             ),
             child: Text(context.l10n.dialogRemove),
           ),
-          TextButton(
+          AppDialogAction(
             onPressed: () => Navigator.of(context).pop(),
             child: Text(context.l10n.dialogCancel),
           ),
-          FilledButton(
+          AppDialogAction(
+            filled: true,
+            isDefault: true,
             onPressed: () {
               final newUrl = changeUrlController.text.trim();
               Navigator.of(context).pop();
@@ -540,15 +595,14 @@ class _RepoTabState extends ConsumerState<RepoTab> {
         .installExtension(ext.id, tempDir.path, storage.extensionsDir);
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            success
-                ? context.l10n.snackbarExtensionInstalledEnable(ext.displayName)
-                : context.l10n.snackbarFailedToInstallNamed(ext.displayName),
-          ),
-          behavior: SnackBarBehavior.floating,
+      showAppSnackBar(
+        context,
+        content: Text(
+          success
+              ? context.l10n.snackbarExtensionInstalledEnable(ext.displayName)
+              : context.l10n.snackbarFailedToInstallNamed(ext.displayName),
         ),
+        behavior: SnackBarBehavior.floating,
       );
     }
   }
@@ -561,24 +615,23 @@ class _RepoTabState extends ConsumerState<RepoTab> {
         .updateExtension(ext.id, tempDir.path);
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            success
-                ? context.l10n.snackbarExtensionUpdatedVersion(
-                    ext.displayName,
-                    ext.version,
-                  )
-                : context.l10n.snackbarFailedToUpdateNamed(ext.displayName),
-          ),
-          behavior: SnackBarBehavior.floating,
+      showAppSnackBar(
+        context,
+        content: Text(
+          success
+              ? context.l10n.snackbarExtensionUpdatedVersion(
+                  ext.displayName,
+                  ext.version,
+                )
+              : context.l10n.snackbarFailedToUpdateNamed(ext.displayName),
         ),
+        behavior: SnackBarBehavior.floating,
       );
     }
   }
 }
 
-class _CategoryChip extends StatelessWidget {
+class _CategoryChip extends ConsumerWidget {
   final String label;
   final IconData icon;
   final bool isSelected;
@@ -592,8 +645,64 @@ class _CategoryChip extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final colorScheme = Theme.of(context).colorScheme;
+    if (context.isMornye) {
+      return Semantics(
+        button: true,
+        selected: isSelected,
+        label: label,
+        onTap: onTap,
+        excludeSemantics: true,
+        child: MornyeGlass.navigation(
+          radius: 24,
+          blurEnabled:
+              !ref.watch(lowEndDeviceProvider) ||
+              ref.watch(backdropBlurEnabledProvider),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(24),
+              child: Container(
+                constraints: const BoxConstraints(minHeight: 44),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                color: isSelected
+                    ? colorScheme.primary.withValues(alpha: 0.10)
+                    : Colors.transparent,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      mornyeIconFor(icon),
+                      size: 18,
+                      color: isSelected
+                          ? colorScheme.primary
+                          : colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      label,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: isSelected
+                            ? colorScheme.primary
+                            : colorScheme.onSurface,
+                        fontWeight: isSelected
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     return FilterChip(
       label: Row(
         mainAxisSize: MainAxisSize.min,
@@ -654,7 +763,9 @@ class _ExtensionItem extends StatelessWidget {
       onTap: onTap,
       avatar: ExtensionAvatar(
         imageUrl: extension.iconUrl,
-        fallbackIcon: _getCategoryIcon(extension.category),
+        fallbackIcon: context.isMornye
+            ? mornyeIconFor(_getCategoryIcon(extension.category))
+            : _getCategoryIcon(extension.category),
         background: extension.isInstalled
             ? colorScheme.primaryContainer
             : colorScheme.surfaceContainerHighest,
@@ -727,6 +838,7 @@ class _ExtensionItem extends StatelessWidget {
             ? FilledButton.tonal(
                 onPressed: onUpdate,
                 style: FilledButton.styleFrom(
+                  shape: context.isMornye ? const StadiumBorder() : null,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   minimumSize: Size(0, context.tokens.minTouchTarget),
                 ),
@@ -736,13 +848,20 @@ class _ExtensionItem extends StatelessWidget {
             ? OutlinedButton(
                 onPressed: null,
                 style: OutlinedButton.styleFrom(
+                  shape: context.isMornye ? const StadiumBorder() : null,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   minimumSize: Size(0, context.tokens.minTouchTarget),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.check, size: 16, color: colorScheme.outline),
+                    Icon(
+                      context.isMornye
+                          ? CupertinoIcons.check_mark
+                          : Icons.check,
+                      size: 16,
+                      color: colorScheme.outline,
+                    ),
                     SizedBox(width: tokens.gapXs),
                     Text(
                       context.l10n.storeInstalled,
@@ -754,6 +873,13 @@ class _ExtensionItem extends StatelessWidget {
             : FilledButton(
                 onPressed: onInstall,
                 style: FilledButton.styleFrom(
+                  shape: context.isMornye ? const StadiumBorder() : null,
+                  backgroundColor: context.isMornye
+                      ? colorScheme.primary.withValues(alpha: 0.12)
+                      : null,
+                  foregroundColor: context.isMornye
+                      ? colorScheme.primary
+                      : null,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   minimumSize: Size(0, context.tokens.minTouchTarget),
                 ),

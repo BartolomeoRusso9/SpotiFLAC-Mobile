@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoActivityIndicator;
+import 'package:spotiflac_android/theme/mornye_icons.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/providers/download_queue_provider.dart';
@@ -147,17 +151,19 @@ class AppSettingsPage extends ConsumerWidget {
     WidgetRef ref,
     ColorScheme colorScheme,
   ) {
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => AppAlertDialog(
         title: Text(context.l10n.dialogDisableHistoryTitle),
         content: Text(context.l10n.dialogDisableHistoryMessage),
         actions: [
-          TextButton(
+          AppDialogAction(
+            isDefault: true,
             onPressed: () => Navigator.pop(context),
             child: Text(context.l10n.dialogCancel),
           ),
-          TextButton(
+          AppDialogAction(
+            isDestructive: true,
             onPressed: () {
               ref.read(downloadHistoryProvider.notifier).clearHistory();
               ref.read(settingsProvider.notifier).setSaveDownloadHistory(false);
@@ -166,10 +172,8 @@ class AppSettingsPage extends ConsumerWidget {
                 SnackBar(content: Text(context.l10n.snackbarHistoryCleared)),
               );
             },
-            child: Text(
-              context.l10n.dialogDisableAndClear,
-              style: TextStyle(color: colorScheme.error),
-            ),
+            style: TextButton.styleFrom(foregroundColor: colorScheme.error),
+            child: Text(context.l10n.dialogDisableAndClear),
           ),
         ],
       ),
@@ -181,17 +185,19 @@ class AppSettingsPage extends ConsumerWidget {
     WidgetRef ref,
     ColorScheme colorScheme,
   ) {
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => AppAlertDialog(
         title: Text(context.l10n.dialogClearHistoryTitle),
         content: Text(context.l10n.dialogClearHistoryMessage),
         actions: [
-          TextButton(
+          AppDialogAction(
+            isDefault: true,
             onPressed: () => Navigator.pop(context),
             child: Text(context.l10n.dialogCancel),
           ),
-          TextButton(
+          AppDialogAction(
+            isDestructive: true,
             onPressed: () {
               ref.read(downloadHistoryProvider.notifier).clearHistory();
               Navigator.pop(context);
@@ -199,10 +205,8 @@ class AppSettingsPage extends ConsumerWidget {
                 SnackBar(content: Text(context.l10n.snackbarHistoryCleared)),
               );
             },
-            child: Text(
-              context.l10n.dialogClear,
-              style: TextStyle(color: colorScheme.error),
-            ),
+            style: TextButton.styleFrom(foregroundColor: colorScheme.error),
+            child: Text(context.l10n.dialogClear),
           ),
         ],
       ),
@@ -213,15 +217,18 @@ class AppSettingsPage extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
   ) async {
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
+      builder: (context) => AppAlertDialog(
         content: Row(
           children: [
-            const CircularProgressIndicator(),
+            if (context.isMornye)
+              const CupertinoActivityIndicator()
+            else
+              const CircularProgressIndicator(),
             const SizedBox(width: 16),
-            Text(context.l10n.cleanupOrphanedDownloads),
+            Expanded(child: Text(context.l10n.cleanupOrphanedDownloads)),
           ],
         ),
       ),
@@ -275,8 +282,12 @@ class _UpdateChannelSelector extends StatelessWidget {
           Row(
             children: [
               Icon(
-                Icons.new_releases,
-                color: colorScheme.onSurfaceVariant,
+                context.isMornye
+                    ? mornyeIconFor(Icons.new_releases)
+                    : Icons.new_releases,
+                color: context.isMornye
+                    ? colorScheme.primary
+                    : colorScheme.onSurfaceVariant,
                 size: 24,
               ),
               const SizedBox(width: 16),
@@ -378,8 +389,12 @@ class _VerificationBrowserModeSelector extends StatelessWidget {
               Row(
                 children: [
                   Icon(
-                    Icons.open_in_browser,
-                    color: colorScheme.onSurfaceVariant,
+                    context.isMornye
+                        ? mornyeIconFor(Icons.open_in_browser)
+                        : Icons.open_in_browser,
+                    color: context.isMornye
+                        ? colorScheme.primary
+                        : colorScheme.onSurfaceVariant,
                     size: 24,
                   ),
                   const SizedBox(width: 16),

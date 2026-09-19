@@ -181,9 +181,9 @@ extension _QueueTabSelectionActions on _QueueTabState {
       return;
     }
 
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => AppAlertDialog(
         title: Text(ctx.l10n.dialogDownloadAllTitle),
         content: Text(
           ctx.l10n.dialogDownloadPlaylistsMessage(
@@ -192,11 +192,12 @@ extension _QueueTabSelectionActions on _QueueTabState {
           ),
         ),
         actions: [
-          TextButton(
+          AppDialogAction(
             onPressed: () => Navigator.pop(ctx, false),
             child: Text(ctx.l10n.dialogCancel),
           ),
-          FilledButton(
+          AppDialogAction(
+            filled: true,
             onPressed: () => Navigator.pop(ctx, true),
             child: Text(ctx.l10n.dialogDownload),
           ),
@@ -279,17 +280,20 @@ extension _QueueTabSelectionActions on _QueueTabState {
 
   Future<void> _deleteSelectedPlaylists(BuildContext context) async {
     final count = _selectedPlaylistIds.length;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => AppAlertDialog(
         title: Text(ctx.l10n.collectionDeletePlaylist),
         content: Text(ctx.l10n.collectionDeletePlaylistsMessage(count)),
         actions: [
-          TextButton(
+          AppDialogAction(
+            isDefault: true,
             onPressed: () => Navigator.pop(ctx, false),
             child: Text(ctx.l10n.dialogCancel),
           ),
-          FilledButton(
+          AppDialogAction(
+            filled: true,
+            isDestructive: true,
             onPressed: () => Navigator.pop(ctx, true),
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(context).colorScheme.error,
@@ -400,17 +404,20 @@ extension _QueueTabSelectionActions on _QueueTabState {
 
   Future<void> _deleteSelected(List<UnifiedLibraryItem> allItems) async {
     final count = _selectedIds.length;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => AppAlertDialog(
         title: Text(context.l10n.dialogDeleteSelectedTitle),
         content: Text(context.l10n.dialogDeleteSelectedMessage(count)),
         actions: [
-          TextButton(
+          AppDialogAction(
+            isDefault: true,
             onPressed: () => Navigator.pop(ctx, false),
             child: Text(context.l10n.dialogCancel),
           ),
-          FilledButton(
+          AppDialogAction(
+            filled: true,
+            isDestructive: true,
             onPressed: () => Navigator.pop(ctx, true),
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(context).colorScheme.error,

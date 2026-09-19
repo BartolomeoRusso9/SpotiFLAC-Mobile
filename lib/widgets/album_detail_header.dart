@@ -1,8 +1,14 @@
 import 'dart:ui';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:spotiflac_android/providers/runtime_profile_provider.dart';
 import 'package:spotiflac_android/theme/app_tokens.dart';
 import 'package:spotiflac_android/theme/cover_palette.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/theme/mornye_icons.dart';
+import 'package:spotiflac_android/widgets/mornye_chrome.dart';
 import 'package:spotiflac_android/utils/adaptive_layout.dart';
 
 /// Collapsing album-detail header shared by the album, local-album, and
@@ -32,6 +38,8 @@ class AlbumDetailHeader extends StatelessWidget {
     this.appBarTitle,
     this.leading,
     this.backgroundColor,
+    this.immersive = false,
+    this.squareArtwork = true,
   });
 
   final String title;
@@ -73,6 +81,10 @@ class AlbumDetailHeader extends StatelessWidget {
   final Widget? leading;
 
   final Color? backgroundColor;
+  final bool immersive;
+
+  /// Ordinary cover art stays 1:1; provider-supplied banners may fill a header.
+  final bool squareArtwork;
 
   /// Shrinks long titles so up to three lines fit the header.
   double _titleFontSize() {
@@ -84,14 +96,164 @@ class AlbumDetailHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (context.isMornye && (coverBuilder != null || immersive)) {
+      final scheme = Theme.of(context).colorScheme;
+      return HeaderPalette(
+        scheme: scheme,
+        child: Builder(
+          builder: (context) =>
+              SliverMainAxisGroup(slivers: buildSlivers(context)),
+        ),
+      );
+    }
     return CoverPaletteBuilder(
       imageSource: paletteSource,
       builder: (context, headerScheme) => _buildAppBar(context, headerScheme),
     );
   }
 
+  /// Keep the toolbar at the collection scroll-view level so it stays pinned
+  /// after the dynamically sized artwork and metadata have scrolled away.
+  List<Widget> buildSlivers(BuildContext context) {
+    if (!context.isMornye || (coverBuilder == null && !immersive)) {
+      return [this];
+    }
+    final scheme = Theme.of(context).colorScheme;
+    final edgeInset = detailHeaderEdgeInset(context);
+    final artworkSize = MediaQuery.sizeOf(context).width.clamp(0.0, 440.0);
+    // Keep the artwork and text in normal sliver flow: Dynamic Type and long
+    // album names must grow the header instead of overflowing a fixed height.
+    return [
+      // Only the toolbar needs safe-area padding. Reading it on the caller's
+      // context rebuilds all header slivers as the navigation bar folds.
+      Builder(
+        builder: (context) => SliverAppBar(
+          pinned: true,
+          expandedHeight: immersive
+              ? squareArtwork
+                    ? artworkSize - MediaQuery.paddingOf(context).top
+                    : MediaQuery.sizeOf(context).width.clamp(280.0, 440.0)
+              : null,
+          backgroundColor: scheme.surface,
+          surfaceTintColor: Colors.transparent,
+          flexibleSpace: immersive
+              ? FlexibleSpaceBar(
+                  collapseMode: CollapseMode.pin,
+                  background: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (squareArtwork)
+                        Align(
+                          alignment: Alignment.topCenter,
+                          child: SizedBox.square(
+                            dimension: artworkSize,
+                            child: background,
+                          ),
+                        )
+                      else
+                        background,
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            stops: const [0, 0.52, 1],
+                            colors: [
+                              Colors.black.withValues(alpha: 0.12),
+                              scheme.surface.withValues(alpha: 0),
+                              scheme.surface,
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : null,
+          title: AnimatedOpacity(
+            opacity: showTitleInAppBar || appBarTitle != null ? 1 : 0,
+            duration: const Duration(milliseconds: 180),
+            child: Text(
+              appBarTitle ?? title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+            ),
+          ),
+          leadingWidth: kToolbarHeight + edgeInset,
+          leading: Padding(
+            padding: EdgeInsets.only(left: edgeInset),
+            child:
+                leading ??
+                HeaderCircleButton(
+                  icon: CupertinoIcons.chevron_back,
+                  tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+                  onPressed: () => Navigator.pop(context),
+                ),
+          ),
+          actionsPadding: EdgeInsets.only(right: edgeInset),
+          actions: appBarActions,
+        ),
+      ),
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(20, immersive ? 0 : 20, 20, 28),
+          child: Column(
+            children: [
+              if (!immersive)
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 280),
+                  child: AspectRatio(
+                    aspectRatio: 1,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.16),
+                            blurRadius: 20,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) =>
+                              coverBuilder!(context, constraints.maxWidth),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (!immersive) const SizedBox(height: 22),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (subtitle != null) ...[const SizedBox(height: 5), subtitle!],
+              if (meta != null) ...[const SizedBox(height: 5), meta!],
+              if (actions != null) ...[
+                const SizedBox(height: 24),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 460),
+                  child: actions!,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    ];
+  }
+
   Widget _buildAppBar(BuildContext context, ColorScheme headerScheme) {
     final tokens = context.tokens;
+    final plainArtworkHeader = context.isMornye && coverBuilder != null;
     // iOS does not add horizontal safe-area padding in portrait. Give toolbar
     // controls and header content an explicit inset so circular actions do not
     // sit against the glass edge on either iPhone or iPad. Android retains its
@@ -135,33 +297,36 @@ class AlbumDetailHeader extends StatelessWidget {
             background: Stack(
               fit: StackFit.expand,
               children: [
-                if (blurAndScrimBackground)
+                if (plainArtworkHeader)
+                  ColoredBox(color: headerScheme.surface)
+                else if (blurAndScrimBackground)
                   ImageFiltered(
                     imageFilter: ImageFilter.blur(sigmaX: 32, sigmaY: 32),
                     child: background,
                   )
                 else
                   background,
-                if (blurAndScrimBackground)
+                if (!plainArtworkHeader && blurAndScrimBackground)
                   ColoredBox(color: scrimColor.withValues(alpha: 0.4)),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  height: expandedHeight * 0.65,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          scrimColor.withValues(alpha: 0),
-                          scrimColor.withValues(alpha: 0.92),
-                        ],
+                if (!plainArtworkHeader)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: expandedHeight * 0.65,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            scrimColor.withValues(alpha: 0),
+                            scrimColor.withValues(alpha: 0.92),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
                 Positioned(
                   left: 20 + iosEdgeInset,
                   right: 20 + iosEdgeInset,
@@ -184,7 +349,9 @@ class AlbumDetailHeader extends StatelessWidget {
                                 height: coverSize,
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(
-                                    tokens.radiusControl,
+                                    plainArtworkHeader
+                                        ? tokens.radiusCover
+                                        : tokens.radiusControl,
                                   ),
                                   boxShadow: [
                                     BoxShadow(
@@ -248,7 +415,9 @@ class AlbumDetailHeader extends StatelessWidget {
             leading ??
             IconButton.filledTonal(
               tooltip: MaterialLocalizations.of(context).backButtonTooltip,
-              icon: const Icon(Icons.arrow_back),
+              icon: Icon(
+                context.isMornye ? Icons.chevron_left : Icons.arrow_back,
+              ),
               style: IconButton.styleFrom(
                 minimumSize: Size.square(tokens.minTouchTarget),
                 backgroundColor: headerScheme.surfaceContainerHigh.withValues(
@@ -285,6 +454,28 @@ class AlbumPlayActions extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.tokens;
     final scheme = HeaderPalette.of(context);
+    if (context.isMornye) {
+      return Row(
+        children: [
+          Expanded(
+            child: HeaderFilledButton(
+              icon: CupertinoIcons.play_fill,
+              label: playLabel,
+              onPressed: onPlay,
+              tonal: true,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _MornyeHeaderButton(
+              icon: CupertinoIcons.shuffle,
+              label: shuffleTooltip,
+              onPressed: onShuffle,
+            ),
+          ),
+        ],
+      );
+    }
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -329,16 +520,26 @@ class HeaderFilledButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onPressed,
+    this.tonal = false,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback? onPressed;
+  final bool tonal;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.tokens;
     final scheme = HeaderPalette.of(context);
+    if (context.isMornye) {
+      return _MornyeHeaderButton(
+        icon: mornyeIconFor(icon),
+        label: label,
+        onPressed: onPressed,
+        prominent: !tonal,
+      );
+    }
     return FilledButton.icon(
       onPressed: onPressed,
       icon: Icon(icon, size: 18),
@@ -357,13 +558,14 @@ class HeaderFilledButton extends StatelessWidget {
 
 /// Circular header icon button (add-to-playlist, love-all, ...). Sized to the
 /// minimum touch target and tinted from the [HeaderPalette].
-class HeaderCircleButton extends StatelessWidget {
+class HeaderCircleButton extends ConsumerWidget {
   const HeaderCircleButton({
     super.key,
     required this.icon,
     required this.tooltip,
     required this.onPressed,
     this.iconColor,
+    this.tonal = false,
   });
 
   final IconData icon;
@@ -373,10 +575,62 @@ class HeaderCircleButton extends StatelessWidget {
   /// Overrides the palette foreground, e.g. to mark an active "loved" state.
   final Color? iconColor;
 
+  /// Uses the same translucent fill as the local album's Play/Shuffle pills.
+  final bool tonal;
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final tokens = context.tokens;
     final scheme = HeaderPalette.of(context);
+    if (context.isMornye) {
+      if (tonal) {
+        return Tooltip(
+          message: tooltip,
+          child: SizedBox.square(
+            dimension: 44,
+            child: CupertinoButton(
+              padding: EdgeInsets.zero,
+              borderRadius: BorderRadius.circular(24),
+              color: scheme.onSurface.withValues(
+                alpha: scheme.brightness == Brightness.dark ? 0.10 : 0.06,
+              ),
+              onPressed: onPressed,
+              child: Icon(
+                mornyeIconFor(icon),
+                size: 22,
+                color: onPressed == null
+                    ? scheme.onSurfaceVariant
+                    : iconColor ?? scheme.primary,
+              ),
+            ),
+          ),
+        );
+      }
+      final blurEnabled =
+          !ref.watch(lowEndDeviceProvider) ||
+          ref.watch(backdropBlurEnabledProvider);
+      final button = IconButton(
+        onPressed: onPressed,
+        tooltip: tooltip,
+        icon: Icon(mornyeIconFor(icon), size: 22),
+        style: IconButton.styleFrom(
+          minimumSize: const Size.square(44),
+          foregroundColor: iconColor ?? scheme.onSurface,
+        ),
+      );
+      return Center(
+        widthFactor: 1,
+        child: MornyeGlass.navigation(
+          radius: 24,
+          tintColor: scheme.brightness == Brightness.dark
+              ? Colors.black
+              : Colors.white,
+          tintOpacity: scheme.brightness == Brightness.dark ? 0.45 : 0.55,
+          blurEnabled: blurEnabled,
+          child: button,
+        ),
+      );
+    }
     return IconButton.filledTonal(
       onPressed: onPressed,
       icon: Icon(icon, size: 22),
@@ -385,6 +639,63 @@ class HeaderCircleButton extends StatelessWidget {
         minimumSize: Size.square(tokens.minTouchTarget),
         backgroundColor: scheme.surfaceContainerHighest.withValues(alpha: 0.7),
         foregroundColor: iconColor ?? scheme.onSurfaceVariant,
+      ),
+    );
+  }
+}
+
+class _MornyeHeaderButton extends StatelessWidget {
+  const _MornyeHeaderButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.prominent = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+  final bool prominent;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = HeaderPalette.of(context);
+    final foreground = onPressed == null
+        ? scheme.onSurfaceVariant
+        : prominent
+        ? scheme.onPrimary
+        : scheme.primary;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 50),
+      child: CupertinoButton(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        borderRadius: BorderRadius.circular(28),
+        color: prominent
+            ? scheme.primary
+            : scheme.onSurface.withValues(
+                alpha: scheme.brightness == Brightness.dark ? 0.10 : 0.06,
+              ),
+        onPressed: onPressed,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 20, color: foreground),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                  color: foreground,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -436,7 +747,7 @@ class HeaderMetaItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = HeaderPalette.of(context);
     final textStyle = TextStyle(
-      color: scheme.onSurface,
+      color: context.isMornye ? scheme.onSurfaceVariant : scheme.onSurface,
       fontSize: 13,
       fontWeight: FontWeight.w500,
     );

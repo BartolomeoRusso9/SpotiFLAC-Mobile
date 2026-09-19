@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:spotiflac_android/theme/app_tokens.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/widgets/mornye_chrome.dart';
 import 'package:spotiflac_android/widgets/app_bottom_sheet.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
 
@@ -225,31 +228,35 @@ class SelectionBottomBar extends StatelessWidget {
     final tokens = context.tokens;
     final colorScheme = Theme.of(context).colorScheme;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(tokens.radiusSheet),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: colorScheme.shadow.withValues(alpha: 0.15),
-            blurRadius: 12,
-            offset: const Offset(0, -4),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(16, 16, 16, bottomPadding > 0 ? 8 : 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const AppSheetHandle(),
+    final content = SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(16, 16, 16, bottomPadding > 0 ? 8 : 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const AppSheetHandle(),
 
-              Row(
-                children: [
+            Row(
+              children: [
+                if (context.isMornye)
+                  Tooltip(
+                    message: MaterialLocalizations.of(
+                      context,
+                    ).closeButtonTooltip,
+                    child: CupertinoButton(
+                      color: MornyeTheme.controlFill(context),
+                      borderRadius: BorderRadius.circular(28),
+                      padding: const EdgeInsets.all(12),
+                      onPressed: onClose,
+                      child: Icon(
+                        CupertinoIcons.xmark,
+                        color: colorScheme.onSurface,
+                        size: 24,
+                      ),
+                    ),
+                  )
+                else
                   IconButton.filledTonal(
                     onPressed: onClose,
                     tooltip: MaterialLocalizations.of(
@@ -260,30 +267,45 @@ class SelectionBottomBar extends StatelessWidget {
                       backgroundColor: colorScheme.surfaceContainerHighest,
                     ),
                   ),
-                  const SizedBox(width: 12),
+                const SizedBox(width: 12),
 
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          context.l10n.selectionSelected(selectedCount),
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.bold),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        context.l10n.selectionSelected(selectedCount),
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        allSelected
+                            ? allSelectedLabel ??
+                                  context.l10n.selectionAllSelected
+                            : tapToSelectLabel ??
+                                  context.l10n.downloadedAlbumTapToSelect,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
                         ),
-                        Text(
-                          allSelected
-                              ? allSelectedLabel ??
-                                    context.l10n.selectionAllSelected
-                              : tapToSelectLabel ??
-                                    context.l10n.downloadedAlbumTapToSelect,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: colorScheme.onSurfaceVariant),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
+                ),
 
+                if (context.isMornye)
+                  CupertinoButton(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    onPressed: onToggleSelectAll,
+                    child: Text(
+                      allSelected
+                          ? context.l10n.actionDeselect
+                          : context.l10n.actionSelectAll,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.primary,
+                      ),
+                    ),
+                  )
+                else
                   TextButton.icon(
                     onPressed: onToggleSelectAll,
                     icon: Icon(
@@ -299,16 +321,34 @@ class SelectionBottomBar extends StatelessWidget {
                       foregroundColor: colorScheme.primary,
                     ),
                   ),
-                ],
-              ),
+              ],
+            ),
 
-              const SizedBox(height: 12),
+            const SizedBox(height: 12),
 
-              ...children,
-            ],
-          ),
+            ...children,
+          ],
         ),
       ),
+    );
+    if (context.isMornye) {
+      return MornyeGlassPanel.overlay(child: content);
+    }
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(tokens.radiusSheet),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.shadow.withValues(alpha: 0.15),
+            blurRadius: 12,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      child: content,
     );
   }
 }

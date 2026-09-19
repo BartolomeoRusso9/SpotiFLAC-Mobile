@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:spotiflac_android/theme/app_tokens.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/utils/adaptive_layout.dart';
 import 'package:spotiflac_android/utils/app_bar_layout.dart';
 
@@ -64,7 +65,9 @@ class AppSliverHeader extends StatelessWidget {
                     tooltip: MaterialLocalizations.of(
                       context,
                     ).backButtonTooltip,
-                    icon: const Icon(Icons.arrow_back),
+                    icon: Icon(
+                      context.isMornye ? Icons.chevron_left : Icons.arrow_back,
+                    ),
                     onPressed: () => Navigator.pop(context),
                   ),
             )
@@ -116,6 +119,7 @@ class AppSliverHeader extends StatelessWidget {
               style: TextStyle(
                 fontSize: fontSize,
                 fontWeight: FontWeight.bold,
+                letterSpacing: context.isMornye ? -0.7 * expandRatio : null,
                 color: colorScheme.onSurface,
               ),
             ),

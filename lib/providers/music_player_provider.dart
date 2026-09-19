@@ -1,5 +1,7 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:spotiflac_android/models/track.dart';
+import 'package:spotiflac_android/models/unified_library_item.dart';
 import 'package:spotiflac_android/providers/download_queue_provider.dart';
 import 'package:spotiflac_android/services/library_database.dart';
 import 'package:spotiflac_android/services/music_player_service.dart';
@@ -7,6 +9,49 @@ import 'package:spotiflac_android/services/music_player_service.dart';
 final currentMediaItemProvider = StreamProvider<MediaItem?>((ref) {
   return musicPlayerMediaItemEvents();
 });
+
+/// Use the Library's identity for favorites, including restored queues and
+/// playback started from a file path rather than a Library row ID.
+final playerCollectionTrackProvider = FutureProvider.autoDispose
+    .family<Track, MediaItem>((ref, item) async {
+      final source = item.extras?['source']?.toString() ?? '';
+      if (source.isNotEmpty) {
+        final history = await ref
+            .read(downloadHistoryProvider.notifier)
+            .getByFilePathAsync(source);
+        if (history != null) {
+          return UnifiedLibraryItem.fromDownloadHistory(history).toTrack();
+        }
+      }
+      final database = LibraryDatabase.instance;
+      final row = await database.getById(item.id);
+      if (row != null) {
+        return UnifiedLibraryItem.fromLocalLibrary(
+          LocalLibraryItem.fromJson(row),
+        ).toTrack();
+      }
+      if (source.isNotEmpty) {
+        final matches = await database.findByTrackAndArtist(
+          item.title,
+          item.artist ?? '',
+        );
+        for (final row in matches) {
+          final local = LocalLibraryItem.fromJson(row);
+          if (local.filePath == source) {
+            return UnifiedLibraryItem.fromLocalLibrary(local).toTrack();
+          }
+        }
+      }
+      return Track(
+        id: item.id,
+        name: item.title,
+        artistName: item.artist ?? '',
+        albumName: item.album ?? '',
+        coverUrl: item.artUri?.toString(),
+        duration: item.duration?.inSeconds ?? 0,
+        source: 'local',
+      );
+    });
 
 final playbackStateProvider = StreamProvider<PlaybackState>((ref) {
   return musicPlayerPlaybackStateEvents();

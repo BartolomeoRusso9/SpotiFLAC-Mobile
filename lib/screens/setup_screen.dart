@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
@@ -170,20 +171,21 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   }
 
   Future<bool?> _showAndroid11StorageDialog() {
-    return showDialog<bool>(
+    return showAppDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => AppAlertDialog(
         title: Text(context.l10n.setupStorageAccessRequired),
         content: Text(
           '${context.l10n.setupStorageAccessMessageAndroid11}\n\n'
           '${context.l10n.setupAllowAccessToManageFiles}',
         ),
         actions: [
-          TextButton(
+          AppDialogAction(
             onPressed: () => Navigator.pop(context, false),
             child: Text(context.l10n.dialogCancel),
           ),
-          FilledButton(
+          AppDialogAction(
+            filled: true,
             onPressed: () => Navigator.pop(context, true),
             child: Text(context.l10n.setupOpenSettings),
           ),
@@ -219,19 +221,20 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   }
 
   Future<void> _showPermissionDeniedDialog(String permissionType) async {
-    await showDialog<void>(
+    await showAppDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => AppAlertDialog(
         title: Text(context.l10n.setupPermissionRequired(permissionType)),
         content: Text(
           context.l10n.setupPermissionRequiredMessage(permissionType),
         ),
         actions: [
-          TextButton(
+          AppDialogAction(
             onPressed: () => Navigator.pop(context),
             child: Text(context.l10n.dialogCancel),
           ),
-          TextButton(
+          AppDialogAction(
+            filled: true,
             onPressed: () {
               Navigator.pop(context);
               openAppSettings();
@@ -281,19 +284,20 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         if (_selectedTreeUri == null || _selectedTreeUri!.isEmpty) {
           final defaultDir = await _getDefaultDirectory();
           if (mounted) {
-            final useDefault = await showDialog<bool>(
+            final useDefault = await showAppDialog<bool>(
               context: context,
-              builder: (context) => AlertDialog(
+              builder: (context) => AppAlertDialog(
                 title: Text(context.l10n.setupUseDefaultFolder),
                 content: Text(
                   '${context.l10n.setupNoFolderSelected}\n\n$defaultDir',
                 ),
                 actions: [
-                  TextButton(
+                  AppDialogAction(
                     onPressed: () => Navigator.pop(context, false),
                     child: Text(context.l10n.dialogCancel),
                   ),
-                  TextButton(
+                  AppDialogAction(
+                    filled: true,
                     onPressed: () => Navigator.pop(context, true),
                     child: Text(context.l10n.setupUseDefault),
                   ),

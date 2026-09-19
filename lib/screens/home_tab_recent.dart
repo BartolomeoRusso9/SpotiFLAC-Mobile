@@ -25,18 +25,20 @@ extension _HomeTabRecentUI on _HomeTabState {
                 TextButton(
                   onPressed: () async {
                     // Clearing history is not undoable, so ask first.
-                    final confirmed = await showDialog<bool>(
+                    final confirmed = await showAppDialog<bool>(
                       context: context,
-                      builder: (dialogContext) => AlertDialog(
+                      builder: (dialogContext) => AppAlertDialog(
                         title: Text(dialogContext.l10n.dialogClearAll),
                         content: Text(dialogContext.l10n.recentClearAllMessage),
                         actions: [
-                          TextButton(
+                          AppDialogAction(
                             onPressed: () =>
                                 Navigator.of(dialogContext).pop(false),
                             child: Text(dialogContext.l10n.dialogCancel),
                           ),
-                          FilledButton(
+                          AppDialogAction(
+                            filled: true,
+                            isDestructive: true,
                             onPressed: () =>
                                 Navigator.of(dialogContext).pop(true),
                             child: Text(dialogContext.l10n.dialogClearAll),
