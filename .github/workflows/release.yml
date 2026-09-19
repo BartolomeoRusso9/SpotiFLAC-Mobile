@@ -449,6 +449,19 @@ jobs:
           fi
 
           IPA_SIZE=$(stat -c%s "$IPA_FILE" 2>/dev/null || stat -f%z "$IPA_FILE")
+          BUNDLE_ID=$(python3 - "$IPA_FILE" <<'PY'
+          import plistlib
+          import sys
+          import zipfile
+
+          with zipfile.ZipFile(sys.argv[1]) as ipa:
+              info_path = next(name for name in ipa.namelist()
+                               if name.startswith("Payload/")
+                               and name.count("/") == 2
+                               and name.endswith(".app/Info.plist"))
+              print(plistlib.loads(ipa.read(info_path))["CFBundleIdentifier"])
+          PY
+          )
 
           if [ ! -f apps.json ]; then
             echo "WARNING: apps.json not found on main, skipping"
@@ -456,10 +469,11 @@ jobs:
           fi
 
           jq --arg ver "$VERSION_NUM" \
+             --arg bundle "$BUNDLE_ID" \
              --arg date "$DATE" \
              --arg url "https://github.com/${REPOSITORY}/releases/download/${VERSION}/SpotiFLAC-${VERSION}-ios-unsigned.ipa" \
              --argjson size "$IPA_SIZE" \
-             '.apps[0].version = $ver | .apps[0].versionDate = $date | .apps[0].downloadURL = $url | .apps[0].size = $size' \
+             '.apps[0].bundleIdentifier = $bundle | .apps[0].version = $ver | .apps[0].versionDate = $date | .apps[0].downloadURL = $url | .apps[0].size = $size' \
              apps.json > apps.json.tmp && mv apps.json.tmp apps.json
 
           echo "Updated apps.json:"
