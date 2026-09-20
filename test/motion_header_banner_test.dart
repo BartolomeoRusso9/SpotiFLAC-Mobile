@@ -181,6 +181,8 @@ void main() {
     ready(2);
     await tester.pump();
     await tester.pump();
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    expect(platform.disposals, 1, reason: 'Release the outgoing decoder');
     expect(
       tester
           .widget<MotionHeaderBanner>(find.byType(MotionHeaderBanner))

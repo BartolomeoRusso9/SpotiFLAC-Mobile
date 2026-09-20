@@ -53,11 +53,6 @@ class _MornyePlayerArtworkState extends ConsumerState<MornyePlayerArtwork> {
       return fallback;
     }
     final videoUrl = widget.videoUrl;
-    // Keep one outgoing decoder alive until the next cover is ready. Rapid
-    // skips must not replace a visible frame with a loading placeholder.
-    if (_displayedSource != null && _displayedSource != videoUrl) {
-      ref.watch(playerArtworkVideoProvider(_displayedSource!));
-    }
     final prepared = videoUrl == null
         ? null
         : ref.watch(playerArtworkVideoProvider(videoUrl));
@@ -73,6 +68,12 @@ class _MornyePlayerArtworkState extends ConsumerState<MornyePlayerArtwork> {
         (videoUrl == null || prepared?.hasError == true)) {
       _displayedSource = null;
       _displayedController = null;
+    }
+    // Retain the outgoing decoder only while it is still displayed. Watching
+    // it before accepting the new frame keeps its heap alive until a later
+    // unrelated rebuild, even after the old banner has been removed.
+    if (_displayedSource != null && _displayedSource != videoUrl) {
+      ref.watch(playerArtworkVideoProvider(_displayedSource!));
     }
     return Stack(
       fit: StackFit.expand,
