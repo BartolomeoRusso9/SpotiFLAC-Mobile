@@ -36,7 +36,9 @@ final systemVolumeWriterProvider = Provider<Future<void> Function(double)>((
 });
 
 class MornyeVolumeControl extends ConsumerStatefulWidget {
-  const MornyeVolumeControl({super.key});
+  const MornyeVolumeControl({super.key, this.foreground = Colors.white});
+
+  final Color foreground;
 
   @override
   ConsumerState<MornyeVolumeControl> createState() =>
@@ -103,10 +105,10 @@ class _MornyeVolumeControlState extends ConsumerState<MornyeVolumeControl> {
         padding: const EdgeInsets.symmetric(horizontal: 28),
         child: Row(
           children: [
-            const Icon(
+            Icon(
               CupertinoIcons.speaker_fill,
               size: 16,
-              color: Colors.white54,
+              color: widget.foreground.withValues(alpha: 0.54),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -117,8 +119,8 @@ class _MornyeVolumeControlState extends ConsumerState<MornyeVolumeControl> {
                     opacity: volume == null ? 0.4 : 1,
                     child: MornyePlayerSlider(
                       value: value,
-                      activeColor: Colors.white70,
-                      inactiveColor: Colors.white12,
+                      activeColor: widget.foreground.withValues(alpha: 0.70),
+                      inactiveColor: widget.foreground.withValues(alpha: 0.12),
                       onChangeStart: (_) => _dragging = true,
                       onChanged: _setVolume,
                       onChangeEnd: (value) {
@@ -131,10 +133,10 @@ class _MornyeVolumeControlState extends ConsumerState<MornyeVolumeControl> {
               ),
             ),
             const SizedBox(width: 10),
-            const Icon(
+            Icon(
               CupertinoIcons.speaker_3_fill,
               size: 16,
-              color: Colors.white54,
+              color: widget.foreground.withValues(alpha: 0.54),
             ),
           ],
         ),

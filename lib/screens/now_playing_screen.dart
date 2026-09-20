@@ -32,6 +32,7 @@ import 'package:spotiflac_android/widgets/settings_group.dart';
 import 'package:spotiflac_android/widgets/mornye_volume_control.dart';
 import 'package:spotiflac_android/widgets/mornye_player_queue.dart';
 import 'package:spotiflac_android/widgets/mornye_player_background.dart';
+import 'package:spotiflac_android/widgets/mornye_artwork_contrast.dart';
 import 'package:spotiflac_android/widgets/mornye_playback_button.dart';
 import 'package:spotiflac_android/widgets/mornye_playback_time.dart';
 import 'package:spotiflac_android/widgets/mornye_player_actions_sheet.dart';
@@ -223,6 +224,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
   String? _failedMotionSource;
   bool _lyricsControlsHidden = false;
   double _lyricsScrollDistance = 0;
+  final _artworkHeaderKey = GlobalKey();
+  final _artworkControlsKey = GlobalKey();
+  final _artworkVolumeKey = GlobalKey();
+  Map<String, Color> _artworkForeground = {};
 
   @override
   void initState() {
@@ -412,16 +417,15 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
     }
 
     final source = mediaItem.extras?['source']?.toString() ?? '';
-    final resolvedMotion = mornye && !MediaQuery.disableAnimationsOf(context)
-        ? ref
-              .watch(
-                playerMotionArtworkProvider((
-                  album: mediaItem.album ?? '',
-                  artist: mediaItem.artist ?? '',
-                )),
-              )
-              .value
+    final motionState = mornye && !MediaQuery.disableAnimationsOf(context)
+        ? ref.watch(
+            playerMotionArtworkProvider((
+              album: mediaItem.album ?? '',
+              artist: mediaItem.artist ?? '',
+            )),
+          )
         : null;
+    final resolvedMotion = motionState?.value;
     final motionArtwork = resolvedMotion?.source == _failedMotionSource
         ? null
         : resolvedMotion;
@@ -432,9 +436,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
             : null);
     final squareArtwork =
         motionArtwork == null || (motionRatio != null && motionRatio >= 0.95);
+    if (motionArtwork == null) _artworkForeground = {};
     Widget artwork() => MornyePlayerArtwork(
       mediaItem: mediaItem,
       videoUrl: motionArtwork?.source,
+      resolvingVideo: motionState?.isLoading == true,
       onAspectRatioChanged: (ratio) {
         if (!mounted ||
             (_measuredMotionSource == motionArtwork?.source &&
@@ -536,7 +542,6 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                         mediaItem,
                         controller,
                         colorScheme,
-                        squareArtwork: squareArtwork,
                         motionArtwork: artwork(),
                         artworkAspectRatio: motionRatio,
                       )
@@ -632,7 +637,19 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            RepaintBoundary(
+            MornyeArtworkContrast(
+              enabled:
+                  motionArtwork != null &&
+                  !_landscapeLyrics &&
+                  _currentPage == 0,
+              targets: {
+                'header': _artworkHeaderKey,
+                'controls': _artworkControlsKey,
+                'volume': _artworkVolumeKey,
+              },
+              onChanged: (colors) {
+                if (mounted) setState(() => _artworkForeground = colors);
+              },
               child: MornyePlayerBackground(
                 artUri: mediaItem.artUri,
                 squareArtwork: squareArtwork,
@@ -824,13 +841,22 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
     MediaItem mediaItem,
     MusicPlayerController controller,
     ColorScheme colorScheme, {
-    required bool squareArtwork,
     required Widget motionArtwork,
     double? artworkAspectRatio,
   }) {
     final showLyrics = _landscapeLyrics || _currentPage == 1;
     final showQueue = !_landscapeLyrics && _currentPage == 2;
     final compactStage = showLyrics || showQueue;
+    ColorScheme foreground(String region) {
+      final color = compactStage ? null : _artworkForeground[region];
+      return color == null
+          ? colorScheme
+          : colorScheme.copyWith(
+              onSurface: color,
+              onSurfaceVariant: color.withValues(alpha: 0.72),
+            );
+    }
+
     final motion = MediaQuery.disableAnimationsOf(context)
         ? Duration.zero
         : const Duration(milliseconds: 380);
@@ -1008,21 +1034,20 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
             },
           );
 
-          final volumeGap =
-              8 +
-              (squareArtwork
-                  ? (constraints.maxHeight - 480).clamp(0.0, 48.0)
-                  : 0);
+          // Portrait video must not push the metadata/transport below the
+          // square-cover position. Leave room above the anchored volume row.
+          final volumeGap = 8 + (constraints.maxHeight - 440).clamp(0.0, 64.0);
           // Share the spare space above and below the transport row so it sits
           // between the timeline and volume without moving either slider.
           final transportShift = landscape
               ? 0.0
               : ((volumeGap - 16) / 2).clamp(0.0, 20.0);
           Widget controls() => _PlaybackControls(
+            key: _artworkControlsKey,
             mediaId: mediaItem.id,
             duration: mediaItem.duration ?? Duration.zero,
             controller: controller,
-            colorScheme: colorScheme,
+            colorScheme: foreground('controls'),
             qualityLabel: _qualityLabel(),
             compact: landscape,
             transportTopPadding: 16 + transportShift,
@@ -1051,8 +1076,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                 child: compactStage
                     ? const SizedBox(width: double.infinity)
                     : Padding(
+                        key: _artworkHeaderKey,
                         padding: const EdgeInsets.fromLTRB(28, 12, 28, 8),
-                        child: _trackHeader(mediaItem, colorScheme),
+                        child: _trackHeader(mediaItem, foreground('header')),
                       ),
               ),
               AnimatedSize(
@@ -1074,7 +1100,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                             children: [
                               controls(),
                               SizedBox(height: volumeGap - transportShift),
-                              const MornyeVolumeControl(),
+                              MornyeVolumeControl(
+                                key: _artworkVolumeKey,
+                                foreground: foreground('volume').onSurface,
+                              ),
                               const SizedBox(height: 8),
                             ],
                           ),
@@ -1142,7 +1171,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: compact ? 13 : 20,
-                        color: Colors.white70,
+                        color: colorScheme.onSurface.withValues(alpha: 0.72),
                       ),
                     ),
                   ],
@@ -1154,6 +1183,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
             key: ValueKey(mediaItem.id),
             mediaItem: mediaItem,
             compact: compact,
+            color: colorScheme.onSurface,
           ),
           Builder(
             builder: (buttonContext) => IconButton(
@@ -1878,11 +1908,15 @@ class _PlaybackControls extends ConsumerWidget {
               SliderTheme(
                 data: SliderThemeData(
                   trackHeight: 4,
-                  activeTrackColor: mornye ? Colors.white : colorScheme.primary,
+                  activeTrackColor: mornye
+                      ? colorScheme.onSurface
+                      : colorScheme.primary,
                   inactiveTrackColor: colorScheme.onSurface.withValues(
                     alpha: 0.18,
                   ),
-                  thumbColor: mornye ? Colors.white : colorScheme.primary,
+                  thumbColor: mornye
+                      ? colorScheme.onSurface
+                      : colorScheme.primary,
                   // A 7dp thumb was hard to grab; 10dp with a 24dp overlay
                   // gives the drag gesture a full-size target.
                   thumbShape: const RoundSliderThumbShape(

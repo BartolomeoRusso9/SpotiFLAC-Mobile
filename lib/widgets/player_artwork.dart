@@ -40,8 +40,9 @@ class PlayerArtwork extends StatelessWidget {
         fit: BoxFit.cover,
         cacheManager: CoverCacheManager.instance,
         memCacheWidth: cacheWidth,
-        fadeInDuration: const Duration(milliseconds: 150),
+        fadeInDuration: Duration.zero,
         fadeOutDuration: const Duration(milliseconds: 0),
+        useOldImageOnUrlChange: true,
         placeholder: (_, _) => placeholder,
         errorWidget: (_, _, _) => placeholder,
       );
@@ -54,6 +55,7 @@ class PlayerArtwork extends StatelessWidget {
         File(path),
         fit: BoxFit.cover,
         cacheWidth: cacheWidth,
+        gaplessPlayback: true,
         errorBuilder: (_, _, _) => placeholder,
       );
     }

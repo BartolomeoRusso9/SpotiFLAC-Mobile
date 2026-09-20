@@ -1,21 +1,35 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:spotiflac_android/providers/player_artwork_video_provider.dart';
 import 'package:spotiflac_android/widgets/motion_header_banner.dart';
 import 'package:spotiflac_android/widgets/player_artwork.dart';
+import 'package:video_player/video_player.dart';
 
-class MornyePlayerArtwork extends StatelessWidget {
+class MornyePlayerArtwork extends ConsumerStatefulWidget {
   const MornyePlayerArtwork({
     super.key,
     required this.mediaItem,
     this.videoUrl,
     this.onAspectRatioChanged,
     this.onError,
+    this.resolvingVideo = false,
   });
 
   final MediaItem mediaItem;
   final String? videoUrl;
   final ValueChanged<double>? onAspectRatioChanged;
   final VoidCallback? onError;
+  final bool resolvingVideo;
+
+  @override
+  ConsumerState<MornyePlayerArtwork> createState() =>
+      _MornyePlayerArtworkState();
+}
+
+class _MornyePlayerArtworkState extends ConsumerState<MornyePlayerArtwork> {
+  String? _displayedSource;
+  VideoPlayerController? _displayedController;
 
   @override
   Widget build(BuildContext context) {
@@ -24,7 +38,7 @@ class MornyePlayerArtwork extends StatelessWidget {
       child: AspectRatio(
         aspectRatio: 1,
         child: PlayerArtwork(
-          artUri: mediaItem.artUri?.toString(),
+          artUri: widget.mediaItem.artUri?.toString(),
           colorScheme: Theme.of(context).colorScheme,
           cacheWidth:
               (MediaQuery.sizeOf(context).width *
@@ -33,15 +47,53 @@ class MornyePlayerArtwork extends StatelessWidget {
         ),
       ),
     );
-    if (MediaQuery.disableAnimationsOf(context)) return fallback;
-    return videoUrl == null
-        ? fallback
-        : MotionHeaderBanner(
-            key: ValueKey(videoUrl),
-            videoUrl: videoUrl!,
-            fallback: fallback,
-            onAspectRatioChanged: onAspectRatioChanged,
-            onError: onError,
-          );
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _displayedSource = null;
+      _displayedController = null;
+      return fallback;
+    }
+    final videoUrl = widget.videoUrl;
+    // Keep one outgoing decoder alive until the next cover is ready. Rapid
+    // skips must not replace a visible frame with a loading placeholder.
+    if (_displayedSource != null && _displayedSource != videoUrl) {
+      ref.watch(playerArtworkVideoProvider(_displayedSource!));
+    }
+    final prepared = videoUrl == null
+        ? null
+        : ref.watch(playerArtworkVideoProvider(videoUrl));
+    if (prepared?.hasError == true) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onError?.call();
+      });
+    }
+    if (prepared?.value case final controller?) {
+      _displayedSource = videoUrl;
+      _displayedController = controller;
+    } else if (!widget.resolvingVideo &&
+        (videoUrl == null || prepared?.hasError == true)) {
+      _displayedSource = null;
+      _displayedController = null;
+    }
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        fallback,
+        if (_displayedController != null)
+          MotionHeaderBanner(
+            videoUrl: _displayedSource!,
+            fallback: const SizedBox.shrink(),
+            controller: _displayedController,
+            fadeDuration: Duration.zero,
+            onAspectRatioChanged: (ratio) {
+              if (_displayedSource == widget.videoUrl) {
+                widget.onAspectRatioChanged?.call(ratio);
+              }
+            },
+            onError: () {
+              if (_displayedSource == widget.videoUrl) widget.onError?.call();
+            },
+          ),
+      ],
+    );
   }
 }

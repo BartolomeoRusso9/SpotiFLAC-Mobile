@@ -7,6 +7,7 @@ import 'package:ffmpeg_kit_flutter_new_full/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new_full/return_code.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:spotiflac_android/services/ffmpeg_service.dart';
+import 'package:spotiflac_android/services/motion_artwork_download.dart';
 import 'package:spotiflac_android/utils/logger.dart';
 import 'package:spotiflac_android/utils/string_utils.dart';
 
@@ -25,14 +26,20 @@ class MotionArtworkStore {
   MotionArtworkStore({
     Future<Directory> Function()? directory,
     Future<double?> Function(String source, String output)? download,
+    Future<bool> Function(String path)? validate,
   }) : _directory = directory ?? defaultDirectory,
-       _download = download ?? _downloadVideo;
+       _download = download ?? _downloadVideo,
+       _validate = validate ?? _validateVideo;
 
   final Future<Directory> Function() _directory;
   final Future<double?> Function(String source, String output) _download;
+  final Future<bool> Function(String path) _validate;
   final _pending = <String, Future<MotionArtwork?>>{};
+  final _legacyChecks = <String, Future<bool>>{};
+  final _invalid = <String>{};
   bool _clearing = false;
   static final _log = AppLogger('MotionArtwork');
+  static const _cacheVersion = 2;
 
   static Future<Directory> defaultDirectory() async => Directory(
     '${(await getApplicationSupportDirectory()).path}/motion_artwork',
@@ -51,19 +58,39 @@ class MotionArtworkStore {
   }
 
   Future<MotionArtwork?> find(MotionArtworkAlbum album) async {
+    if (_clearing) return null;
     try {
       final root = await _directory();
       final key = _key(album);
+      if (_invalid.contains(key)) return null;
       final file = File('${root.path}/$key.mp4');
       if (!await file.exists() || await file.length() == 0) return null;
       double? ratio;
+      var version = 0;
       final info = File('${root.path}/$key.json');
       if (await info.exists()) {
         final data = jsonDecode(await info.readAsString());
-        if (data is Map && data['aspectRatio'] is num) {
-          final value = (data['aspectRatio'] as num).toDouble();
-          if (value.isFinite && value > 0) ratio = value;
+        if (data is Map) {
+          if (data['version'] is int) version = data['version'] as int;
+          if (data['aspectRatio'] is num) {
+            final value = (data['aspectRatio'] as num).toDouble();
+            if (value.isFinite && value > 0) ratio = value;
+          }
         }
+      }
+      // Older downloads could report success with corrupt HLS byte ranges.
+      // Check those once per session; retain healthy covers for offline use.
+      if (version != _cacheVersion &&
+          !await _legacyChecks.putIfAbsent(key, () async {
+            try {
+              return await _validate(file.path);
+            } catch (_) {
+              return false;
+            }
+          })) {
+        _invalid.add(key);
+        _log.w('Saved motion artwork failed validation; repair required');
+        return null;
       }
       return MotionArtwork(file.uri.toString(), aspectRatio: ratio);
     } catch (_) {
@@ -94,8 +121,11 @@ class MotionArtworkStore {
     _clearing = true;
     try {
       await Future.wait(_pending.values.toList());
+      await Future.wait(_legacyChecks.values.toList());
       final root = await _directory();
       if (await root.exists()) await root.delete(recursive: true);
+      _legacyChecks.clear();
+      _invalid.clear();
     } finally {
       _clearing = false;
     }
@@ -121,16 +151,19 @@ class MotionArtworkStore {
           !ratio.isFinite ||
           ratio <= 0 ||
           !await temporary.exists() ||
-          await temporary.length() == 0) {
+          await temporary.length() == 0 ||
+          !await _validate(temporary.path)) {
         return null;
       }
       infoTemporary = File('${root.path}/$key.partial.json');
       await infoTemporary.writeAsString(
-        jsonEncode({'aspectRatio': ratio}),
+        jsonEncode({'version': _cacheVersion, 'aspectRatio': ratio}),
         flush: true,
       );
       final file = await temporary.rename('${root.path}/$key.mp4');
       await infoTemporary.rename('${root.path}/$key.json');
+      _invalid.remove(key);
+      _legacyChecks.remove(key);
       return MotionArtwork(file.uri.toString(), aspectRatio: ratio);
     } catch (error) {
       _log.w('Could not save optional motion artwork: ${error.runtimeType}');
@@ -145,40 +178,87 @@ class MotionArtworkStore {
   }
 
   static Future<double?> _downloadVideo(String source, String output) async {
-    final completed = Completer<bool>();
+    final original = await downloadMotionArtworkSource(
+      source,
+      '$output.source.mp4',
+    );
+    try {
+      return await _remuxVideo(original?.path ?? source, output);
+    } finally {
+      if (original != null && await original.exists()) await original.delete();
+    }
+  }
+
+  static Future<double?> _remuxVideo(String source, String output) async {
     // Remux public video/HLS into a self-contained, silent MP4. Bound both
     // transfer time and output size; never let optional artwork block audio.
-    final session = await FFmpegKit.executeWithArgumentsAsync(
-      [
-        '-y',
-        '-protocol_whitelist',
-        'http,https,tcp,tls,crypto',
-        '-rw_timeout',
-        '10000000',
-        '-i',
-        source,
-        '-map',
-        '0:v:0',
-        '-an',
-        '-sn',
-        '-dn',
-        '-c:v',
-        'copy',
-        '-t',
-        '30',
-        '-fs',
-        '25165824',
-        '-movflags',
-        '+faststart',
-        output,
+    final success = await _run([
+      '-y',
+      '-protocol_whitelist',
+      'file,http,https,tcp,tls,crypto',
+      '-rw_timeout',
+      '10000000',
+      // HLS byte ranges can share one MP4 URL. Reusing/prefetching HTTP
+      // connections can splice the next range into an unfinished segment.
+      if (Uri.parse(source).path.toLowerCase().endsWith('.m3u8')) ...[
+        '-http_multiple',
+        '0',
+        '-http_persistent',
+        '0',
       ],
-      (session) async {
-        final success = ReturnCode.isSuccess(await session.getReturnCode());
-        if (!completed.isCompleted) completed.complete(success);
-      },
-    );
-    final success = await completed.future.timeout(
-      const Duration(seconds: 60),
+      '-i',
+      source,
+      '-map',
+      '0:v:0',
+      '-an',
+      '-sn',
+      '-dn',
+      '-c:v',
+      'copy',
+      '-t',
+      '30',
+      '-fs',
+      '25165824',
+      '-movflags',
+      '+faststart',
+      output,
+    ], timeout: const Duration(seconds: 60));
+    if (!success) return null;
+    final dimensions = await FFmpegService.probeImageDimensions(output);
+    return dimensions == null ? null : dimensions.width / dimensions.height;
+  }
+
+  static Future<bool> _validateVideo(String path) => _run([
+    '-v',
+    'error',
+    '-xerror',
+    '-err_detect',
+    'explode',
+    '-i',
+    path,
+    '-map',
+    '0:v:0',
+    '-an',
+    '-sn',
+    '-dn',
+    '-f',
+    'null',
+    '-',
+  ], timeout: const Duration(seconds: 20));
+
+  static Future<bool> _run(
+    List<String> arguments, {
+    required Duration timeout,
+  }) async {
+    final completed = Completer<bool>();
+    final session = await FFmpegKit.executeWithArgumentsAsync(arguments, (
+      session,
+    ) async {
+      final success = ReturnCode.isSuccess(await session.getReturnCode());
+      if (!completed.isCompleted) completed.complete(success);
+    });
+    return completed.future.timeout(
+      timeout,
       onTimeout: () async {
         await FFmpegKit.cancel(session.getSessionId());
         // Wait for this session to release its file before removing partials.
@@ -189,8 +269,5 @@ class MotionArtworkStore {
         return false;
       },
     );
-    if (!success) return null;
-    final dimensions = await FFmpegService.probeImageDimensions(output);
-    return dimensions == null ? null : dimensions.width / dimensions.height;
   }
 }

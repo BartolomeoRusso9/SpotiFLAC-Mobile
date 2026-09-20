@@ -14,6 +14,8 @@ class MotionHeaderBanner extends StatefulWidget {
   final Alignment alignment;
   final ValueChanged<double>? onAspectRatioChanged;
   final VoidCallback? onError;
+  final VideoPlayerController? controller;
+  final Duration fadeDuration;
 
   const MotionHeaderBanner({
     super.key,
@@ -23,6 +25,8 @@ class MotionHeaderBanner extends StatefulWidget {
     this.alignment = Alignment.topCenter,
     this.onAspectRatioChanged,
     this.onError,
+    this.controller,
+    this.fadeDuration = const Duration(milliseconds: 400),
   });
 
   @override
@@ -32,6 +36,7 @@ class MotionHeaderBanner extends StatefulWidget {
 class _MotionHeaderBannerState extends State<MotionHeaderBanner>
     with WidgetsBindingObserver {
   VideoPlayerController? _controller;
+  bool _ownsController = true;
   bool _ready = false;
   bool _failed = false;
   bool _headerVisible = true;
@@ -86,7 +91,8 @@ class _MotionHeaderBannerState extends State<MotionHeaderBanner>
   @override
   void didUpdateWidget(MotionHeaderBanner oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.videoUrl != widget.videoUrl) {
+    if (oldWidget.videoUrl != widget.videoUrl ||
+        oldWidget.controller != widget.controller) {
       _disposeController();
       _ready = false;
       _failed = false;
@@ -95,6 +101,19 @@ class _MotionHeaderBannerState extends State<MotionHeaderBanner>
   }
 
   Future<void> _initialize() async {
+    final prepared = widget.controller;
+    if (prepared != null && prepared.value.isInitialized) {
+      _ownsController = false;
+      _controller = prepared;
+      _ready = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !identical(prepared, _controller)) return;
+        widget.onAspectRatioChanged?.call(prepared.value.aspectRatio);
+        _syncPlayback();
+      });
+      return;
+    }
+    _ownsController = true;
     final url = widget.videoUrl.trim();
     if (url.isEmpty) {
       setState(() => _failed = true);
@@ -136,7 +155,11 @@ class _MotionHeaderBannerState extends State<MotionHeaderBanner>
   void _disposeController() {
     final controller = _controller;
     _controller = null;
-    controller?.dispose();
+    if (_ownsController) {
+      controller?.dispose();
+    } else {
+      controller?.pause();
+    }
   }
 
   @override
@@ -163,7 +186,7 @@ class _MotionHeaderBannerState extends State<MotionHeaderBanner>
         widget.fallback,
         AnimatedOpacity(
           opacity: showVideo ? 1.0 : 0.0,
-          duration: const Duration(milliseconds: 400),
+          duration: widget.fadeDuration,
           child: showVideo
               ? FittedBox(
                   fit: widget.fit,

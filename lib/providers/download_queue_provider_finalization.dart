@@ -106,68 +106,15 @@ extension _DownloadQueueFinalization on DownloadQueueNotifier {
             ) ??
             item.track.artistName,
       );
-      final extensions = ref.read(extensionProvider).extensions;
-      final preferred = ref.read(settingsProvider).searchProvider;
-      final providers =
-          <String>{
-                if (item.track.source?.isNotEmpty == true) item.track.source!,
-                ?preferred,
-              }
-              .where(
-                (id) => extensions.any(
-                  (extension) =>
-                      extension.id == id &&
-                      extension.enabled &&
-                      extension.hasCustomSearch,
-                ),
-              )
-              .toList();
       final store = ref.read(motionArtworkStoreProvider);
       final artwork = await store.save(
         album,
-        resolveSource: () async {
-          final direct = normalizeRemoteHttpUrl(
-            item.track.headerVideoUrl ??
-                track.headerVideoUrl ??
-                result['header_video']?.toString(),
-          );
-          if (direct != null) return direct;
-          final source = item.track.source;
-          final albumId = item.track.albumId;
-          if (source != null &&
-              providers.contains(source) &&
-              albumId?.isNotEmpty == true) {
-            try {
-              final metadata = await PlatformBridge.getProviderMetadata(
-                source,
-                'album',
-                stripPrefixedResourceId(albumId!),
-              ).timeout(const Duration(seconds: 6));
-              final info = metadata['album_info'];
-              final url = normalizeRemoteHttpUrl(
-                ((info is Map ? info['header_video'] : null) ??
-                        metadata['header_video'])
-                    ?.toString(),
-              );
-              if (url != null) return url;
-            } catch (_) {}
-          }
-          return findPlayerMotionArtwork(
-            album: album,
-            providerIds: providers,
-            search: (provider, query) =>
-                PlatformBridge.customSearchWithExtension(
-                  provider,
-                  query,
-                  options: {'filter': 'album', 'limit': 8},
-                ).timeout(const Duration(seconds: 6)),
-            loadAlbum: (provider, id) => PlatformBridge.getProviderMetadata(
-              provider,
-              'album',
-              id,
-            ).timeout(const Duration(seconds: 6)),
-          );
-        },
+        resolveSource: () => resolveDownloadMotionArtworkSource(
+          original: item.track,
+          downloaded: track,
+          result: result,
+          getMetadata: PlatformBridge.getProviderMetadata,
+        ),
       );
       if (artwork != null && ref.mounted) {
         ref.invalidate(playerMotionArtworkProvider(album));

@@ -66,6 +66,10 @@ class _PlaybackSeekSliderState extends State<PlaybackSeekSlider> {
           child: IgnorePointer(
             ignoring: !enabled,
             child: MornyePlayerSlider(
+              activeColor:
+                  SliderTheme.of(context).activeTrackColor ?? Colors.white,
+              inactiveColor:
+                  SliderTheme.of(context).inactiveTrackColor ?? Colors.white12,
               value: enabled ? currentMs : 0,
               max: maxMs,
               onChangeStart: (_) => _gestureGeneration++,

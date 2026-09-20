@@ -12,10 +12,12 @@ class MornyePlayerFavoriteButton extends ConsumerStatefulWidget {
     super.key,
     required this.mediaItem,
     this.compact = false,
+    this.color,
   });
 
   final MediaItem mediaItem;
   final bool compact;
+  final Color? color;
 
   @override
   ConsumerState<MornyePlayerFavoriteButton> createState() =>
@@ -66,7 +68,7 @@ class _MornyePlayerFavoriteButtonState
         tooltip: loved
             ? context.l10n.trackOptionRemoveFromLoved
             : context.l10n.trackOptionAddToLoved,
-        color: Theme.of(context).colorScheme.onSurface,
+        color: widget.color ?? Theme.of(context).colorScheme.onSurface,
         iconSize: widget.compact ? 20 : 24,
         onPressed: _saving ? null : _toggle,
       ),

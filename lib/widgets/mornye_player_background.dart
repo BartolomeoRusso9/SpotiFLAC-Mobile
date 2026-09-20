@@ -58,9 +58,7 @@ class MornyePlayerBackground extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                AnimatedPositioned(
-                  duration: motion,
-                  curve: Curves.easeInOutCubic,
+                Positioned(
                   left: 0,
                   right: 0,
                   top: 0,

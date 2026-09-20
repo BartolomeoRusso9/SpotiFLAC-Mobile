@@ -16,6 +16,9 @@ import 'package:spotiflac_android/models/track.dart';
 import 'package:spotiflac_android/providers/library_collections_provider.dart';
 import 'package:spotiflac_android/providers/music_player_provider.dart';
 import 'package:spotiflac_android/providers/player_motion_artwork_provider.dart';
+import 'package:spotiflac_android/providers/player_artwork_video_provider.dart';
+import 'package:spotiflac_android/services/motion_artwork_store.dart';
+import 'package:video_player/video_player.dart';
 import 'package:spotiflac_android/screens/now_playing_screen.dart';
 import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/widgets/mornye_volume_control.dart';
@@ -89,6 +92,7 @@ void main() {
     PlaybackState? playback,
     Stream<PlaybackState>? playbackEvents,
     Widget Function(Widget)? wrapPlayer,
+    MotionArtwork? motionArtwork,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -99,7 +103,12 @@ void main() {
       ProviderScope(
         overrides: [
           currentMediaItemProvider.overrideWith((ref) => mediaItems.stream),
-          playerMotionArtworkProvider.overrideWith((ref, album) async => null),
+          playerMotionArtworkProvider.overrideWith(
+            (ref, album) async => motionArtwork,
+          ),
+          playerArtworkVideoProvider.overrideWith(
+            (ref, source) => Completer<VideoPlayerController>().future,
+          ),
           playerCollectionTrackProvider.overrideWith(
             (ref, item) async => Track(
               id: item.id,
@@ -136,6 +145,43 @@ void main() {
       ),
     );
   }
+
+  testWidgets(
+    'portrait motion cover keeps the raised square-cover control positions',
+    (tester) async {
+      Future<(double, double)> positions(MotionArtwork? artwork) async {
+        await pumpNowPlaying(
+          tester,
+          theme: MornyeTheme.build(Brightness.dark),
+          size: const Size(393, 852),
+          motionArtwork: artwork,
+        );
+        mediaItems.add(item('first'));
+        await tester.pumpAndSettle();
+        final title = tester.getTopLeft(find.text('First').hitTestable()).dy;
+        final transport = tester
+            .getCenter(
+              find.byWidgetPredicate(
+                (widget) =>
+                    widget is MornyePlaybackButton &&
+                    widget.icon == CupertinoIcons.play_fill,
+              ),
+            )
+            .dy;
+        expect(title, lessThan(852 * 0.64));
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+        return (title, transport);
+      }
+
+      final square = await positions(null);
+      final portrait = await positions(
+        const MotionArtwork('file:///cover.mp4', aspectRatio: 0.75),
+      );
+      expect(portrait.$1, closeTo(square.$1, 1));
+      expect(portrait.$2, closeTo(square.$2, 1));
+    },
+  );
 
   testWidgets('opening Mornye lyrics centers the current wrapped line', (
     tester,
