@@ -82,6 +82,77 @@ void main() {
     return hash;
   }
 
+  for (final cover in [
+    (
+      fileName: 'cover.png',
+      mimeType: 'image/png',
+      signature: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+      length: 1024 * 1024,
+    ),
+    (
+      fileName: 'cover.jpeg',
+      mimeType: 'image/jpeg',
+      signature: [0xff, 0xd8],
+      length: 256,
+    ),
+    (
+      fileName: 'cover.image',
+      mimeType: 'image/png',
+      signature: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+      length: 512,
+    ),
+  ]) {
+    test(
+      'Opus picture block preserves every byte of ${cover.fileName}',
+      () async {
+        final imageBytes = List<int>.generate(
+          cover.length,
+          (index) => index & 0xff,
+        );
+        imageBytes.setRange(0, cover.signature.length, cover.signature);
+        final coverFile = File('${directory.path}/${cover.fileName}');
+        await coverFile.writeAsBytes(imageBytes);
+        final opusPath = '${directory.path}/track.opus';
+        final audioBytes = [0x4f, 0x67, 0x67, 0x53];
+        await File(opusPath).writeAsBytes(audioBytes);
+        List<int>? pictureBytes;
+
+        expect(
+          await FFmpegService.embedMetadataToOpus(
+            opusPath: opusPath,
+            coverPath: coverFile.path,
+            execute: (arguments) async {
+              const prefix = 'METADATA_BLOCK_PICTURE=';
+              final argument = arguments.singleWhere(
+                (argument) => argument.startsWith(prefix),
+              );
+              pictureBytes = base64Decode(argument.substring(prefix.length));
+              await File(
+                arguments[arguments.length - 2],
+              ).writeAsBytes(audioBytes);
+              return FFmpegResult(success: true, returnCode: 0, output: '');
+            },
+          ),
+          opusPath,
+        );
+
+        final mimeBytes = utf8.encode(cover.mimeType);
+        expect(pictureBytes, [
+          0, 0, 0, 3, // Front cover.
+          0, 0, 0, mimeBytes.length,
+          ...mimeBytes,
+          ...List<int>.filled(20, 0), // Empty description and image dimensions.
+          (cover.length >> 24) & 0xff,
+          (cover.length >> 16) & 0xff,
+          (cover.length >> 8) & 0xff,
+          cover.length & 0xff,
+          ...imageBytes,
+        ]);
+        expect(await File(opusPath).readAsBytes(), audioBytes);
+      },
+    );
+  }
+
   for (final scenario in [
     (
       name: 'ISRC only',

@@ -1789,6 +1789,9 @@ class FFmpegService {
           imageData.length;
 
       final buffer = ByteData(blockSize);
+      // The header and payload share one allocation; artwork can be several
+      // megabytes, so copying this whole buffer doubles the block's memory.
+      final blockBytes = buffer.buffer.asUint8List();
       var offset = 0;
 
       buffer.setUint32(offset, 3, Endian.big);
@@ -1797,8 +1800,6 @@ class FFmpegService {
       buffer.setUint32(offset, mimeBytes.length, Endian.big);
       offset += 4;
 
-      final blockBytes = Uint8List(blockSize);
-      blockBytes.setRange(0, offset, buffer.buffer.asUint8List());
       blockBytes.setRange(offset, offset + mimeBytes.length, mimeBytes);
       offset += mimeBytes.length;
 
