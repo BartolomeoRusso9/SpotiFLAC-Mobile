@@ -323,7 +323,16 @@ fn flac_header(
         if total > MAX_TAG_BYTES {
             return Err("FLAC metadata exceeds 64 MiB".into());
         }
-        blocks.push((h[0] & 0x7f, bytes(source, length)?));
+        let kind = h[0] & 0x7f;
+        let data = if kind == 6 && cover.is_some() {
+            // Replacement artwork discards every old picture. Still read its
+            // complete payload to retain truncation checks without retaining it.
+            discard_bytes(source, length, check)?;
+            Vec::new()
+        } else {
+            bytes(source, length)?
+        };
+        blocks.push((kind, data));
         if h[0] & 0x80 != 0 {
             break;
         }
@@ -391,6 +400,26 @@ fn flac_header(
         head.extend(data);
     }
     Ok((head, audio_start))
+}
+
+fn discard_bytes(
+    source: &mut impl Read,
+    length: usize,
+    check: &dyn Fn() -> Result<(), String>,
+) -> Result<(), String> {
+    let mut buffer = [0; 65536];
+    let mut offset = 0;
+    while offset < length {
+        check()?;
+        let count = source
+            .read(&mut buffer[..(length - offset).min(65536)])
+            .map_err(|error| error.to_string())?;
+        if count == 0 {
+            return Err(if offset == 0 { "EOF" } else { "unexpected EOF" }.into());
+        }
+        offset += count;
+    }
+    Ok(())
 }
 
 fn parse_comments(data: &[u8]) -> Result<(Vec<u8>, Vec<Vec<u8>>), String> {
@@ -857,6 +886,154 @@ mod tests {
             )
             .unwrap_err()
             .contains("sync code")
+        );
+        assert!(output.is_empty());
+    }
+
+    fn flac_with_pictures(lengths: &[usize]) -> (Vec<u8>, usize) {
+        let mut comments = Vec::new();
+        put_string(&mut comments, b"Example vendor");
+        comments.extend(1_u32.to_le_bytes());
+        put_string(&mut comments, b"CUSTOM=preserve");
+        let mut blocks = vec![
+            (0, vec![0; 34]),
+            (2, b"unknown block".to_vec()),
+            (4, comments),
+        ];
+        blocks.extend(lengths.iter().map(|length| (6, vec![0x55; *length])));
+        let mut input = b"fLaC".to_vec();
+        for (index, (kind, data)) in blocks.iter().enumerate() {
+            input.push(kind | if index + 1 == blocks.len() { 0x80 } else { 0 });
+            input.extend(&(data.len() as u32).to_be_bytes()[1..]);
+            input.extend(data);
+        }
+        let audio_start = input.len();
+        input.extend([0xff, 0xf8, 0x12, 0x34, 0x56]);
+        (input, audio_start)
+    }
+
+    #[test]
+    fn replacement_flac_artwork_preserves_other_blocks_and_audio() {
+        let (input, audio_start) = flac_with_pictures(&[131_073, 262_145]);
+        let (without_pictures, _) = flac_with_pictures(&[]);
+        let cover = Some(b"replacement artwork".as_slice());
+        for embed in [false, true] {
+            let fields = Fields::from([(
+                if embed { "TITLE" } else { "title" }.into(),
+                "Changed title".into(),
+            )]);
+            let rewrite = |data: &[u8], cover| {
+                let mut output = Vec::new();
+                if embed {
+                    embed_flac_metadata(
+                        &mut Cursor::new(data),
+                        &mut output,
+                        &fields,
+                        "",
+                        cover,
+                        &|| Ok(()),
+                    )
+                    .unwrap();
+                } else {
+                    rewrite_audio_tags(
+                        &mut Cursor::new(data),
+                        &mut output,
+                        "flac",
+                        &fields,
+                        cover,
+                        &|| Ok(()),
+                    )
+                    .unwrap();
+                }
+                output
+            };
+            let output = rewrite(&input, cover);
+            assert_eq!(output, rewrite(&without_pictures, cover));
+            assert!(output.ends_with(&input[audio_start..]));
+            let retained = rewrite(&input, None);
+            assert!(
+                retained
+                    .windows(131_073)
+                    .any(|bytes| bytes == [0x55; 131_073])
+            );
+            assert!(retained.ends_with(&input[audio_start..]));
+        }
+    }
+
+    #[test]
+    fn discarded_flac_picture_preserves_eof_and_cancellation() {
+        let (input, audio_start) = flac_with_pictures(&[131_073]);
+        let picture_start = audio_start - 131_073;
+        let fields = Fields::new();
+        for available in [0, 1, 65536, 65537, 131_072] {
+            let truncated = &input[..picture_start + available];
+            let mut expected = Vec::new();
+            let error = rewrite_audio_tags(
+                &mut Cursor::new(truncated),
+                &mut expected,
+                "flac",
+                &fields,
+                None,
+                &|| Ok(()),
+            )
+            .unwrap_err();
+            let mut output = Vec::new();
+            assert_eq!(
+                rewrite_audio_tags(
+                    &mut Cursor::new(truncated),
+                    &mut output,
+                    "flac",
+                    &fields,
+                    Some(b"replacement artwork"),
+                    &|| Ok(()),
+                )
+                .unwrap_err(),
+                error
+            );
+            assert!(output.is_empty());
+        }
+        let bytes_read = Rc::new(Cell::new(0));
+        let mut source = CountingReader {
+            data: Cursor::new(input),
+            bytes_read: bytes_read.clone(),
+        };
+        let mut output = Vec::new();
+        assert_eq!(
+            rewrite_flac_tags_if_changed(
+                &mut source,
+                &mut output,
+                &fields,
+                Some(b"replacement artwork"),
+                &|| {
+                    if bytes_read.get() >= picture_start + 65536 {
+                        Err("cancelled".into())
+                    } else {
+                        Ok(())
+                    }
+                },
+            )
+            .unwrap_err(),
+            "cancelled"
+        );
+        assert!(bytes_read.get() < audio_start);
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn discarded_flac_pictures_still_count_toward_metadata_limit() {
+        let (input, _) = flac_with_pictures(&vec![0; 65534]);
+        let mut output = Vec::new();
+        assert_eq!(
+            rewrite_audio_tags(
+                &mut Cursor::new(input),
+                &mut output,
+                "flac",
+                &Fields::new(),
+                Some(b"replacement artwork"),
+                &|| Ok(()),
+            )
+            .unwrap_err(),
+            "FLAC metadata block count exceeds 65536"
         );
         assert!(output.is_empty());
     }
