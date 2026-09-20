@@ -1,4 +1,5 @@
-import 'package:flutter/cupertino.dart' show CupertinoIcons;
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
@@ -20,7 +21,9 @@ class MornyeChromeController extends ValueNotifier<bool> {
   }
 
   bool handleScroll(ScrollNotification notification) {
-    if (notification.depth != 0 || notification.metrics.axis != Axis.vertical) {
+    // Library's active list sits inside a PageView and NestedScrollView. Its
+    // drag notifications have a greater depth than the outer header's scroll.
+    if (notification.metrics.axis != Axis.vertical) {
       return false;
     }
     if (notification is ScrollStartNotification ||
@@ -60,7 +63,7 @@ class MornyeBottomBar extends ConsumerWidget {
     required this.destinations,
     required this.selectedIndex,
     required this.onSelected,
-    required this.onExpand,
+    required this.onHome,
     required this.onSearch,
     required this.blurEnabled,
   });
@@ -69,7 +72,7 @@ class MornyeBottomBar extends ConsumerWidget {
   final List<NavigationDestination> destinations;
   final int selectedIndex;
   final ValueChanged<int> onSelected;
-  final VoidCallback onExpand;
+  final VoidCallback onHome;
   final VoidCallback onSearch;
   final bool blurEnabled;
 
@@ -79,47 +82,29 @@ class MornyeBottomBar extends ConsumerWidget {
       currentMediaItemProvider.select((item) => item.value != null),
     );
     // Animated glass tabs already reserve 8px above their visible capsule.
-    final tabGap =
+    final glassTabs =
         blurEnabled &&
-            !MediaQuery.disableAnimationsOf(context) &&
-            !MediaQuery.highContrastOf(context)
-        ? 0.0
-        : 8.0;
+        !MediaQuery.disableAnimationsOf(context) &&
+        !MediaQuery.highContrastOf(context);
+    final tabGap = glassTabs ? 0.0 : 8.0;
     // These contents do not depend on animation progress. Retain their widget
     // instances so folding only updates size/opacity wrappers each frame.
-    Widget sideContent({
-      required Widget icon,
-      required String tooltip,
-      required VoidCallback onPressed,
-    }) => RepaintBoundary(
+    Widget sideSurface() => RepaintBoundary(
       child: MornyeGlass.navigation(
         blurEnabled: blurEnabled,
         strongTint: true,
         tintOpacity: MornyeTheme.chromeOpacity(context),
         radius: 26,
-        child: SizedBox.square(
-          dimension: 52,
-          child: Material(
-            color: Colors.transparent,
-            child: IconButton(
-              tooltip: tooltip,
-              color: Theme.of(context).colorScheme.primary,
-              icon: icon,
-              onPressed: onPressed,
-            ),
-          ),
-        ),
+        child: const SizedBox.square(dimension: 52),
       ),
     );
-    final expandButton = sideContent(
-      icon: destinations[selectedIndex].icon,
-      tooltip: context.l10n.mornyeShowTabs,
-      onPressed: onExpand,
-    );
-    final searchButton = sideContent(
-      icon: const Icon(CupertinoIcons.search),
-      tooltip: context.l10n.mornyeSearch,
-      onPressed: onSearch,
+    final homeSurface = sideSurface();
+    final searchSurface = sideSurface();
+    final scheme = Theme.of(context).colorScheme;
+    final inactiveIconColor = Color.lerp(
+      scheme.onSurfaceVariant,
+      scheme.onSurface,
+      scheme.brightness == Brightness.dark ? 0.5 : 0.4,
     );
     final player = MiniPlayer(compact: collapsed, bottomPadding: 0);
     final tabs = TickerMode(
@@ -130,76 +115,140 @@ class MornyeBottomBar extends ConsumerWidget {
           selectedIndex: selectedIndex,
           onSelected: onSelected,
           blurEnabled: blurEnabled,
+          hideEdgeIcons: true,
         ),
       ),
     );
-    return TweenAnimationBuilder<double>(
-      tween: Tween(end: collapsed ? 1 : 0),
-      duration: MediaQuery.disableAnimationsOf(context)
-          ? Duration.zero
-          : const Duration(milliseconds: 380),
-      curve: Curves.easeInOutCubic,
-      builder: (context, amount, _) {
-        Widget sideButton({
-          required Widget child,
-          required Alignment alignment,
-        }) => ClipRect(
-          child: Align(
-            alignment: alignment,
-            widthFactor: amount,
-            child: SizedBox(
-              width: 60,
-              height: 48 + 4 * amount,
-              child: Align(
-                alignment: alignment,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Match the tab's actual label height, including accessibility scaling.
+        // Both icons stay mounted above the fading capsule for the whole trip.
+        final labelStyle = Theme.of(context).textTheme.labelSmall!.copyWith(
+          fontSize: glassTabs ? 11 : null,
+          fontWeight: FontWeight.w600,
+        );
+        final labelPainter = TextPainter(
+          text: TextSpan(text: destinations.first.label, style: labelStyle),
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+          maxLines: 1,
+        )..layout();
+        final labelHeight = labelPainter.height;
+        labelPainter.dispose();
+        final fullIconBottom = glassTabs
+            ? 40 + (labelHeight + 2) / 2
+            : math.max(64.0, 49 + labelHeight) - 23.5;
+        final tabInset = glassTabs ? 6.0 : 5.0;
+        final fullIconStart =
+            tabInset +
+            (constraints.maxWidth - tabInset * 2) / destinations.length / 2;
+        return TweenAnimationBuilder<double>(
+          tween: Tween(end: collapsed ? 1 : 0),
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : const Duration(milliseconds: 380),
+          curve: Curves.easeInOutCubic,
+          builder: (context, amount, _) {
+            Widget movingIcon({required bool home, required Widget surface}) {
+              final index = home ? 0 : destinations.length - 1;
+              final offset = (fullIconStart - 26) * (1 - amount);
+              return PositionedDirectional(
+                start: home ? offset : null,
+                end: home ? null : offset,
+                bottom: fullIconBottom * (1 - amount) + 34 * amount - 26,
+                width: 52,
+                height: 52,
                 child: IgnorePointer(
-                  ignoring: !collapsed,
+                  ignoring: amount < 0.5,
                   child: ExcludeSemantics(
-                    excluding: !collapsed,
-                    child: Opacity(opacity: amount, child: child),
+                    excluding: amount < 0.5,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Opacity(opacity: amount, child: surface),
+                        Material(
+                          color: Colors.transparent,
+                          child: IconButton(
+                            key: ValueKey(
+                              home
+                                  ? 'mornye-compact-home'
+                                  : 'mornye-compact-search',
+                            ),
+                            tooltip: home
+                                ? context.l10n.navHome
+                                : context.l10n.mornyeSearch,
+                            iconSize: 25,
+                            color: Color.lerp(
+                              index == selectedIndex
+                                  ? scheme.primary
+                                  : inactiveIconColor,
+                              scheme.primary,
+                              amount,
+                            ),
+                            icon: destinations[index].icon,
+                            onPressed: home ? onHome : onSearch,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ),
-          ),
-        );
+              );
+            }
 
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (hasPlayer || amount > 0)
-              Padding(
-                padding: EdgeInsets.only(
-                  bottom: tabGap + (8 - tabGap) * amount,
-                ),
-                child: Row(
+            return Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    sideButton(
-                      child: expandButton,
-                      alignment: Alignment.centerLeft,
-                    ),
-                    Expanded(child: player),
-                    sideButton(
-                      child: searchButton,
-                      alignment: Alignment.centerRight,
+                    if (hasPlayer || amount > 0)
+                      Align(
+                        alignment: Alignment.bottomCenter,
+                        // With no track, introducing the row at full height would
+                        // make the bar jump taller on the first animation frame.
+                        heightFactor: hasPlayer ? 1 : amount,
+                        child: Padding(
+                          padding: EdgeInsets.only(
+                            bottom: hasPlayer
+                                ? tabGap + (8 - tabGap) * amount
+                                : 8,
+                          ),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 60 * amount,
+                                height: hasPlayer ? 48 + 4 * amount : 52,
+                              ),
+                              Expanded(child: player),
+                              SizedBox(
+                                width: 60 * amount,
+                                height: hasPlayer ? 48 + 4 * amount : 52,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ClipRect(
+                      child: Align(
+                        alignment: Alignment.bottomCenter,
+                        heightFactor: 1 - amount,
+                        child: IgnorePointer(
+                          ignoring: amount > 0.5,
+                          child: ExcludeSemantics(
+                            excluding: amount > 0.5,
+                            child: Opacity(opacity: 1 - amount, child: tabs),
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                 ),
-              ),
-            ClipRect(
-              child: Align(
-                alignment: Alignment.bottomCenter,
-                heightFactor: 1 - amount,
-                child: IgnorePointer(
-                  ignoring: collapsed,
-                  child: ExcludeSemantics(
-                    excluding: collapsed,
-                    child: Opacity(opacity: 1 - amount, child: tabs),
-                  ),
-                ),
-              ),
-            ),
-          ],
+                movingIcon(home: true, surface: homeSurface),
+                movingIcon(home: false, surface: searchSurface),
+              ],
+            );
+          },
         );
       },
     );

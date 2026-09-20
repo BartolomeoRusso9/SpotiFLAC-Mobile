@@ -5,67 +5,95 @@ import 'package:spotiflac_android/services/shell_navigation_service.dart';
 import 'package:spotiflac_android/widgets/view_queue_snackbar_action.dart';
 
 void main() {
-  testWidgets('first search request reaches a lazily mounted Home tab', (
-    tester,
-  ) async {
-    await tester.pumpWidget(const MaterialApp(home: _SearchShell()));
-    await tester.pumpAndSettle();
-    expect(find.byType(TextField), findsNothing);
+  for (final (separateSearch, showRepo) in [
+    (false, false),
+    (true, false),
+    (true, true),
+  ]) {
+    testWidgets(
+      'first search request reaches the lazy page (separate=$separateSearch, repo=$showRepo)',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: _SearchShell(
+              separateSearch: separateSearch,
+              showRepo: showRepo,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(TextField), findsNothing);
 
-    await tester.tap(find.text('Search'));
-    await tester.pumpAndSettle();
-    final field = tester.widget<TextField>(find.byType(TextField));
-    expect(field.focusNode!.hasFocus, isTrue);
-    expect(tester.testTextInput.isVisible, isTrue);
-  });
-
-  testWidgets('one search request returns from an album and focuses Home', (
-    tester,
-  ) async {
-    await tester.pumpWidget(const MaterialApp(home: _SearchShell()));
-    await tester.tap(find.text('Search'));
-    await tester.pumpAndSettle();
-    final navigator = ShellNavigationService.homeTabNavigatorKey.currentState!;
-    navigator.push(
-      MaterialPageRoute<void>(
-        builder: (_) => const Scaffold(body: Text('Album')),
-      ),
+        await tester.tap(find.text('Search'));
+        await tester.pumpAndSettle();
+        final field = tester.widget<TextField>(find.byType(TextField));
+        expect(field.focusNode!.hasFocus, isTrue);
+        expect(tester.testTextInput.isVisible, isTrue);
+      },
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Search'));
-    await tester.pumpAndSettle();
-    expect(find.text('Album'), findsNothing);
-    final field = tester.widget<TextField>(find.byType(TextField));
-    expect(field.focusNode!.hasFocus, isTrue);
-    expect(tester.testTextInput.isVisible, isTrue);
-  });
+
+    testWidgets(
+      'search returns from an album to its own tab (separate=$separateSearch, repo=$showRepo)',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: _SearchShell(
+              separateSearch: separateSearch,
+              showRepo: showRepo,
+            ),
+          ),
+        );
+        await tester.tap(find.text('Search'));
+        await tester.pumpAndSettle();
+        final navigator =
+            (separateSearch
+                    ? ShellNavigationService.searchTabNavigatorKey
+                    : ShellNavigationService.homeTabNavigatorKey)
+                .currentState!;
+        expect(ShellNavigationService.activeTabNavigator(), same(navigator));
+        navigator.push(
+          MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('Album')),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Search'));
+        await tester.pumpAndSettle();
+        expect(find.text('Album'), findsNothing);
+        final field = tester.widget<TextField>(find.byType(TextField));
+        expect(field.focusNode!.hasFocus, isTrue);
+        expect(tester.testTextInput.isVisible, isTrue);
+      },
+    );
+  }
 
   testWidgets(
-    'search selects Home before requesting focus and stops when shell is absent',
+    'search selects its tab before requesting focus and stops when shell is absent',
     (tester) async {
       final owner = Object();
-      var selectedHome = false;
+      ShellNavigationService.syncState(currentTabIndex: 0, showRepoTab: false);
+      var selectedSearch = false;
       var focusRequests = 0;
       void onSearch() {
-        expect(selectedHome, isTrue);
+        expect(selectedSearch, isTrue);
         focusRequests++;
       }
 
-      ShellNavigationService.homeSearchRequests.addListener(onSearch);
+      ShellNavigationService.searchRequests.addListener(onSearch);
       addTearDown(() {
-        ShellNavigationService.homeSearchRequests.removeListener(onSearch);
+        ShellNavigationService.searchRequests.removeListener(onSearch);
         ShellNavigationService.unregisterTabSelectionHandler(owner);
       });
       ShellNavigationService.registerTabSelectionHandler(
         owner: owner,
-        handler: (tab) => selectedHome = tab == ShellTab.home,
+        handler: (tab) => selectedSearch = tab == ShellTab.search,
       );
-      ShellNavigationService.requestHomeSearch();
+      ShellNavigationService.requestSearch();
       expect(focusRequests, 0);
       await tester.pump();
       expect(focusRequests, 1);
       ShellNavigationService.unregisterTabSelectionHandler(owner);
-      ShellNavigationService.requestHomeSearch();
+      ShellNavigationService.requestSearch();
       expect(focusRequests, 1);
     },
   );
@@ -155,7 +183,10 @@ void main() {
 }
 
 class _SearchShell extends StatefulWidget {
-  const _SearchShell();
+  const _SearchShell({required this.separateSearch, required this.showRepo});
+
+  final bool separateSearch;
+  final bool showRepo;
 
   @override
   State<_SearchShell> createState() => _SearchShellState();
@@ -163,22 +194,29 @@ class _SearchShell extends StatefulWidget {
 
 class _SearchShellState extends State<_SearchShell> {
   final _pages = PageController(initialPage: 1);
-  late final _observer = ShellChromeObserver(
-    ShellNavigationService.homeTabNavigatorKey,
-  );
+  GlobalKey<NavigatorState> get _navigatorKey => widget.separateSearch
+      ? ShellNavigationService.searchTabNavigatorKey
+      : ShellNavigationService.homeTabNavigatorKey;
+  int get _searchIndex => widget.separateSearch ? (widget.showRepo ? 4 : 3) : 0;
+  late final _observer = ShellChromeObserver(_navigatorKey);
 
   @override
   void initState() {
     super.initState();
-    ShellNavigationService.syncState(currentTabIndex: 1, showRepoTab: false);
+    ShellNavigationService.syncState(
+      currentTabIndex: 1,
+      showRepoTab: widget.showRepo,
+      showSearchTab: widget.separateSearch,
+    );
     ShellNavigationService.registerTabSelectionHandler(
       owner: this,
       handler: (_) {
         ShellNavigationService.syncState(
-          currentTabIndex: 0,
-          showRepoTab: false,
+          currentTabIndex: _searchIndex,
+          showRepoTab: widget.showRepo,
+          showSearchTab: widget.separateSearch,
         );
-        _pages.jumpToPage(0);
+        _pages.jumpToPage(_searchIndex);
       },
     );
   }
@@ -196,17 +234,17 @@ class _SearchShellState extends State<_SearchShell> {
     body: Column(
       children: [
         TextButton(
-          onPressed: ShellNavigationService.requestHomeSearch,
+          onPressed: ShellNavigationService.requestSearch,
           child: const Text('Search'),
         ),
         Expanded(
           child: PageView.builder(
             controller: _pages,
-            itemCount: 2,
-            itemBuilder: (_, index) => index == 1
+            itemCount: widget.separateSearch ? _searchIndex + 1 : 2,
+            itemBuilder: (_, index) => index != _searchIndex
                 ? const Text('Library')
                 : Navigator(
-                    key: ShellNavigationService.homeTabNavigatorKey,
+                    key: _navigatorKey,
                     observers: [_observer],
                     onGenerateRoute: (_) => MaterialPageRoute<void>(
                       builder: (_) => const _SearchHome(),
@@ -232,7 +270,7 @@ class _SearchHomeState extends State<_SearchHome> {
   @override
   void initState() {
     super.initState();
-    ShellNavigationService.homeSearchRequests.addListener(_onSearch);
+    ShellNavigationService.searchRequests.addListener(_onSearch);
   }
 
   void _onSearch() {
@@ -243,7 +281,7 @@ class _SearchHomeState extends State<_SearchHome> {
 
   @override
   void dispose() {
-    ShellNavigationService.homeSearchRequests.removeListener(_onSearch);
+    ShellNavigationService.searchRequests.removeListener(_onSearch);
     _focus.dispose();
     super.dispose();
   }

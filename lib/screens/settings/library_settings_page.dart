@@ -921,6 +921,14 @@ class _LibrarySettingsPageState extends ConsumerState<LibrarySettingsPage> {
                   onChanged: (v) => ref
                       .read(settingsProvider.notifier)
                       .setPlaybackNormalization(v),
+                ),
+                SettingsSwitchItem(
+                  icon: Icons.compare_arrows,
+                  title: 'AutoMix',
+                  subtitle: context.l10n.autoMixDescription,
+                  value: settings.autoMix,
+                  onChanged: (value) =>
+                      ref.read(settingsProvider.notifier).setAutoMix(value),
                   showDivider: Platform.isAndroid,
                 ),
                 if (Platform.isAndroid)

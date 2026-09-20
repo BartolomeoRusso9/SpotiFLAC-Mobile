@@ -61,18 +61,26 @@ part 'home_tab_import.dart';
 part 'home_tab_search_results.dart';
 part 'home_tab_widgets.dart';
 
+enum HomeTabMode { combined, browse, search }
+
 class HomeTab extends ConsumerStatefulWidget {
-  const HomeTab({super.key});
+  const HomeTab({super.key, this.mode = HomeTabMode.combined});
+
+  final HomeTabMode mode;
+
   @override
   ConsumerState<HomeTab> createState() => _HomeTabState();
 }
 
 class _HomeTabState extends ConsumerState<HomeTab>
     with AutomaticKeepAliveClientMixin, SingleTickerProviderStateMixin {
+  bool get _showsSearch => widget.mode != HomeTabMode.browse;
+  bool get _showsHome => widget.mode != HomeTabMode.search;
   final _historySnapshot = TrackHistorySnapshot();
   final _urlController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   final _homeScrollController = ScrollController();
+  String _lastSearchText = '';
   String? _lastSearchQuery;
   String? _activeSearchInput;
   bool _isResettingSearchSurface = false;
@@ -166,9 +174,7 @@ class _HomeTabState extends ConsumerState<HomeTab>
     super.initState();
     _urlController.addListener(_onSearchChanged);
     _searchFocusNode.addListener(_onSearchFocusChanged);
-    ShellNavigationService.homeSearchRequests.addListener(
-      _focusSearchFromShell,
-    );
+    ShellNavigationService.searchRequests.addListener(_focusSearchFromShell);
 
     // Run an initial fetch check in case extensions were already initialized
     // before HomeTab was mounted (e.g. auto-installed during first setup).
@@ -180,6 +186,7 @@ class _HomeTabState extends ConsumerState<HomeTab>
       previous,
       next,
     ) {
+      if (!_showsSearch) return;
       _onTrackStateChanged(previous, next);
       if (previous != null &&
           previous.isLoading &&
@@ -207,7 +214,7 @@ class _HomeTabState extends ConsumerState<HomeTab>
       (previous, next) {
         if (next == true && previous != true) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
+            if (mounted && _showsHome) {
               ref
                   .read(exploreProvider.notifier)
                   .fetchHomeFeed(forceRefresh: true);
@@ -219,6 +226,7 @@ class _HomeTabState extends ConsumerState<HomeTab>
   }
 
   void _fetchExploreIfNeeded() {
+    if (!_showsHome) return;
     if (ref.read(settingsProvider).homeFeedProvider ==
         AppSettings.homeFeedProviderOff) {
       ref.read(exploreProvider.notifier).clear();
@@ -239,9 +247,7 @@ class _HomeTabState extends ConsumerState<HomeTab>
 
   @override
   void dispose() {
-    ShellNavigationService.homeSearchRequests.removeListener(
-      _focusSearchFromShell,
-    );
+    ShellNavigationService.searchRequests.removeListener(_focusSearchFromShell);
     _homeScrollController.dispose();
     _liveSearchDebounce?.cancel();
     _trackStateSub.close();
@@ -353,8 +359,11 @@ class _HomeTabState extends ConsumerState<HomeTab>
   }
 
   void _focusSearchFromShell() {
+    if (!_showsSearch) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!mounted || !_showsSearch || !TickerMode.valuesOf(context).enabled) {
+        return;
+      }
       if (_homeScrollController.hasClients) _homeScrollController.jumpTo(0);
       _searchFocusNode.requestFocus();
     });
@@ -399,6 +408,10 @@ class _HomeTabState extends ConsumerState<HomeTab>
 
   void _onSearchChanged() {
     final text = _urlController.text.trim();
+    // Focusing an empty field also changes its selection. Only a text edit
+    // should reset results and dismiss focus, not that cursor notification.
+    if (text == _lastSearchText) return;
+    _lastSearchText = text;
 
     ref.read(trackProvider.notifier).setSearchText(text.isNotEmpty);
 
@@ -717,11 +730,14 @@ class _HomeTabState extends ConsumerState<HomeTab>
   Widget build(BuildContext context) {
     super.build(context);
 
-    final hasActualResults = ref.watch(
-      trackProvider.select((s) => s.tracks.isNotEmpty),
-    );
-    final isLoading = ref.watch(trackProvider.select((s) => s.isLoading));
-    final searchError = ref.watch(trackProvider.select((s) => s.error));
+    final hasActualResults =
+        _showsSearch &&
+        ref.watch(trackProvider.select((s) => s.tracks.isNotEmpty));
+    final isLoading =
+        _showsSearch && ref.watch(trackProvider.select((s) => s.isLoading));
+    final searchError = _showsSearch
+        ? ref.watch(trackProvider.select((s) => s.error))
+        : null;
     final hasSearchedBefore = ref.watch(
       settingsProvider.select((s) => s.hasSearchedBefore),
     );
@@ -756,9 +772,9 @@ class _HomeTabState extends ConsumerState<HomeTab>
     );
 
     final colorScheme = Theme.of(context).colorScheme;
-    final searchText = _urlController.text.trim();
+    final searchText = _showsSearch ? _urlController.text.trim() : '';
     final hasSearchInput = searchText.isNotEmpty;
-    final isSearchFocused = _searchFocusNode.hasFocus;
+    final isSearchFocused = _showsSearch && _searchFocusNode.hasFocus;
     final hasShortSearchInput =
         hasSearchInput && searchText.length < _minLiveSearchChars;
     final hasSearchError = hasSearchInput && searchError != null;
@@ -773,15 +789,18 @@ class _HomeTabState extends ConsumerState<HomeTab>
         !hasActualResults &&
         !isLoading &&
         searchError == null;
-    final isShowingRecentAccess = ref.watch(
-      trackProvider.select((s) => s.isShowingRecentAccess),
-    );
+    final isShowingRecentAccess =
+        _showsSearch &&
+        ref.watch(trackProvider.select((s) => s.isShowingRecentAccess));
     final screenHeight = MediaQuery.sizeOf(context).height;
     final hasHistoryItems = ref.watch(
       _homeHistoryPreviewProvider.select((items) => items.isNotEmpty),
     );
 
-    final recentModeRequested = isShowingRecentAccess || isSearchFocused;
+    final recentModeRequested =
+        widget.mode == HomeTabMode.search ||
+        isShowingRecentAccess ||
+        isSearchFocused;
     final showRecentAccess =
         recentModeRequested &&
         (!hasSearchInput ||
@@ -796,16 +815,20 @@ class _HomeTabState extends ConsumerState<HomeTab>
       explicitSearchProvider,
       extensions,
     );
-    final showSearchBar = HomeSearchProviderPolicy.shouldShowSearchBar(
-      hasSearchProvider: hasSearchProvider,
-      isSearchProviderLoading: isSearchProviderLoading,
-      hasHomeFeedExtension: hasHomeFeedExtension,
-      hasExploreContent: hasExploreContent,
-      hasSearchInput: hasSearchInput,
-    );
+    final showSearchBar =
+        _showsSearch &&
+        (widget.mode == HomeTabMode.search ||
+            HomeSearchProviderPolicy.shouldShowSearchBar(
+              hasSearchProvider: hasSearchProvider,
+              isSearchProviderLoading: isSearchProviderLoading,
+              hasHomeFeedExtension: hasHomeFeedExtension,
+              hasExploreContent: hasExploreContent,
+              hasSearchInput: hasSearchInput,
+            ));
     final hasResults =
         hasSearchInput || hasActualResults || isLoading || showRecentAccess;
     final showExplore =
+        _showsHome &&
         !hasActualResults &&
         !isLoading &&
         !hasActiveSearchSurface &&
@@ -824,7 +847,7 @@ class _HomeTabState extends ConsumerState<HomeTab>
       previous,
       next,
     ) {
-      if (previous == next) return;
+      if (!_showsSearch || previous == next) return;
       final selectedSearchFilter = ref.read(
         trackProvider.select((s) => s.selectedSearchFilter),
       );
@@ -869,13 +892,17 @@ class _HomeTabState extends ConsumerState<HomeTab>
             controller: _homeScrollController,
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             slivers: [
-              AppSliverHeader.tabRoot(title: context.l10n.homeTitle),
+              AppSliverHeader.tabRoot(
+                title: widget.mode == HomeTabMode.search
+                    ? context.l10n.mornyeSearch
+                    : context.l10n.homeTitle,
+              ),
 
               SliverToBoxAdapter(
                 child: AnimatedSize(
                   duration: const Duration(milliseconds: 250),
                   curve: Curves.easeOut,
-                  child: (hasResults || showExplore)
+                  child: (hasResults || showExplore || !_showsHome)
                       ? const SizedBox.shrink()
                       : _buildHomeIntro(
                           colorScheme: colorScheme,
@@ -952,14 +979,15 @@ class _HomeTabState extends ConsumerState<HomeTab>
                   duration: const Duration(milliseconds: 250),
                   curve: Curves.easeOut,
                   child:
-                      (hasResults ||
+                      (!_showsHome ||
+                          hasResults ||
                           showRecentAccess ||
                           showExplore ||
                           showEmptyHomeState)
                       ? const SizedBox.shrink()
                       : Column(
                           children: [
-                            if (!hasSearchedBefore)
+                            if (_showsSearch && !hasSearchedBefore)
                               Padding(
                                 padding: const EdgeInsets.only(top: 8),
                                 child: Text(
@@ -1015,7 +1043,8 @@ class _HomeTabState extends ConsumerState<HomeTab>
                   },
                 ),
 
-              if (hasHomeFeedExtension &&
+              if (_showsHome &&
+                  hasHomeFeedExtension &&
                   !homeFeedDisabled &&
                   !hasActualResults &&
                   !isLoading &&
@@ -1032,52 +1061,58 @@ class _HomeTabState extends ConsumerState<HomeTab>
                   ),
                 ),
 
-              Consumer(
-                builder: (context, ref, _) {
-                  final tracks = ref.watch(
-                    trackProvider.select((s) => s.tracks),
-                  );
-                  final isLoading = ref.watch(
-                    trackProvider.select((s) => s.isLoading),
-                  );
-                  final error = ref.watch(trackProvider.select((s) => s.error));
-                  final searchExtensionId = ref.watch(
-                    trackProvider.select((s) => s.searchExtensionId),
-                  );
-                  final localLibrarySettings = ref.watch(
-                    settingsProvider.select(
-                      (s) =>
-                          (s.localLibraryEnabled, s.localLibraryShowDuplicates),
-                    ),
-                  );
-                  final extensions = ref.watch(
-                    extensionProvider.select((s) => s.extensions),
-                  );
-                  final showLocalLibraryIndicator =
-                      localLibrarySettings.$1 && localLibrarySettings.$2;
-                  final thumbnailSizesByExtensionId =
-                      _getThumbnailSizesByExtensionId(extensions);
-                  final hasResults =
-                      tracks.isNotEmpty ||
-                      isLoading ||
-                      error != null ||
-                      hasActiveSearchSurface;
+              if (_showsSearch)
+                Consumer(
+                  builder: (context, ref, _) {
+                    final tracks = ref.watch(
+                      trackProvider.select((s) => s.tracks),
+                    );
+                    final isLoading = ref.watch(
+                      trackProvider.select((s) => s.isLoading),
+                    );
+                    final error = ref.watch(
+                      trackProvider.select((s) => s.error),
+                    );
+                    final searchExtensionId = ref.watch(
+                      trackProvider.select((s) => s.searchExtensionId),
+                    );
+                    final localLibrarySettings = ref.watch(
+                      settingsProvider.select(
+                        (s) => (
+                          s.localLibraryEnabled,
+                          s.localLibraryShowDuplicates,
+                        ),
+                      ),
+                    );
+                    final extensions = ref.watch(
+                      extensionProvider.select((s) => s.extensions),
+                    );
+                    final showLocalLibraryIndicator =
+                        localLibrarySettings.$1 && localLibrarySettings.$2;
+                    final thumbnailSizesByExtensionId =
+                        _getThumbnailSizesByExtensionId(extensions);
+                    final hasResults =
+                        tracks.isNotEmpty ||
+                        isLoading ||
+                        error != null ||
+                        hasActiveSearchSurface;
 
-                  return SliverMainAxisGroup(
-                    slivers: _buildSearchResults(
-                      tracks: tracks,
-                      isLoading: isLoading,
-                      error: error,
-                      colorScheme: colorScheme,
-                      hasResults: hasResults,
-                      showEmptySearchResult: showEmptySearchResult,
-                      searchExtensionId: searchExtensionId,
-                      showLocalLibraryIndicator: showLocalLibraryIndicator,
-                      thumbnailSizesByExtensionId: thumbnailSizesByExtensionId,
-                    ),
-                  );
-                },
-              ),
+                    return SliverMainAxisGroup(
+                      slivers: _buildSearchResults(
+                        tracks: tracks,
+                        isLoading: isLoading,
+                        error: error,
+                        colorScheme: colorScheme,
+                        hasResults: hasResults,
+                        showEmptySearchResult: showEmptySearchResult,
+                        searchExtensionId: searchExtensionId,
+                        showLocalLibraryIndicator: showLocalLibraryIndicator,
+                        thumbnailSizesByExtensionId:
+                            thumbnailSizesByExtensionId,
+                      ),
+                    );
+                  },
+                ),
               const NavBarSliverSpacer(),
             ],
           ),

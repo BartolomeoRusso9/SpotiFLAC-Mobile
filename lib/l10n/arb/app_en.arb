@@ -6635,6 +6635,9 @@
   "@mornyeFavorited": {
     "description": "Selected state of the compact favorite action"
   },
+  "autoMixDescription": "Blend songs with beat matching and pitch-preserving tempo adjustment. Uses crossfade when beats cannot be matched.",
+  "autoMixOn": "AutoMix on",
+  "autoMixOff": "AutoMix off",
   "optionsEmbeddedCoverSizeOriginal": "Original resolution",
   "@optionsEmbeddedCoverSizeOriginal": {
     "description": "Option that preserves the provider artwork at its original resolution"

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/providers/music_player_provider.dart';
+import 'package:spotiflac_android/providers/settings_provider.dart';
 import 'package:spotiflac_android/widgets/player_artwork.dart';
 import 'package:spotiflac_android/widgets/mornye_context_menu.dart';
 
@@ -44,6 +45,7 @@ class MornyePlayerQueue extends ConsumerWidget {
     final start = currentIndex + 1;
     final count = queue.length - start;
     final controller = ref.read(musicPlayerControllerProvider);
+    final autoMix = ref.watch(settingsProvider.select((s) => s.autoMix));
     final type = Theme.of(context).textTheme;
     final repeatLabel = switch (playback.repeat) {
       AudioServiceRepeatMode.one => context.l10n.nowPlayingRepeatOne,
@@ -87,6 +89,17 @@ class MornyePlayerQueue extends ConsumerWidget {
               children: [
                 Row(
                   children: [
+                    modeButton(
+                      icon: CupertinoIcons.arrow_merge,
+                      label: autoMix
+                          ? context.l10n.autoMixOn
+                          : context.l10n.autoMixOff,
+                      selected: autoMix,
+                      onPressed: () => ref
+                          .read(settingsProvider.notifier)
+                          .setAutoMix(!autoMix),
+                    ),
+                    const SizedBox(width: 12),
                     modeButton(
                       icon: CupertinoIcons.shuffle,
                       label: playback.shuffle

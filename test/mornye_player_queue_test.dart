@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
 import 'package:spotiflac_android/providers/music_player_provider.dart';
+import 'package:spotiflac_android/models/settings.dart';
+import 'package:spotiflac_android/providers/settings_provider.dart';
 import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/widgets/mornye_player_queue.dart';
 
@@ -26,6 +28,14 @@ class _Player extends MusicPlayerController {
       repeat = mode;
 }
 
+class _Settings extends SettingsNotifier {
+  @override
+  AppSettings build() => const AppSettings();
+
+  @override
+  void setAutoMix(bool enabled) => state = state.copyWith(autoMix: enabled);
+}
+
 void main() {
   testWidgets(
     'upcoming queue maps taps and reorders to the complete playback queue',
@@ -40,6 +50,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            settingsProvider.overrideWith(_Settings.new),
             musicPlayerControllerProvider.overrideWithValue(player),
             currentMediaItemProvider.overrideWith(
               (ref) => Stream.value(queue[1]),
@@ -65,6 +76,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Previous'), findsNothing);
       expect(find.text('Current'), findsNothing);
+      await tester.tap(find.byTooltip('AutoMix off'));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('AutoMix on'), findsOneWidget);
+      await tester.tap(find.byTooltip('AutoMix on'));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('AutoMix off'), findsOneWidget);
       await tester.tap(find.text('Last'));
       expect(player.jumpedTo, 3);
       final firstHandle = find.byType(ReorderableDragStartListener).first;

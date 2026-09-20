@@ -23,12 +23,14 @@ void main() {
   late MornyeChromeController chrome;
   late ScrollController scroll;
   late int searches;
+  late int selected;
   final capture = GlobalKey();
 
   setUp(() {
     chrome = MornyeChromeController();
     scroll = ScrollController();
     searches = 0;
+    selected = 0;
   });
   tearDown(() {
     chrome.dispose();
@@ -96,13 +98,21 @@ void main() {
                     label: 'Library',
                   ),
                   NavigationDestination(
+                    icon: Icon(Icons.grid_view),
+                    label: 'Repo',
+                  ),
+                  NavigationDestination(
                     icon: Icon(Icons.settings),
                     label: 'Settings',
                   ),
+                  NavigationDestination(
+                    icon: Icon(Icons.search),
+                    label: 'Search',
+                  ),
                 ],
                 selectedIndex: 0,
-                onSelected: (_) {},
-                onExpand: chrome.expand,
+                onSelected: (index) => selected = index,
+                onHome: chrome.expand,
                 onSearch: () => searches++,
                 blurEnabled: blur,
               ),
@@ -115,6 +125,117 @@ void main() {
   }
 
   const albumBlue = Color(0xff464566);
+
+  for (final blur in [false, true]) {
+    testWidgets(
+      'edge icons travel continuously without fading (glass: $blur)',
+      (tester) async {
+        await pumpShell(tester, blur: blur);
+        final homeButton = find.byKey(const ValueKey('mornye-compact-home'));
+        final icon = find.descendant(
+          of: homeButton,
+          matching: find.byIcon(Icons.home),
+        );
+        final element = tester.element(icon);
+        final tabIcon = find
+            .descendant(
+              of: find.byType(MornyeTabBar),
+              matching: find.byIcon(Icons.home),
+            )
+            .first;
+        final start = tester.getCenter(icon);
+        expect((start - tester.getCenter(tabIcon)).distance, lessThan(0.5));
+        chrome.value = true;
+        await tester.pump();
+        var previous = start;
+        for (var frame = 0; frame < 12; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          expect(tester.element(icon), same(element));
+          for (final opacity in tester.widgetList<Opacity>(
+            find.ancestor(of: icon, matching: find.byType(Opacity)),
+          )) {
+            expect(opacity.opacity, 1);
+          }
+          final center = tester.getCenter(icon);
+          expect((center - previous).distance, lessThan(8));
+          previous = center;
+        }
+        expect(previous.dx, lessThan(start.dx));
+        chrome.expand();
+        await tester.pumpAndSettle();
+        expect(tester.element(icon), same(element));
+        expect((tester.getCenter(icon) - start).distance, lessThan(0.5));
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets('five tabs keep Search at the right edge (glass: $blur)', (
+      tester,
+    ) async {
+      await pumpShell(tester, blur: blur);
+      final tabs = find.byType(MornyeTabBar);
+      final search = find
+          .descendant(of: tabs, matching: find.text('Search'))
+          .first;
+      final settings = find
+          .descendant(of: tabs, matching: find.text('Settings'))
+          .first;
+      expect(tester.widget<MornyeTabBar>(tabs).destinations, hasLength(5));
+      expect(
+        tester.getCenter(search).dx,
+        greaterThan(tester.getCenter(settings).dx),
+      );
+      // The glass renderer paints the labels under a gesture overlay.
+      await tester.tapAt(tester.getCenter(search));
+      await tester.pumpAndSettle();
+      expect(selected, 4);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final withPlayer in [false, true]) {
+    testWidgets('compact transition has no height jump (player: $withPlayer)', (
+      tester,
+    ) async {
+      await pumpShell(tester, withPlayer: withPlayer);
+      final bar = find.byType(MornyeBottomBar);
+      var previousHeight = tester.getSize(bar).height;
+      final playerState = withPlayer
+          ? tester.state(find.byType(MiniPlayer))
+          : null;
+      chrome.value = true;
+      await tester.pump();
+      Offset? firstHomeCenter;
+      for (var frame = 0; frame < 25; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        final height = tester.getSize(bar).height;
+        expect(height, lessThanOrEqualTo(previousHeight + 0.01));
+        previousHeight = height;
+        firstHomeCenter ??= tester.getCenter(
+          find.byKey(const ValueKey('mornye-compact-home')),
+        );
+      }
+      final homeCenter = tester.getCenter(
+        find.byKey(const ValueKey('mornye-compact-home')),
+      );
+      expect((homeCenter.dy - firstHomeCenter!.dy).abs(), lessThan(20));
+      expect(find.byTooltip('Home').hitTestable(), findsOneWidget);
+      expect(find.byTooltip('Search').hitTestable(), findsOneWidget);
+      if (withPlayer) {
+        expect(tester.state(find.byType(MiniPlayer)), same(playerState));
+      }
+      chrome.expand();
+      await tester.pump();
+      for (var frame = 0; frame < 25; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        final height = tester.getSize(bar).height;
+        expect(height, greaterThanOrEqualTo(previousHeight - 0.01));
+        previousHeight = height;
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   for (final brightness in Brightness.values) {
     for (final backdrop in [
       Colors.white,
@@ -214,7 +335,7 @@ void main() {
       lessThan(expandedHeight - 60),
     );
     expect(find.byTooltip('Next track'), findsNothing);
-    await tester.tap(find.byTooltip('Show tabs'));
+    await tester.tap(find.byTooltip('Home'));
     await tester.pumpAndSettle();
     expect(chrome.value, isFalse);
     expect(tester.getSize(find.byType(MornyeBottomBar)).height, expandedHeight);
@@ -367,6 +488,35 @@ void main() {
     },
   );
 
+  testWidgets('Library inner scrolling expands before the header returns', (
+    tester,
+  ) async {
+    await pumpShell(
+      tester,
+      body: NestedScrollView(
+        headerSliverBuilder: (_, _) => const [
+          SliverAppBar(expandedHeight: 180, title: Text('Library')),
+        ],
+        body: PageView(
+          children: [
+            ListView.builder(
+              itemExtent: 60,
+              itemCount: 60,
+              itemBuilder: (_, index) => Text('Track $index'),
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.drag(find.byType(ListView), const Offset(0, -600));
+    await tester.pumpAndSettle();
+    expect(chrome.value, isTrue);
+    await tester.drag(find.byType(ListView), const Offset(0, 100));
+    await tester.pumpAndSettle();
+    expect(chrome.value, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'glass bar stays mounted and pauses its tickers while collapsed',
     (tester) async {
@@ -396,7 +546,7 @@ void main() {
     expect(chrome.value, isTrue);
     await tester.tap(find.byTooltip('Search'));
     expect(searches, 1);
-    await tester.tap(find.byTooltip('Show tabs'));
+    await tester.tap(find.byTooltip('Home'));
     await tester.pumpAndSettle();
     expect(chrome.value, isFalse);
     expect(tester.takeException(), isNull);

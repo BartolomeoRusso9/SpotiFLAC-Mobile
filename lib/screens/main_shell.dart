@@ -68,10 +68,13 @@ class _MainShellState extends ConsumerState<MainShell>
       ShellNavigationService.libraryTabNavigatorKey;
   final GlobalKey<NavigatorState> _repoTabNavigatorKey =
       ShellNavigationService.repoTabNavigatorKey;
+  final GlobalKey<NavigatorState> _searchTabNavigatorKey =
+      ShellNavigationService.searchTabNavigatorKey;
 
   late final _PreviewStopNavigatorObserver _homePreviewStopObserver;
   late final _PreviewStopNavigatorObserver _libraryPreviewStopObserver;
   late final _PreviewStopNavigatorObserver _repoPreviewStopObserver;
+  late final _PreviewStopNavigatorObserver _searchPreviewStopObserver;
 
   @override
   void didChangeDependencies() {
@@ -85,6 +88,7 @@ class _MainShellState extends ConsumerState<MainShell>
     setPlaybackNormalizationEnabled(
       ref.read(settingsProvider).playbackNormalization,
     );
+    setAutoMixEnabled(ref.read(settingsProvider).autoMix);
     unawaited(
       DiscordPresenceService.instance.setEnabled(
         ref.read(settingsProvider).discordRichPresence,
@@ -110,6 +114,9 @@ class _MainShellState extends ConsumerState<MainShell>
       () => ref.read(previewPlayerProvider.notifier).stop(),
     );
     _repoPreviewStopObserver = _PreviewStopNavigatorObserver(
+      () => ref.read(previewPlayerProvider.notifier).stop(),
+    );
+    _searchPreviewStopObserver = _PreviewStopNavigatorObserver(
       () => ref.read(previewPlayerProvider.notifier).stop(),
     );
     _pageController = PageController(initialPage: _currentIndex);
@@ -289,11 +296,14 @@ class _MainShellState extends ConsumerState<MainShell>
     if (!mounted) return;
 
     Navigator.of(context).popUntil((route) => route.isFirst);
-    _homeTabNavigatorKey.currentState?.popUntil((route) => route.isFirst);
-
-    if (_currentIndex != 0) {
-      _onNavTap(0);
-    }
+    _onShellTabRequested(ShellTab.search);
+    final searchNavigator = context.isMornye
+        ? _searchTabNavigatorKey
+        : _homeTabNavigatorKey;
+    searchNavigator.currentState?.popUntil((route) => route.isFirst);
+    // Mount the lazy Search page before the metadata listener handles the link.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
     ref.read(settingsProvider.notifier).setHasSearchedBefore();
     if (mounted) {
       ScaffoldMessenger.of(
@@ -480,7 +490,7 @@ class _MainShellState extends ConsumerState<MainShell>
     // Unfocus BEFORE clear so _onTrackStateChanged can properly
     // clear _urlController (it checks !_searchFocusNode.hasFocus)
     FocusManager.instance.primaryFocus?.unfocus();
-    ref.read(trackProvider.notifier).clear();
+    if (!context.isMornye) ref.read(trackProvider.notifier).clear();
   }
 
   void _onShellTabRequested(ShellTab tab) {
@@ -489,17 +499,23 @@ class _MainShellState extends ConsumerState<MainShell>
     );
     final index = switch (tab) {
       ShellTab.home => 0,
+      ShellTab.search => context.isMornye ? (showStore ? 4 : 3) : 0,
       ShellTab.library => 1,
       ShellTab.repository => showStore ? 2 : null,
       ShellTab.settings => showStore ? 3 : 2,
     };
-    if (index != null) _onNavTap(index);
+    if (index != null) _onNavTap(index, resetHome: tab != ShellTab.search);
   }
 
-  void _onNavTap(int index) {
+  void _onNavTap(int index, {bool resetHome = true}) {
+    final showStore = ref.read(
+      settingsProvider.select((s) => s.showExtensionStore),
+    );
     _mornyeChrome.expand();
-    if (index == 0 && _currentIndex == 0) {
+    if (index == 0 && resetHome && (context.isMornye || _currentIndex == 0)) {
       _resetHomeToMain();
+    }
+    if (index == 0 && _currentIndex == 0) {
       return;
     }
 
@@ -511,12 +527,10 @@ class _MainShellState extends ConsumerState<MainShell>
       // cannot do this because _currentIndex is already updated below.)
       ref.read(previewPlayerProvider.notifier).stop();
       setState(() => _currentIndex = index);
-      final showStore = ref.read(
-        settingsProvider.select((s) => s.showExtensionStore),
-      );
       ShellNavigationService.syncState(
         currentTabIndex: _currentIndex,
         showRepoTab: showStore,
+        showSearchTab: context.isMornye,
       );
       FocusManager.instance.primaryFocus?.unfocus();
       // Jump directly when skipping intermediate tabs to avoid
@@ -551,6 +565,7 @@ class _MainShellState extends ConsumerState<MainShell>
       ShellNavigationService.syncState(
         currentTabIndex: _currentIndex,
         showRepoTab: showStore,
+        showSearchTab: context.isMornye,
       );
       FocusManager.instance.primaryFocus?.unfocus();
     }
@@ -578,10 +593,12 @@ class _MainShellState extends ConsumerState<MainShell>
     if (!mounted) return;
 
     final trackState = ref.read(trackProvider);
+    final isSearchTab =
+        _currentIndex == (context.isMornye ? (showStore ? 4 : 3) : 0);
 
     final isKeyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
 
-    if (_currentIndex == 0 &&
+    if (isSearchTab &&
         trackState.isShowingRecentAccess &&
         !trackState.isLoading &&
         (trackState.hasSearchText || trackState.hasContent)) {
@@ -592,14 +609,14 @@ class _MainShellState extends ConsumerState<MainShell>
       return;
     }
 
-    if (_currentIndex == 0 && trackState.isShowingRecentAccess) {
+    if (isSearchTab && trackState.isShowingRecentAccess) {
       ref.read(trackProvider.notifier).setShowingRecentAccess(false);
       FocusManager.instance.primaryFocus?.unfocus();
       _lastBackPress = null;
       return;
     }
 
-    if (_currentIndex == 0 &&
+    if (isSearchTab &&
         !trackState.isLoading &&
         (trackState.hasSearchText || trackState.hasContent)) {
       // Unfocus BEFORE clear so _onTrackStateChanged can properly
@@ -611,7 +628,7 @@ class _MainShellState extends ConsumerState<MainShell>
       return;
     }
 
-    if (_currentIndex == 0 && isKeyboardVisible) {
+    if (isSearchTab && isKeyboardVisible) {
       FocusManager.instance.primaryFocus?.unfocus();
       _lastBackPress = null;
       return;
@@ -623,7 +640,7 @@ class _MainShellState extends ConsumerState<MainShell>
       return;
     }
 
-    if (trackState.isLoading) {
+    if (isSearchTab && trackState.isLoading) {
       return;
     }
 
@@ -647,6 +664,9 @@ class _MainShellState extends ConsumerState<MainShell>
     if (index == 0) return _homeTabNavigatorKey.currentState;
     if (index == 1) return _libraryTabNavigatorKey.currentState;
     if (showStore && index == 2) return _repoTabNavigatorKey.currentState;
+    if (context.isMornye && index == (showStore ? 4 : 3)) {
+      return _searchTabNavigatorKey.currentState;
+    }
     return null;
   }
 
@@ -664,6 +684,9 @@ class _MainShellState extends ConsumerState<MainShell>
     ) {
       setPlaybackNormalizationEnabled(enabled);
     });
+    ref.listen(settingsProvider.select((s) => s.autoMix), (_, enabled) {
+      setAutoMixEnabled(enabled);
+    });
     final queueState = ref.watch(
       downloadQueueProvider.select((s) => s.queuedCount),
     );
@@ -676,6 +699,7 @@ class _MainShellState extends ConsumerState<MainShell>
     ShellNavigationService.syncState(
       currentTabIndex: _currentIndex,
       showRepoTab: showStore,
+      showSearchTab: context.isMornye,
     );
     final repoUpdatesCount = ref.watch(
       repoProvider.select((s) => s.updatesAvailableCount),
@@ -687,7 +711,11 @@ class _MainShellState extends ConsumerState<MainShell>
         navigatorKey: _homeTabNavigatorKey,
         observers: [_homePreviewStopObserver],
         heroAnimationsEnabled: heroAnimationsEnabled,
-        child: const HomeTab(),
+        child: Builder(
+          builder: (context) => HomeTab(
+            mode: context.isMornye ? HomeTabMode.browse : HomeTabMode.combined,
+          ),
+        ),
       ),
       _TabNavigator(
         key: const ValueKey('tab-library'),
@@ -705,6 +733,14 @@ class _MainShellState extends ConsumerState<MainShell>
           child: const RepoTab(),
         ),
       const SettingsTab(),
+      if (context.isMornye)
+        _TabNavigator(
+          key: const ValueKey('tab-search'),
+          navigatorKey: _searchTabNavigatorKey,
+          observers: [_searchPreviewStopObserver],
+          heroAnimationsEnabled: heroAnimationsEnabled,
+          child: const HomeTab(mode: HomeTabMode.search),
+        ),
     ];
 
     final l10n = context.l10n;
@@ -774,9 +810,15 @@ class _MainShellState extends ConsumerState<MainShell>
         selectedIcon: SpinIcon(child: const Icon(Icons.settings)),
         label: l10n.navSettings,
       ),
+      if (context.isMornye)
+        NavigationDestination(
+          icon: const Icon(CupertinoIcons.search),
+          label: l10n.mornyeSearch,
+        ),
     ];
 
     final maxIndex = tabs.length - 1;
+    final selectedDestination = _currentIndex.clamp(0, maxIndex);
     if (_currentIndex > maxIndex) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -867,10 +909,7 @@ class _MainShellState extends ConsumerState<MainShell>
                                 ),
                                 child: IntrinsicHeight(
                                   child: NavigationRail(
-                                    selectedIndex: _currentIndex.clamp(
-                                      0,
-                                      maxIndex,
-                                    ),
+                                    selectedIndex: selectedDestination,
                                     onDestinationSelected: _onNavTap,
                                     labelType: NavigationRailLabelType.all,
                                     backgroundColor: Theme.of(
@@ -924,11 +963,10 @@ class _MainShellState extends ConsumerState<MainShell>
                             builder: (context, collapsed, _) => MornyeBottomBar(
                               collapsed: canMinimizeChrome && collapsed,
                               destinations: destinations,
-                              selectedIndex: _currentIndex.clamp(0, maxIndex),
+                              selectedIndex: selectedDestination,
                               onSelected: _onNavTap,
-                              onExpand: _mornyeChrome.expand,
-                              onSearch:
-                                  ShellNavigationService.requestHomeSearch,
+                              onHome: () => _onNavTap(0),
+                              onSearch: ShellNavigationService.requestSearch,
                               blurEnabled:
                                   !ref.watch(lowEndDeviceProvider) ||
                                   ref.watch(backdropBlurEnabledProvider),

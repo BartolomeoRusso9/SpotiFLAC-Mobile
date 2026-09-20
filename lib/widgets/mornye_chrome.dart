@@ -437,12 +437,16 @@ class MornyeTabBar extends StatelessWidget {
     required this.selectedIndex,
     required this.onSelected,
     required this.blurEnabled,
+    this.hideEdgeIcons = false,
   });
 
   final List<NavigationDestination> destinations;
   final int selectedIndex;
   final ValueChanged<int> onSelected;
   final bool blurEnabled;
+  // The folding bottom bar paints these two icons above both layouts so they
+  // can travel without fading along with the full tab capsule.
+  final bool hideEdgeIcons;
 
   @override
   Widget build(BuildContext context) {
@@ -516,7 +520,7 @@ class MornyeTabBar extends StatelessWidget {
                     ),
                   ),
                   items: [
-                    for (final destination in destinations)
+                    for (final (index, destination) in destinations.indexed)
                       LiquidGlassTabBarItem(
                         label: destination.label,
                         iconBuilder: (context, icon) => IconTheme(
@@ -526,10 +530,20 @@ class MornyeTabBar extends StatelessWidget {
                                 ? scheme.primary
                                 : inactiveIconColor,
                           ),
-                          child: destination.icon,
+                          child: Opacity(
+                            opacity:
+                                hideEdgeIcons &&
+                                    (index == 0 ||
+                                        index == destinations.length - 1)
+                                ? 0
+                                : 1,
+                            child: destination.icon,
+                          ),
                         ),
                         labelBuilder: (context, label) => Text(
                           destination.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.labelSmall
                               ?.copyWith(
                                 fontSize: label.textStyle.fontSize,
@@ -593,7 +607,15 @@ class MornyeTabBar extends StatelessWidget {
                               ),
                               // Keep tab selection quiet, as in Mornye. Badges
                               // stay live without the Material bounce/spin.
-                              child: destinations[index].icon,
+                              child: Opacity(
+                                opacity:
+                                    hideEdgeIcons &&
+                                        (index == 0 ||
+                                            index == destinations.length - 1)
+                                    ? 0
+                                    : 1,
+                                child: destinations[index].icon,
+                              ),
                             ),
                             const SizedBox(height: 2),
                             Text(

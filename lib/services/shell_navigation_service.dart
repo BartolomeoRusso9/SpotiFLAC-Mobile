@@ -1,9 +1,9 @@
 import 'package:flutter/widgets.dart';
 
-enum ShellTab { home, library, repository, settings }
+enum ShellTab { home, library, repository, settings, search }
 
 class ShellNavigationService {
-  static final homeSearchRequests = ValueNotifier<int>(0);
+  static final searchRequests = ValueNotifier<int>(0);
   static final chromeBrightness = ValueNotifier<Brightness?>(null);
   static final chromeSurface = ValueNotifier<Color?>(null);
   static final _visiblePages = <GlobalKey<NavigatorState>, Route<dynamic>?>{};
@@ -13,7 +13,7 @@ class ShellNavigationService {
         ({ModalRoute<dynamic> route, Brightness brightness, Color? surface})
       >{};
   static bool _chromeUpdateScheduled = false;
-  static int _homeSearchGeneration = 0;
+  static int _searchGeneration = 0;
 
   static void setChromeBrightness({
     required Object owner,
@@ -52,21 +52,24 @@ class ShellNavigationService {
     WidgetsBinding.instance.ensureVisualUpdate();
   }
 
-  static void requestHomeSearch() {
-    if (!requestTab(ShellTab.home)) return;
-    final generation = ++_homeSearchGeneration;
+  static void requestSearch() {
+    if (!requestTab(ShellTab.search)) return;
+    final generation = ++_searchGeneration;
     final owner = _tabSelectionOwner;
-    // PageView creates Home lazily. Deliver the request after its navigator
+    // PageView creates Search lazily. Deliver the request after its navigator
     // and focus listener mount, rather than losing the first tap on another tab.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (generation != _homeSearchGeneration ||
+      if (generation != _searchGeneration ||
           !identical(owner, _tabSelectionOwner) ||
-          _currentTabIndex != 0) {
+          _currentTabIndex != (_showSearchTab ? (_showRepoTab ? 4 : 3) : 0)) {
         return;
       }
-      homeTabNavigatorKey.currentState?.popUntil((route) => route.isFirst);
-      homeSearchRequests.value++;
-      // Home scrolls to its search field and requests focus after layout.
+      final navigatorKey = _showSearchTab
+          ? searchTabNavigatorKey
+          : homeTabNavigatorKey;
+      navigatorKey.currentState?.popUntil((route) => route.isFirst);
+      searchRequests.value++;
+      // Search scrolls to its field and requests focus after layout.
       // Scheduling that frame avoids waiting for another tap to wake it up.
       WidgetsBinding.instance.ensureVisualUpdate();
     });
@@ -79,9 +82,12 @@ class ShellNavigationService {
       GlobalKey<NavigatorState>();
   static final GlobalKey<NavigatorState> repoTabNavigatorKey =
       GlobalKey<NavigatorState>();
+  static final GlobalKey<NavigatorState> searchTabNavigatorKey =
+      GlobalKey<NavigatorState>();
 
   static int _currentTabIndex = 0;
   static bool _showRepoTab = false;
+  static bool _showSearchTab = false;
   static Object? _tabSelectionOwner;
   static ValueChanged<ShellTab>? _tabSelectionHandler;
 
@@ -109,12 +115,16 @@ class ShellNavigationService {
   static void syncState({
     required int currentTabIndex,
     required bool showRepoTab,
+    bool showSearchTab = false,
   }) {
-    if (_currentTabIndex == currentTabIndex && _showRepoTab == showRepoTab) {
+    if (_currentTabIndex == currentTabIndex &&
+        _showRepoTab == showRepoTab &&
+        _showSearchTab == showSearchTab) {
       return;
     }
     _currentTabIndex = currentTabIndex;
     _showRepoTab = showRepoTab;
+    _showSearchTab = showSearchTab;
     _scheduleChromeUpdate();
   }
 
@@ -123,6 +133,9 @@ class ShellNavigationService {
     if (_currentTabIndex == 1) return libraryTabNavigatorKey;
     if (_showRepoTab && _currentTabIndex == 2) {
       return repoTabNavigatorKey;
+    }
+    if (_showSearchTab && _currentTabIndex == (_showRepoTab ? 4 : 3)) {
+      return searchTabNavigatorKey;
     }
     return null;
   }

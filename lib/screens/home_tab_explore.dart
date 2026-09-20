@@ -6,7 +6,8 @@ extension _HomeTabExploreUI on _HomeTabState {
     String? greeting,
     ColorScheme colorScheme,
   ) {
-    final hasGreeting = greeting != null && greeting.isNotEmpty;
+    final hasGreeting =
+        !context.isMornye && greeting != null && greeting.isNotEmpty;
     final isTablet = MediaQuery.sizeOf(context).shortestSide >= 600;
     final sectionOffset = hasGreeting ? 1 : 0;
     final totalCount = sections.length + sectionOffset + 1;

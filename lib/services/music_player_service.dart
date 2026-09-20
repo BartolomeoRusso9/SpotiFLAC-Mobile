@@ -12,11 +12,15 @@ import 'package:spotiflac_android/services/app_state_database.dart';
 import 'package:spotiflac_android/services/library_database.dart';
 import 'package:spotiflac_android/services/platform_bridge.dart';
 import 'package:spotiflac_android/services/playback_normalization.dart';
+import 'package:spotiflac_android/services/automix_analysis.dart';
+import 'package:spotiflac_android/services/automix_analyzer.dart';
 import 'package:spotiflac_android/utils/int_utils.dart';
 import 'package:spotiflac_android/utils/ios_container_paths.dart';
 import 'package:spotiflac_android/utils/playback_artwork.dart';
 import 'package:spotiflac_android/utils/logger.dart';
 import 'package:spotiflac_android/utils/string_utils.dart';
+
+part 'music_player_automix.dart';
 
 final _log = AppLogger('MusicPlayer');
 
@@ -32,6 +36,7 @@ void updateMusicPlayerStrings({
 }
 
 bool _playbackNormalizationEnabled = false;
+bool _autoMixEnabled = false;
 MusicPlayerHandler? _activeMusicPlayerHandler;
 
 /// Enables/disables ReplayGain volume normalization and re-applies it to the
@@ -40,6 +45,13 @@ void setPlaybackNormalizationEnabled(bool enabled) {
   if (_playbackNormalizationEnabled == enabled) return;
   _playbackNormalizationEnabled = enabled;
   _activeMusicPlayerHandler?.reapplyNormalization();
+}
+
+void setAutoMixEnabled(bool enabled) {
+  if (_autoMixEnabled == enabled) return;
+  _autoMixEnabled = enabled;
+  final handler = _activeMusicPlayerHandler;
+  if (handler != null) unawaited(handler._autoMix.cancel());
 }
 
 /// Refreshes gain tags after a successful file update, including SAF copies.
@@ -289,7 +301,11 @@ Duration normalizedPlaybackResumePosition(
 
 class MusicPlayerHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
-  final AudioPlayer _player = AudioPlayer(playerId: 'music-player');
+  AudioPlayer _player = AudioPlayer(playerId: 'music-player');
+  late final _MusicAutoMix _autoMix;
+  double _normalizationVolume = 1;
+  final _playerSubscriptions =
+      <AudioPlayer, List<StreamSubscription<dynamic>>>{};
   AudioSession? _audioSession;
   final List<PlayableMedia> _media = [];
   final List<MediaItem> _queueItems = [];
@@ -339,7 +355,8 @@ class MusicPlayerHandler extends BaseAudioHandler
 
   DateTime? get sleepTimerEndsAt => _sleepTimerEndsAt;
 
-  MusicPlayerHandler() {
+  MusicPlayerHandler({AutoMixAnalyzer? autoMixAnalyzer}) {
+    _autoMix = _MusicAutoMix(this, autoMixAnalyzer ?? AutoMixAnalyzer());
     _activeMusicPlayerHandler = this;
     _init();
   }
@@ -351,8 +368,20 @@ class MusicPlayerHandler extends BaseAudioHandler
     unawaited(_player.setAudioContext(_musicAudioContext));
     unawaited(_configureAudioSession());
 
-    _subscriptions.addAll([
-      _player.onPlayerStateChanged.listen((state) {
+    _listenToPlayer(_player);
+  }
+
+  void _listenToPlayer(AudioPlayer player) {
+    // Position updates must continue with the display asleep. UI progress is
+    // interpolated between updates; querying native playback every frame is
+    // unnecessary and would stop preparing AutoMix when there are no frames.
+    player.positionUpdater = TimerPositionUpdater(
+      interval: const Duration(milliseconds: 200),
+      getPosition: player.getCurrentPosition,
+    );
+    _playerSubscriptions[player] = [
+      player.onPlayerStateChanged.listen((state) {
+        if (!identical(player, _player)) return;
         if (_switchingGeneration != 0 &&
             (state == PlayerState.stopped ||
                 state == PlayerState.completed ||
@@ -367,17 +396,29 @@ class MusicPlayerHandler extends BaseAudioHandler
         }
         _broadcastState(playerState: state);
       }),
-      _player.onPositionChanged.listen(_handlePositionChanged),
-      _player.onDurationChanged.listen((duration) {
+      player.onPositionChanged.listen((position) {
+        if (identical(player, _player)) _handlePositionChanged(position);
+      }),
+      player.onDurationChanged.listen((duration) {
+        if (!identical(player, _player)) return;
         final current = mediaItem.value;
         if (current != null && duration > Duration.zero) {
           mediaItem.add(current.copyWith(duration: duration));
         }
       }),
-      _player.onPlayerComplete.listen((_) {
-        unawaited(_handlePlayerComplete());
+      player.onPlayerComplete.listen((_) {
+        if (identical(player, _player)) unawaited(_handlePlayerComplete());
       }),
-    ]);
+    ];
+  }
+
+  Future<void> _disposeDeck(AudioPlayer player) async {
+    final subscriptions = _playerSubscriptions.remove(player);
+    if (subscriptions == null) return;
+    for (final subscription in subscriptions) {
+      await subscription.cancel();
+    }
+    await player.dispose();
   }
 
   /// Configures the OS audio session and reacts to interruptions (e.g. another
@@ -445,6 +486,7 @@ class MusicPlayerHandler extends BaseAudioHandler
     _log.i('Pausing internal player because of $reason');
     _playRequestGeneration++;
     _switchingGeneration = 0;
+    await _autoMix.cancel();
     try {
       await _player.pause();
     } catch (e) {
@@ -534,6 +576,8 @@ class MusicPlayerHandler extends BaseAudioHandler
             ? AudioProcessingState.loading
             : _mapProcessingState(state),
         playing: playing,
+        queueIndex: _index >= 0 ? _index : null,
+        speed: _autoMix.rate,
         shuffleMode: _shuffle
             ? AudioServiceShuffleMode.all
             : AudioServiceShuffleMode.none,
@@ -555,11 +599,17 @@ class MusicPlayerHandler extends BaseAudioHandler
     }
     _lastPositionBroadcastAt = now;
     _lastBroadcastPosition = position;
-    playbackState.add(playbackState.value.copyWith(updatePosition: position));
+    playbackState.add(
+      playbackState.value.copyWith(
+        updatePosition: position,
+        speed: _autoMix.rate,
+      ),
+    );
   }
 
   void _handlePositionChanged(Duration position) {
     _broadcastPosition(position);
+    _autoMix.onPosition(position);
     if (_restoringSession ||
         _player.state != PlayerState.playing ||
         _media.isEmpty ||
@@ -622,6 +672,13 @@ class MusicPlayerHandler extends BaseAudioHandler
     final normalizationGeneration = ++_normalizationGeneration;
     if (index < 0 || index >= _media.length) return;
     unawaited(() async {
+      await _autoMix.cancel();
+      if (generation != _playRequestGeneration ||
+          index != _index ||
+          index >= _media.length ||
+          _disposed) {
+        return;
+      }
       final media = _media[index];
       var resolved = media.isContentUri
           ? _resolvedPathCache[media.source]
@@ -652,6 +709,7 @@ class MusicPlayerHandler extends BaseAudioHandler
       }
       try {
         await _player.setVolume(volume);
+        _normalizationVolume = volume;
       } catch (e) {
         _log.w('Failed to apply normalization volume: $e');
       }
@@ -718,7 +776,7 @@ class MusicPlayerHandler extends BaseAudioHandler
   }
 
   Future<void> _discardResolvedPath(String path) async {
-    if (path == _activeResolvedPath) {
+    if (path == _activeResolvedPath || _autoMix.pinnedPaths.contains(path)) {
       _pendingResolvedPathDeletes.add(path);
       return;
     }
@@ -732,7 +790,11 @@ class MusicPlayerHandler extends BaseAudioHandler
 
   Future<void> _cleanupPendingResolvedPaths() async {
     final deletable = _pendingResolvedPathDeletes
-        .where((path) => path != _activeResolvedPath)
+        .where(
+          (path) =>
+              path != _activeResolvedPath &&
+              !_autoMix.pinnedPaths.contains(path),
+        )
         .toList(growable: false);
     for (final path in deletable) {
       _pendingResolvedPathDeletes.remove(path);
@@ -1022,23 +1084,15 @@ class MusicPlayerHandler extends BaseAudioHandler
       _pendingRestorePosition = null;
     }
     final generation = ++_playRequestGeneration;
+    _sourceReady = false;
+    await _autoMix.cancel();
+    if (generation != _playRequestGeneration || _disposed) return;
     _index = index;
     _pausedByInterruption = false;
     _interruptionActive = false;
     _userPaused = false;
 
-    if (recordHistory) {
-      _playHistory.add(index);
-      if (_playHistory.length > 200) _playHistory.removeAt(0);
-      _recent.add(index);
-      final maxRecent = ((_media.length - 1) * 0.6).floor().clamp(
-        1,
-        _media.length > 1 ? _media.length - 1 : 1,
-      );
-      while (_recent.length > maxRecent) {
-        _recent.removeAt(0);
-      }
-    }
+    if (recordHistory) _recordPlayHistory(index);
 
     final media = _media[index];
     final effectiveStartPosition = normalizedPlaybackResumePosition(
@@ -1112,6 +1166,7 @@ class MusicPlayerHandler extends BaseAudioHandler
       _sourceReady = false;
       if (!_isCurrentPlayRequest(generation, media)) return;
       await _player.setVolume(normalizationVolume);
+      _normalizationVolume = normalizationVolume;
       if (!_isCurrentPlayRequest(generation, media)) return;
       final startAt = effectiveStartPosition > Duration.zero
           ? effectiveStartPosition
@@ -1146,6 +1201,7 @@ class MusicPlayerHandler extends BaseAudioHandler
           cacheKey: media.source,
         );
         await _player.setVolume(normalizationVolume);
+        _normalizationVolume = normalizationVolume;
         await _player.play(DeviceFileSource(fallback), position: startAt);
       }
       if (!_isCurrentPlayRequest(generation, media)) return;
@@ -1217,6 +1273,19 @@ class MusicPlayerHandler extends BaseAudioHandler
       recentIndices: _recent,
     );
     return pool[_random.nextInt(pool.length)];
+  }
+
+  void _recordPlayHistory(int index) {
+    _playHistory.add(index);
+    if (_playHistory.length > 200) _playHistory.removeAt(0);
+    _recent.add(index);
+    final maxRecent = ((_media.length - 1) * 0.6).floor().clamp(
+      1,
+      _media.length > 1 ? _media.length - 1 : 1,
+    );
+    while (_recent.length > maxRecent) {
+      _recent.removeAt(0);
+    }
   }
 
   Future<void> _onComplete() async {
@@ -1323,6 +1392,7 @@ class MusicPlayerHandler extends BaseAudioHandler
     _switchingGeneration = 0;
     _userPaused = true;
     _pausedByInterruption = false;
+    await _autoMix.cancel();
     await _player.pause();
     _broadcastState(playerState: PlayerState.paused);
     await _persistSession(position: await _currentPositionForPersist());
@@ -1330,12 +1400,14 @@ class MusicPlayerHandler extends BaseAudioHandler
 
   @override
   Future<void> seek(Duration position) async {
+    await _autoMix.cancel();
     await _player.seek(position);
     _broadcastPosition(position, force: true);
   }
 
   @override
   Future<void> setShuffleMode(AudioServiceShuffleMode shuffleMode) async {
+    await _autoMix.cancel();
     _shuffle = shuffleMode == AudioServiceShuffleMode.all;
     _broadcastState();
     if (_media.isNotEmpty && _index >= 0) {
@@ -1345,6 +1417,7 @@ class MusicPlayerHandler extends BaseAudioHandler
 
   @override
   Future<void> setRepeatMode(AudioServiceRepeatMode repeatMode) async {
+    await _autoMix.cancel();
     // Group repeat has no meaning for a flat queue; treat it as all.
     _repeatMode = repeatMode == AudioServiceRepeatMode.group
         ? AudioServiceRepeatMode.all
@@ -1361,6 +1434,7 @@ class MusicPlayerHandler extends BaseAudioHandler
     _playRequestGeneration++;
     _switchingGeneration = 0;
     _userPaused = true;
+    await _autoMix.cancel();
     await _player.stop();
     _sourceReady = false;
     _activeResolvedPath = null;
@@ -1393,6 +1467,7 @@ class MusicPlayerHandler extends BaseAudioHandler
 
   @override
   Future<void> skipToPrevious() async {
+    await _autoMix.cancel();
     if (playbackState.value.position > const Duration(seconds: 3)) {
       await _player.seek(Duration.zero);
       _broadcastPosition(Duration.zero, force: true);
@@ -1505,14 +1580,20 @@ class MusicPlayerHandler extends BaseAudioHandler
 
   Future<void> dispose() async {
     _disposed = true;
+    if (identical(_activeMusicPlayerHandler, this)) {
+      _activeMusicPlayerHandler = null;
+    }
     cancelSleepTimer();
     _playRequestGeneration++;
+    await _autoMix.dispose();
     for (final sub in _subscriptions) {
       await sub.cancel();
     }
     _subscriptions.clear();
     _sourceReady = false;
-    await _player.dispose();
+    for (final player in _playerSubscriptions.keys.toList()) {
+      await _disposeDeck(player);
+    }
     _activeResolvedPath = null;
     final tempPaths = <String>{
       ..._resolvedPathCache.values,
