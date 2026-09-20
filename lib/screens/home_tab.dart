@@ -361,6 +361,14 @@ class _HomeTabState extends ConsumerState<HomeTab>
   }
 
   void _onTrackStateChanged(TrackState? previous, TrackState next) {
+    if (!identical(previous?.tracks, next.tracks)) {
+      // Home stays alive across tabs. Empty/loading/error branches can skip
+      // result building, so release the previous search's derived lists here.
+      _searchBucketsSourceTracks = null;
+      _searchBucketsCache = null;
+      _invalidateSearchSortCaches();
+      _historySnapshot.update(const []);
+    }
     if (previous != null &&
         !next.hasContent &&
         !next.hasSearchText &&
