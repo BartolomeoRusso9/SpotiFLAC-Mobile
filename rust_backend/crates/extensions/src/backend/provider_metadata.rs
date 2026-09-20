@@ -392,10 +392,17 @@ fn response(kind: &str, value: &Value, check: &Check<'_>) -> Result<Value, Resol
     check().map_err(ResolverError::Cancelled)?;
     let cover = text(value, "cover_url");
     Ok(match kind {
-        "track" => json!({"track":track(value, "", 0)}),
-        "album" => {
-            json!({"album_info":album(value, true),"track_list":tracks(array(value,"tracks"),cover,check)?})
-        }
+        // Move normalized values into the envelope. json! serializes borrowed
+        // expressions, duplicating every field of an already-built track list.
+        "track" => Map::from_iter([("track".into(), track(value, "", 0))]).into(),
+        "album" => Map::from_iter([
+            ("album_info".into(), album(value, true)),
+            (
+                "track_list".into(),
+                tracks(array(value, "tracks"), cover, check)?,
+            ),
+        ])
+        .into(),
         "playlist" => {
             let mut info = strings(
                 value,
@@ -413,7 +420,14 @@ fn response(kind: &str, value: &Value, check: &Check<'_>) -> Result<Value, Resol
                 "owner".into(),
                 json!({"name":text(value,"artists"),"images":cover}),
             );
-            json!({"playlist_info":info,"track_list":tracks(array(value,"tracks"),cover,check)?})
+            Map::from_iter([
+                ("playlist_info".into(), info.into()),
+                (
+                    "track_list".into(),
+                    tracks(array(value, "tracks"), cover, check)?,
+                ),
+            ])
+            .into()
         }
         "artist" => {
             let cover = text(value, "image_url");
@@ -439,7 +453,7 @@ fn response(kind: &str, value: &Value, check: &Check<'_>) -> Result<Value, Resol
             if value["listeners"].as_i64().unwrap_or_default() > 0 {
                 info.insert("listeners".into(), value["listeners"].clone());
             }
-            let mut result = json!({"artist_info":info});
+            let mut result = Value::Object(Map::from_iter([("artist_info".into(), info.into())]));
             for key in ["albums", "releases"] {
                 let values = array(value, key);
                 if key == "albums" || !values.is_empty() {

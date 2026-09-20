@@ -50,6 +50,41 @@ fn fixture() -> (tempfile::TempDir, Backend) {
 }
 
 #[test]
+fn response_envelopes_preserve_json_and_cancellation() {
+    let value = json!({
+        "id": "collection", "name": "音楽 🎵", "artists": "Artist Café",
+        "cover_url": "https://example.invalid/cover.jpg",
+        "tracks": [
+            {"id": "first", "name": "One", "external_links": {"example": "link"}},
+            {"id": "second", "name": "Two", "explicit": true, "track_number": 9},
+        ],
+    });
+    let check = || Ok(());
+    let cover = text(&value, "cover_url");
+    let expected = json!({
+        "album_info": album(&value, true),
+        "track_list": tracks(array(&value, "tracks"), cover, &check).unwrap(),
+    });
+    let actual = response("album", &value, &check).unwrap();
+    assert_eq!(actual.to_string(), expected.to_string());
+    let playlist = response("playlist", &value, &check).unwrap();
+    assert_eq!(playlist["track_list"], expected["track_list"]);
+    assert_eq!(playlist["playlist_info"]["owner"]["name"], "Artist Café");
+    assert_eq!(playlist["track_list"][0]["track_number"], 1);
+    assert_eq!(playlist["track_list"][1]["track_number"], 9);
+    assert_eq!(
+        response("track", &value, &check).unwrap().to_string(),
+        json!({"track": track(&value, "", 0)}).to_string(),
+    );
+    for kind in ["album", "playlist", "artist", "track"] {
+        assert_eq!(
+            response(kind, &value, &|| Err("cancelled".into())),
+            Err(ResolverError::Cancelled("cancelled".into())),
+        );
+    }
+}
+
+#[test]
 fn artist_metadata_preserves_logo_separately_from_portrait() {
     let (_root, backend) = fixture();
     let raw = backend
