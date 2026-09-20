@@ -228,6 +228,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
   final _artworkControlsKey = GlobalKey();
   final _artworkVolumeKey = GlobalKey();
   Map<String, Color> _artworkForeground = {};
+  final _artworkColorsChanged = ValueNotifier(0);
 
   @override
   void initState() {
@@ -267,6 +268,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
   void dispose() {
     _mediaItemSub?.close();
     _pageController.dispose();
+    _artworkColorsChanged.dispose();
     super.dispose();
   }
 
@@ -648,7 +650,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                 'volume': _artworkVolumeKey,
               },
               onChanged: (colors) {
-                if (mounted) setState(() => _artworkForeground = colors);
+                if (!mounted) return;
+                _artworkForeground = colors;
+                _artworkColorsChanged.value++;
               },
               child: MornyePlayerBackground(
                 artUri: mediaItem.artUri,
@@ -1042,15 +1046,18 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
           final transportShift = landscape
               ? 0.0
               : ((volumeGap - 16) / 2).clamp(0.0, 20.0);
-          Widget controls() => _PlaybackControls(
-            key: _artworkControlsKey,
-            mediaId: mediaItem.id,
-            duration: mediaItem.duration ?? Duration.zero,
-            controller: controller,
-            colorScheme: foreground('controls'),
-            qualityLabel: _qualityLabel(),
-            compact: landscape,
-            transportTopPadding: 16 + transportShift,
+          Widget controls() => AnimatedBuilder(
+            animation: _artworkColorsChanged,
+            builder: (context, _) => _PlaybackControls(
+              key: _artworkControlsKey,
+              mediaId: mediaItem.id,
+              duration: mediaItem.duration ?? Duration.zero,
+              controller: controller,
+              colorScheme: foreground('controls'),
+              qualityLabel: _qualityLabel(),
+              compact: landscape,
+              transportTopPadding: 16 + transportShift,
+            ),
           );
 
           if (landscape) {
@@ -1078,7 +1085,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                     : Padding(
                         key: _artworkHeaderKey,
                         padding: const EdgeInsets.fromLTRB(28, 12, 28, 8),
-                        child: _trackHeader(mediaItem, foreground('header')),
+                        child: AnimatedBuilder(
+                          animation: _artworkColorsChanged,
+                          builder: (context, _) =>
+                              _trackHeader(mediaItem, foreground('header')),
+                        ),
                       ),
               ),
               AnimatedSize(
@@ -1100,9 +1111,12 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                             children: [
                               controls(),
                               SizedBox(height: volumeGap - transportShift),
-                              MornyeVolumeControl(
-                                key: _artworkVolumeKey,
-                                foreground: foreground('volume').onSurface,
+                              AnimatedBuilder(
+                                animation: _artworkColorsChanged,
+                                builder: (context, _) => MornyeVolumeControl(
+                                  key: _artworkVolumeKey,
+                                  foreground: foreground('volume').onSurface,
+                                ),
                               ),
                               const SizedBox(height: 8),
                             ],
@@ -1882,8 +1896,6 @@ class _PlaybackControls extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final mornye = context.isMornye;
-    final position = ref.watch(playbackPositionProvider);
-    final elapsedSeconds = position.inSeconds;
     final isPlaying = ref.watch(playbackPlayingProvider);
     final isLoading = ref.watch(playbackLoadingProvider);
     final timeStyle = Theme.of(
@@ -1901,77 +1913,84 @@ class _PlaybackControls extends ConsumerWidget {
     );
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Column(
-            children: [
-              SliderTheme(
-                data: SliderThemeData(
-                  trackHeight: 4,
-                  activeTrackColor: mornye
-                      ? colorScheme.onSurface
-                      : colorScheme.primary,
-                  inactiveTrackColor: colorScheme.onSurface.withValues(
-                    alpha: 0.18,
-                  ),
-                  thumbColor: mornye
-                      ? colorScheme.onSurface
-                      : colorScheme.primary,
-                  // A 7dp thumb was hard to grab; 10dp with a 24dp overlay
-                  // gives the drag gesture a full-size target.
-                  thumbShape: const RoundSliderThumbShape(
-                    enabledThumbRadius: 10,
-                  ),
-                  overlayShape: const RoundSliderOverlayShape(
-                    overlayRadius: 24,
-                  ),
-                ),
-                child: PlaybackSeekSlider(
-                  key: ValueKey(mediaId),
-                  position: position,
-                  duration: duration,
-                  onSeek: controller.seek,
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Row(
-                  children: [
-                    if (mornye)
-                      MornyePlaybackTime(
-                        key: ValueKey('elapsed:$mediaId'),
-                        seconds: elapsedSeconds,
-                        style: timeStyle,
-                      )
-                    else
-                      Text(formatClock(elapsedSeconds), style: timeStyle),
-                    Expanded(
-                      child: Center(
-                        child: _QualityBadge(
-                          label: qualityLabel,
-                          colorScheme: colorScheme,
-                        ),
+        Consumer(
+          builder: (context, ref, _) {
+            final position = ref.watch(playbackPositionProvider);
+            final elapsedSeconds = position.inSeconds;
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                children: [
+                  SliderTheme(
+                    data: SliderThemeData(
+                      trackHeight: 4,
+                      activeTrackColor: mornye
+                          ? colorScheme.onSurface
+                          : colorScheme.primary,
+                      inactiveTrackColor: colorScheme.onSurface.withValues(
+                        alpha: 0.18,
+                      ),
+                      thumbColor: mornye
+                          ? colorScheme.onSurface
+                          : colorScheme.primary,
+                      // A 7dp thumb was hard to grab; 10dp with a 24dp overlay
+                      // gives the drag gesture a full-size target.
+                      thumbShape: const RoundSliderThumbShape(
+                        enabledThumbRadius: 10,
+                      ),
+                      overlayShape: const RoundSliderOverlayShape(
+                        overlayRadius: 24,
                       ),
                     ),
-                    if (mornye)
-                      MornyePlaybackTime(
-                        key: ValueKey('remaining:$mediaId'),
-                        // Subtract whole seconds so both labels roll together,
-                        // even when the track duration includes milliseconds.
-                        seconds: (duration.inSeconds - elapsedSeconds).clamp(
-                          0,
-                          duration.inSeconds,
+                    child: PlaybackSeekSlider(
+                      key: ValueKey(mediaId),
+                      position: position,
+                      duration: duration,
+                      onSeek: controller.seek,
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(
+                      children: [
+                        if (mornye)
+                          MornyePlaybackTime(
+                            key: ValueKey('elapsed:$mediaId'),
+                            seconds: elapsedSeconds,
+                            style: timeStyle,
+                          )
+                        else
+                          Text(formatClock(elapsedSeconds), style: timeStyle),
+                        Expanded(
+                          child: Center(
+                            child: _QualityBadge(
+                              label: qualityLabel,
+                              colorScheme: colorScheme,
+                            ),
+                          ),
                         ),
-                        remaining: true,
-                        style: timeStyle,
-                      )
-                    else
-                      Text(formatClock(duration.inSeconds), style: timeStyle),
-                  ],
-                ),
+                        if (mornye)
+                          MornyePlaybackTime(
+                            key: ValueKey('remaining:$mediaId'),
+                            // Subtract whole seconds so both labels roll together,
+                            // even when the track duration includes milliseconds.
+                            seconds: (duration.inSeconds - elapsedSeconds)
+                                .clamp(0, duration.inSeconds),
+                            remaining: true,
+                            style: timeStyle,
+                          )
+                        else
+                          Text(
+                            formatClock(duration.inSeconds),
+                            style: timeStyle,
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         ),
         SizedBox(height: compact ? 8 : transportTopPadding),
         Row(

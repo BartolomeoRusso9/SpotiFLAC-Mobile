@@ -32,6 +32,7 @@ import 'package:spotiflac_android/widgets/mornye_metadata_row.dart';
 import 'package:spotiflac_android/widgets/mornye_chrome.dart';
 import 'package:spotiflac_android/widgets/mornye_player_background.dart';
 import 'package:spotiflac_android/widgets/mornye_player_artwork.dart';
+import 'package:spotiflac_android/widgets/mornye_artwork_contrast.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -182,6 +183,61 @@ void main() {
       expect(portrait.$2, closeTo(square.$2, 1));
     },
   );
+
+  testWidgets('video contrast updates controls without rebuilding artwork', (
+    tester,
+  ) async {
+    await pumpNowPlaying(
+      tester,
+      theme: MornyeTheme.build(Brightness.dark),
+      size: const Size(393, 852),
+      motionArtwork: const MotionArtwork(
+        'file:///cover.mp4',
+        aspectRatio: 0.75,
+      ),
+    );
+    mediaItems.add(item('first'));
+    await tester.pumpAndSettle();
+    final background = tester.widget<MornyePlayerBackground>(
+      find.byType(MornyePlayerBackground),
+    );
+    final title = find.text('First').hitTestable();
+    final bounds = tester.getRect(title);
+    final contrast = tester.widget<MornyeArtworkContrast>(
+      find.byType(MornyeArtworkContrast),
+    );
+    for (final color in [Colors.black, Colors.white]) {
+      contrast.onChanged({'header': color, 'controls': color, 'volume': color});
+      await tester.pump();
+      expect(
+        tester.widget<MornyePlayerBackground>(
+          find.byType(MornyePlayerBackground),
+        ),
+        same(background),
+      );
+      expect(tester.getRect(title), bounds);
+      expect(
+        tester
+            .widgetList<MornyePlaybackButton>(find.byType(MornyePlaybackButton))
+            .where(
+              (button) => [
+                CupertinoIcons.backward_fill,
+                CupertinoIcons.play_fill,
+                CupertinoIcons.forward_fill,
+              ].contains(button.icon),
+            )
+            .map((button) => button.color),
+        everyElement(color),
+      );
+      expect(
+        tester
+            .widget<MornyeVolumeControl>(find.byType(MornyeVolumeControl))
+            .foreground,
+        color,
+      );
+    }
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets('opening Mornye lyrics centers the current wrapped line', (
     tester,
@@ -805,8 +861,17 @@ void main() {
     await positionAt(34200);
     await tester.pumpAndSettle();
     expectTimes(34, 146);
+    final transport = tester
+        .widgetList<MornyePlaybackButton>(find.byType(MornyePlaybackButton))
+        .toList();
     await positionAt(34800);
     expectTimes(34, 146);
+    final updatedTransport = tester
+        .widgetList<MornyePlaybackButton>(find.byType(MornyePlaybackButton))
+        .toList();
+    for (var i = 0; i < transport.length; i++) {
+      expect(updatedTransport[i], same(transport[i]));
+    }
 
     await positionAt(35000);
     await tester.pump(const Duration(milliseconds: 80));
