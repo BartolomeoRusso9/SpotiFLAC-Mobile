@@ -104,11 +104,15 @@ pub(crate) fn decode_string(value: &str, encoding: &str) -> Result<Vec<u8>, Stri
 }
 
 pub(crate) fn decode_base64(value: &str) -> Result<Vec<u8>, base64::DecodeError> {
-    GeneralPurpose::new(
+    let engine = GeneralPurpose::new(
         &alphabet::STANDARD,
         GeneralPurposeConfig::new().with_decode_allow_trailing_bits(true),
-    )
-    .decode(value.replace(['\r', '\n'], ""))
+    );
+    if value.contains(['\r', '\n']) {
+        engine.decode(value.replace(['\r', '\n'], ""))
+    } else {
+        engine.decode(value)
+    }
 }
 
 pub(crate) fn decode_option_bytes(
@@ -223,5 +227,52 @@ fn go_float_i64(number: f64) -> i64 {
         number as i64
     } else {
         i64::MIN
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn base64_preserves_newlines_trailing_bits_and_error_offsets() {
+        let engine = GeneralPurpose::new(
+            &alphabet::STANDARD,
+            GeneralPurposeConfig::new().with_decode_allow_trailing_bits(true),
+        );
+        for value in [
+            "",
+            "Zg==",
+            "Zh==",
+            "Zm8=",
+            "Zm9=",
+            "Zm9v",
+            "\r\nZ\rg==\n",
+            "\r\n",
+            "Zg=",
+            "Zg===",
+            "Zg==!",
+            "Zg==\n!",
+            "Z g==",
+            "Zg==\t",
+            "🎵",
+            "\n🎵",
+        ] {
+            assert_eq!(
+                decode_base64(value),
+                engine.decode(value.replace(['\r', '\n'], "")),
+                "{value:?}"
+            );
+        }
+        let bytes: Vec<_> = (0..=255).cycle().take(1024 * 1024).collect();
+        let encoded = STANDARD.encode(&bytes);
+        assert_eq!(decode_base64(&encoded).unwrap(), bytes);
+        let wrapped = encoded
+            .as_bytes()
+            .chunks(76)
+            .map(|line| std::str::from_utf8(line).unwrap())
+            .collect::<Vec<_>>()
+            .join("\r\n");
+        assert_eq!(decode_base64(&wrapped).unwrap(), bytes);
     }
 }
