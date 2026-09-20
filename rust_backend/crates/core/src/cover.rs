@@ -73,7 +73,10 @@ pub fn resize<'a>(
         )
     };
     let source = Pixels::new(source);
-    let mut pixels = vec![0; dw as usize * dh as usize * 4];
+    // JPEG only consumes RGB. Write those channels directly instead of keeping
+    // an RGBA destination alongside a second RGB copy during encoding.
+    let channels = if png { 4 } else { 3 };
+    let mut pixels = vec![0; dw as usize * dh as usize * channels];
     // Match x/image/draw ApproxBiLinear: sample four neighbors at pixel centers
     // in premultiplied 16-bit space, then truncate into a premultiplied RGBA8
     // destination. See NOTICE.
@@ -90,8 +93,8 @@ pub fn resize<'a>(
                 source.at(x0, y1),
                 source.at(x1, y1),
             ];
-            let offset = (y as usize * dw as usize + x as usize) * 4;
-            for channel in 0..4 {
+            let offset = (y as usize * dw as usize + x as usize) * channels;
+            for channel in 0..channels {
                 let top = (1.0 - fx) * f64::from(samples[0][channel])
                     + fx * f64::from(samples[1][channel]);
                 let bottom = (1.0 - fx) * f64::from(samples[2][channel])
@@ -100,6 +103,8 @@ pub fn resize<'a>(
             }
         }
     }
+    // The original decode can be tens of MiB; encoding no longer needs it.
+    drop(source);
     check()?;
     let mut encoded = Vec::new();
     if png {
@@ -118,14 +123,8 @@ pub fn resize<'a>(
             .write_to(&mut Cursor::new(&mut encoded), ImageFormat::Png)
             .map_err(|error| format!("encode resized PNG artwork: {error}"))?;
     } else {
-        let rgb: Vec<_> = pixels
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .flat_map(|pixel| pixel[..3].iter().copied())
-            .collect();
         image::codecs::jpeg::JpegEncoder::new_with_quality(&mut encoded, 88)
-            .encode(&rgb, dw, dh, image::ExtendedColorType::Rgb8)
+            .encode(&pixels, dw, dh, image::ExtendedColorType::Rgb8)
             .map_err(|error| format!("encode resized JPEG artwork: {error}"))?;
     }
     check()?;
