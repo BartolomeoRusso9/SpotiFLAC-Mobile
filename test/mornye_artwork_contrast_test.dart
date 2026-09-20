@@ -3,6 +3,25 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:spotiflac_android/widgets/mornye_artwork_contrast.dart';
 
 void main() {
+  test('readback luminance matches Flutter exactly for every RGB pixel', () {
+    for (var red = 0; red < 256; red++) {
+      for (var green = 0; green < 256; green++) {
+        for (var blue = 0; blue < 256; blue++) {
+          final expected = Color.fromARGB(
+            255,
+            red,
+            green,
+            blue,
+          ).computeLuminance();
+          final actual = artworkPixelLuminance(red, green, blue);
+          if (actual != expected) {
+            fail('RGB($red, $green, $blue): $actual != $expected');
+          }
+        }
+      }
+    }
+  });
+
   testWidgets('foreground follows changing frames separately for each region', (
     tester,
   ) async {

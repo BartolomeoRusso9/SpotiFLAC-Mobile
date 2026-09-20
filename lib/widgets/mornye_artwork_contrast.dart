@@ -1,8 +1,34 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+
+// Readback uses 8-bit sRGB. Cache each channel's exact Flutter luminance
+// contribution (6 KiB total), avoiding three powers and a Color per pixel.
+final _redLuminance = Float64List.fromList(
+  List.generate(
+    256,
+    (value) => Color.fromARGB(255, value, 0, 0).computeLuminance(),
+  ),
+);
+final _greenLuminance = Float64List.fromList(
+  List.generate(
+    256,
+    (value) => Color.fromARGB(255, 0, value, 0).computeLuminance(),
+  ),
+);
+final _blueLuminance = Float64List.fromList(
+  List.generate(
+    256,
+    (value) => Color.fromARGB(255, 0, 0, value).computeLuminance(),
+  ),
+);
+
+/// Matches [Color.computeLuminance] for an RGB pixel from an 8-bit readback.
+double artworkPixelLuminance(int red, int green, int blue) =>
+    _redLuminance[red] + _greenLuminance[green] + _blueLuminance[blue];
 
 /// Samples rendered video and its fade, rather than a static album palette.
 /// Read back only 48 pixels across, at most three times a second when visible.
@@ -95,12 +121,11 @@ class _MornyeArtworkContrastState extends State<MornyeArtworkContrast> {
         for (var y = top; y < bottom; y++) {
           for (var x = left; x < right; x++) {
             final index = (y * image.width + x) * 4;
-            luminance += Color.fromARGB(
-              255,
+            luminance += artworkPixelLuminance(
               pixels.getUint8(index),
               pixels.getUint8(index + 1),
               pixels.getUint8(index + 2),
-            ).computeLuminance();
+            );
             count++;
           }
         }
