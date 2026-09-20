@@ -566,6 +566,8 @@ class HeaderCircleButton extends ConsumerWidget {
     required this.onPressed,
     this.iconColor,
     this.tonal = false,
+    this.glassTintColor,
+    this.glassTintOpacity,
   });
 
   final IconData icon;
@@ -577,6 +579,10 @@ class HeaderCircleButton extends ConsumerWidget {
 
   /// Uses the same translucent fill as the local album's Play/Shuffle pills.
   final bool tonal;
+
+  /// Optional tint for controls floating over artwork-colored surfaces.
+  final Color? glassTintColor;
+  final double? glassTintOpacity;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -622,10 +628,14 @@ class HeaderCircleButton extends ConsumerWidget {
         widthFactor: 1,
         child: MornyeGlass.navigation(
           radius: 24,
-          tintColor: scheme.brightness == Brightness.dark
-              ? Colors.black
-              : Colors.white,
-          tintOpacity: scheme.brightness == Brightness.dark ? 0.45 : 0.55,
+          tintColor:
+              glassTintColor ??
+              (scheme.brightness == Brightness.dark
+                  ? Colors.black
+                  : Colors.white),
+          tintOpacity:
+              glassTintOpacity ??
+              (scheme.brightness == Brightness.dark ? 0.45 : 0.55),
           blurEnabled: blurEnabled,
           child: button,
         ),

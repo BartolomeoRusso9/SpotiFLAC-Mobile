@@ -7,6 +7,114 @@ import 'package:spotiflac_android/widgets/collection_scaffold.dart';
 import 'package:spotiflac_android/widgets/mornye_artist_header.dart';
 
 void main() {
+  testWidgets('unavailable artist logo keeps the name and actions readable', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: MornyeTheme.build(Brightness.dark),
+          home: Scaffold(
+            body: CustomScrollView(
+              slivers: const [
+                MornyeArtistHeader(
+                  name: 'Example Artist',
+                  logoUrl: 'https://example.invalid/unavailable-logo.png',
+                  artwork: ColoredBox(color: Colors.orange),
+                  actions: [Text('Artist action')],
+                  showTitle: false,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find
+          .descendant(
+            of: find.byType(SliverToBoxAdapter),
+            matching: find.text('Example Artist'),
+          )
+          .hitTestable(),
+      findsOneWidget,
+    );
+    expect(find.text('Artist action').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('artist artwork blurs, disappears, and returns with scroll', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = FakeViewPadding(top: 59, bottom: 34);
+    addTearDown(tester.view.reset);
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    const artworkKey = ValueKey('artist-artwork');
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: MornyeTheme.build(Brightness.dark),
+          home: Scaffold(
+            body: CustomScrollView(
+              controller: controller,
+              slivers: const [
+                MornyeArtistHeader(
+                  name: 'Artist',
+                  artwork: ColoredBox(key: artworkKey, color: Colors.orange),
+                  actions: [Text('Artist action')],
+                  showTitle: false,
+                ),
+                SliverToBoxAdapter(child: SizedBox(height: 2000)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    double fade() => tester
+        .widget<ColoredBox>(find.byKey(const ValueKey('artist-artwork-fade')))
+        .color
+        .a;
+    ImageFiltered filter() => tester.widget<ImageFiltered>(
+      find.ancestor(
+        of: find.byKey(artworkKey),
+        matching: find.byType(ImageFiltered),
+      ),
+    );
+    final artwork = tester.element(find.byKey(artworkKey));
+    expect(fade(), 0);
+    expect(filter().enabled, isFalse);
+
+    controller.jumpTo(120);
+    await tester.pumpAndSettle();
+    expect(filter().enabled, isTrue);
+    expect(fade(), inExclusiveRange(0, 1));
+    expect(find.text('Artist action').hitTestable(), findsOneWidget);
+
+    controller.jumpTo(210);
+    await tester.pumpAndSettle();
+    expect(fade(), 1);
+    expect(filter().enabled, isFalse);
+    expect(TickerMode.valuesOf(artwork).enabled, isFalse);
+    expect(find.text('Artist action').hitTestable(), findsOneWidget);
+
+    controller.jumpTo(0);
+    await tester.pumpAndSettle();
+    expect(fade(), 0);
+    expect(filter().enabled, isFalse);
+    expect(TickerMode.valuesOf(artwork).enabled, isTrue);
+    expect(tester.element(find.byKey(artworkKey)), same(artwork));
+    expect(tester.takeException(), isNull);
+  });
+
   for (final brightness in Brightness.values) {
     for (final scale in [1.0, 2.0]) {
       testWidgets(

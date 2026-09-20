@@ -79,6 +79,8 @@ impl Backend {
                     "image_url",
                     "header_image",
                     "header_video",
+                    "header_logo",
+                    "albums_next",
                     "provider_id",
                 ],
             );
@@ -422,7 +424,15 @@ fn response(kind: &str, value: &Value, check: &Check<'_>) -> Result<Value, Resol
                 .unwrap_or_default();
             let mut info = strings(
                 value,
-                &["id", "name", "header_image", "header_video", "provider_id"],
+                &[
+                    "id",
+                    "name",
+                    "header_image",
+                    "header_video",
+                    "header_logo",
+                    "albums_next",
+                    "provider_id",
+                ],
             );
             info.insert("images".into(), json!(image));
             info.insert("cover_url".into(), json!(cover));

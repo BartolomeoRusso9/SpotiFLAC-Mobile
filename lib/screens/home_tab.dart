@@ -653,6 +653,8 @@ class _HomeTabState extends ConsumerState<HomeTab>
             coverUrl: trackState.coverUrl,
             headerImageUrl: trackState.headerImageUrl,
             headerVideoUrl: trackState.headerVideoUrl,
+            headerLogoUrl: trackState.headerLogoUrl,
+            albumsNext: trackState.artistAlbumsNext,
             albums: trackState.artistAlbums!,
             extensionId: extensionId,
           ),

@@ -194,6 +194,8 @@
         const tracks = array(first(object(value), ["top_tracks","topTracks","tracks"]), track);
         const result = fields(value, [["id","s"],["name","s"],["image_url","s","imageUrl"],
             ["header_image","s","headerImage"],["header_video","s","headerVideo"],
+            ["header_logo","s","headerLogo"],
+            ["albums_next","s","albumsNext"],
             ["listeners","i"],["provider_id","s","providerId"]], ["id","name","provider_id"]);
         if (albums.length) result.albums = albums;
         if (releases.length) result.releases = releases;

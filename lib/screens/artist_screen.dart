@@ -62,6 +62,8 @@ class _ArtistCache {
     List<Track>? topTracks,
     String? headerImageUrl,
     String? headerVideoUrl,
+    String? headerLogoUrl,
+    String? albumsNext,
     int? monthlyListeners,
   }) {
     _cache.set(
@@ -72,6 +74,8 @@ class _ArtistCache {
         topTracks: topTracks,
         headerImageUrl: headerImageUrl,
         headerVideoUrl: headerVideoUrl,
+        headerLogoUrl: headerLogoUrl,
+        albumsNext: albumsNext,
         monthlyListeners: monthlyListeners,
       ),
     );
@@ -84,6 +88,8 @@ class _CacheEntry {
   final List<Track>? topTracks;
   final String? headerImageUrl;
   final String? headerVideoUrl;
+  final String? headerLogoUrl;
+  final String? albumsNext;
   final int? monthlyListeners;
 
   _CacheEntry({
@@ -92,6 +98,8 @@ class _CacheEntry {
     this.topTracks,
     this.headerImageUrl,
     this.headerVideoUrl,
+    this.headerLogoUrl,
+    this.albumsNext,
     this.monthlyListeners,
   });
 }
@@ -102,6 +110,8 @@ class ArtistScreen extends ConsumerStatefulWidget {
   final String? coverUrl;
   final String? headerImageUrl;
   final String? headerVideoUrl;
+  final String? headerLogoUrl;
+  final String? albumsNext;
   final int? monthlyListeners;
   final List<ArtistAlbum>? albums;
   final List<Track>? topTracks;
@@ -114,6 +124,8 @@ class ArtistScreen extends ConsumerStatefulWidget {
     this.coverUrl,
     this.headerImageUrl,
     this.headerVideoUrl,
+    this.headerLogoUrl,
+    this.albumsNext,
     this.monthlyListeners,
     this.albums,
     this.topTracks,
@@ -133,6 +145,11 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
   List<Track>? _topTracks;
   String? _headerImageUrl;
   String? _headerVideoUrl;
+  String? _headerLogoUrl;
+  String? _albumsNext;
+  bool _isLoadingMoreAlbums = false;
+  String? _albumsPageError;
+  DateTime? _albumPageRetryAfter;
   int? _monthlyListeners;
   String? _error;
 
@@ -226,6 +243,8 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
       _topTracks = widget.topTracks;
       _headerImageUrl = widget.headerImageUrl;
       _headerVideoUrl = widget.headerVideoUrl;
+      _headerLogoUrl = widget.headerLogoUrl;
+      _albumsNext = widget.albumsNext;
       _monthlyListeners = widget.monthlyListeners;
 
       if ((_albums == null || _albums!.isEmpty) ||
@@ -242,6 +261,8 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
       _topTracks = widget.topTracks;
       _headerImageUrl = widget.headerImageUrl;
       _headerVideoUrl = widget.headerVideoUrl;
+      _headerLogoUrl = widget.headerLogoUrl;
+      _albumsNext = widget.albumsNext;
       _monthlyListeners = widget.monthlyListeners;
 
       if (_topTracks == null || _topTracks!.isEmpty) {
@@ -253,6 +274,8 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
       _topTracks = cached.topTracks;
       _headerImageUrl = cached.headerImageUrl;
       _headerVideoUrl = cached.headerVideoUrl;
+      _headerLogoUrl = cached.headerLogoUrl;
+      _albumsNext = cached.albumsNext;
       _monthlyListeners = cached.monthlyListeners;
 
       if (_topTracks == null || _topTracks!.isEmpty) {
@@ -290,6 +313,8 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
       List<Track>? topTracks;
       String? headerImage;
       String? headerVideo;
+      String? headerLogo;
+      String? albumsNext;
       int? listeners;
 
       if (_directMetadataProviderId() != null) {
@@ -319,6 +344,9 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
         }
 
         final artistInfo = artistData['artist_info'] as Map<String, dynamic>?;
+        albumsNext =
+            (artistInfo?['albums_next'] ?? artistData['albums_next'])
+                as String?;
         headerImage =
             artistInfo?['images'] as String? ??
             artistInfo?['header_image'] as String? ??
@@ -329,6 +357,9 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
         headerVideo =
             artistInfo?['header_video'] as String? ??
             artistData['header_video'] as String?;
+        headerLogo = normalizeRemoteHttpUrl(
+          (artistInfo?['header_logo'] ?? artistData['header_logo'])?.toString(),
+        );
         listeners =
             artistInfo?['listeners'] as int? ?? artistData['listeners'] as int?;
       } else {
@@ -337,6 +368,7 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
 
         if (result != null && result['artist'] != null) {
           final artistData = result['artist'] as Map<String, dynamic>;
+          albumsNext = artistData['albums_next'] as String?;
           final albumsList = artistData['albums'] as List<dynamic>? ?? [];
           albums = albumsList
               .map((a) => _parseArtistAlbum(a as Map<String, dynamic>))
@@ -352,6 +384,9 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
 
           headerImage = artistData['header_image'] as String?;
           headerVideo = artistData['header_video'] as String?;
+          headerLogo = normalizeRemoteHttpUrl(
+            artistData['header_logo']?.toString(),
+          );
           listeners = artistData['listeners'] as int?;
         } else {
           throw StateError('Failed to load artist metadata from extension');
@@ -362,6 +397,8 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
           headerImage ?? _headerImageUrl ?? widget.headerImageUrl;
       final finalHeaderVideo =
           headerVideo ?? _headerVideoUrl ?? widget.headerVideoUrl;
+      final finalHeaderLogo =
+          headerLogo ?? _headerLogoUrl ?? widget.headerLogoUrl;
       final finalListeners =
           listeners ?? _monthlyListeners ?? widget.monthlyListeners;
 
@@ -372,6 +409,8 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
         topTracks: topTracks,
         headerImageUrl: finalHeaderImage,
         headerVideoUrl: finalHeaderVideo,
+        headerLogoUrl: finalHeaderLogo,
+        albumsNext: albumsNext,
         monthlyListeners: finalListeners,
       );
 
@@ -382,6 +421,9 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
           _topTracks = topTracks;
           _headerImageUrl = finalHeaderImage;
           _headerVideoUrl = finalHeaderVideo;
+          _headerLogoUrl = finalHeaderLogo;
+          _albumsNext = albumsNext;
+          _albumsPageError = null;
           _monthlyListeners = finalListeners;
           _error = null;
           _isLoadingDiscography = false;
@@ -394,6 +436,82 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
           _isLoadingDiscography = false;
         });
       }
+    }
+  }
+
+  bool _onAlbumsScroll(ScrollNotification notification) {
+    final advancing = switch (notification) {
+      ScrollUpdateNotification() => (notification.scrollDelta ?? 0) > 0,
+      OverscrollNotification() => notification.overscroll > 0,
+      _ => false,
+    };
+    if (advancing &&
+        notification.metrics.extentAfter < 480 &&
+        !_isLoadingDiscography &&
+        !isSelectionMode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadMoreAlbums();
+      });
+    }
+    return false;
+  }
+
+  Future<void> _loadMoreAlbums() async {
+    final next = _albumsNext;
+    final provider = _directMetadataProviderId();
+    if (_isLoadingMoreAlbums ||
+        next == null ||
+        next.isEmpty ||
+        provider == null ||
+        (_albumPageRetryAfter?.isAfter(DateTime.now()) ?? false)) {
+      return;
+    }
+    setState(() {
+      _isLoadingMoreAlbums = true;
+      _albumsPageError = null;
+    });
+    try {
+      final result = await PlatformBridge.getProviderMetadata(
+        provider,
+        'artist',
+        next,
+      );
+      if (!mounted) return;
+      final info = result['artist_info'] as Map<String, dynamic>? ?? result;
+      final page = (result['albums'] as List<dynamic>? ?? []).map(
+        (value) => _parseArtistAlbum(value as Map<String, dynamic>),
+      );
+      final merged = {
+        for (final album in _albums ?? <ArtistAlbum>[]) album.id: album,
+      };
+      for (final album in page) {
+        merged[album.id] = album;
+      }
+      final following = info['albums_next'] as String?;
+      setState(() {
+        _albums = merged.values.toList();
+        _albumsNext = following == next ? null : following;
+      });
+      _ArtistCache.set(
+        widget.artistId,
+        albums: _albums!,
+        releases: _releases,
+        topTracks: _topTracks,
+        headerImageUrl: _headerImageUrl,
+        headerVideoUrl: _headerVideoUrl,
+        headerLogoUrl: _headerLogoUrl,
+        monthlyListeners: _monthlyListeners,
+        albumsNext: _albumsNext,
+      );
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _albumsPageError = context.friendlyError(error);
+          _albumPageRetryAfter = DateTime.now().add(const Duration(seconds: 3));
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingMoreAlbums = false);
     }
   }
 
@@ -526,93 +644,117 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen>
       child: Scaffold(
         body: Stack(
           children: [
-            CustomScrollView(
-              controller: _scrollController,
-              slivers: [
-                ..._buildHeader(
-                  context,
-                  colorScheme,
-                  albums: albums,
-                  hasDiscography: hasDiscography,
-                ),
-                if (_isLoadingDiscography)
-                  SliverToBoxAdapter(
-                    child: ArtistScreenSkeleton(
-                      showCoverHeader:
-                          !context.isMornye &&
-                          (_headerImageUrl ??
-                                  widget.headerImageUrl ??
-                                  widget.coverUrl) ==
-                              null,
-                      showPopularSection:
-                          !widget.artistId.startsWith('deezer:') &&
-                          !widget.artistId.startsWith('qobuz:') &&
-                          !widget.artistId.startsWith('tidal:'),
-                    ),
+            NotificationListener<ScrollNotification>(
+              onNotification: (notification) => notification.depth == 0
+                  ? _onAlbumsScroll(notification)
+                  : false,
+              child: CustomScrollView(
+                controller: _scrollController,
+                slivers: [
+                  ..._buildHeader(
+                    context,
+                    colorScheme,
+                    albums: albums,
+                    hasDiscography: hasDiscography,
                   ),
-                if (_error != null)
+                  if (_isLoadingDiscography)
+                    SliverToBoxAdapter(
+                      child: ArtistScreenSkeleton(
+                        showCoverHeader:
+                            !context.isMornye &&
+                            (_headerImageUrl ??
+                                    widget.headerImageUrl ??
+                                    widget.coverUrl) ==
+                                null,
+                        showPopularSection:
+                            !widget.artistId.startsWith('deezer:') &&
+                            !widget.artistId.startsWith('qobuz:') &&
+                            !widget.artistId.startsWith('tidal:'),
+                      ),
+                    ),
+                  if (_error != null)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: ErrorCard(
+                          error: _error!,
+                          colorScheme: colorScheme,
+                          onRetry: _fetchDiscography,
+                        ),
+                      ),
+                    ),
+                  if (!_isLoadingDiscography && _error == null) ...[
+                    if (context.isMornye &&
+                        albums.isNotEmpty &&
+                        !isSelectionMode)
+                      SliverToBoxAdapter(
+                        child: _buildMornyeFeaturedAlbum(context, albums.first),
+                      ),
+                    if (_topTracks != null && _topTracks!.isNotEmpty)
+                      SliverToBoxAdapter(
+                        child: _buildPopularSection(context, colorScheme),
+                      ),
+                    if (releases.isNotEmpty)
+                      SliverToBoxAdapter(
+                        child: _buildAlbumSection(
+                          context,
+                          context.l10n.artistReleases,
+                          releases,
+                          colorScheme,
+                        ),
+                      ),
+                    if (albumsOnly.isNotEmpty)
+                      SliverToBoxAdapter(
+                        child: _buildAlbumSection(
+                          context,
+                          context.l10n.artistAlbums,
+                          albumsOnly,
+                          colorScheme,
+                        ),
+                      ),
+                    if (singles.isNotEmpty)
+                      SliverToBoxAdapter(
+                        child: _buildAlbumSection(
+                          context,
+                          context.l10n.artistSingles,
+                          singles,
+                          colorScheme,
+                          showTypeBadge: true,
+                        ),
+                      ),
+                    if (compilations.isNotEmpty)
+                      SliverToBoxAdapter(
+                        child: _buildAlbumSection(
+                          context,
+                          context.l10n.artistCompilations,
+                          compilations,
+                          colorScheme,
+                        ),
+                      ),
+                  ],
+                  if (_isLoadingMoreAlbums || _albumsPageError != null)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          children: [
+                            if (_albumsPageError != null)
+                              Text(
+                                _albumsPageError!,
+                                textAlign: TextAlign.center,
+                              ),
+                            if (_isLoadingMoreAlbums)
+                              const CircularProgressIndicator.adaptive(),
+                          ],
+                        ),
+                      ),
+                    ),
                   SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: ErrorCard(
-                        error: _error!,
-                        colorScheme: colorScheme,
-                        onRetry: _fetchDiscography,
-                      ),
-                    ),
+                    child: SizedBox(height: isSelectionMode ? 120 : 32),
                   ),
-                if (!_isLoadingDiscography && _error == null) ...[
-                  if (context.isMornye && albums.isNotEmpty && !isSelectionMode)
-                    SliverToBoxAdapter(
-                      child: _buildMornyeFeaturedAlbum(context, albums.first),
-                    ),
-                  if (_topTracks != null && _topTracks!.isNotEmpty)
-                    SliverToBoxAdapter(
-                      child: _buildPopularSection(context, colorScheme),
-                    ),
-                  if (releases.isNotEmpty)
-                    SliverToBoxAdapter(
-                      child: _buildAlbumSection(
-                        context,
-                        context.l10n.artistReleases,
-                        releases,
-                        colorScheme,
-                      ),
-                    ),
-                  if (albumsOnly.isNotEmpty)
-                    SliverToBoxAdapter(
-                      child: _buildAlbumSection(
-                        context,
-                        context.l10n.artistAlbums,
-                        albumsOnly,
-                        colorScheme,
-                      ),
-                    ),
-                  if (singles.isNotEmpty)
-                    SliverToBoxAdapter(
-                      child: _buildAlbumSection(
-                        context,
-                        context.l10n.artistSingles,
-                        singles,
-                        colorScheme,
-                        showTypeBadge: true,
-                      ),
-                    ),
-                  if (compilations.isNotEmpty)
-                    SliverToBoxAdapter(
-                      child: _buildAlbumSection(
-                        context,
-                        context.l10n.artistCompilations,
-                        compilations,
-                        colorScheme,
-                      ),
-                    ),
+                  const NavBarSliverSpacer(),
                 ],
-                SliverToBoxAdapter(
-                  child: SizedBox(height: isSelectionMode ? 120 : 32),
-                ),
-                const NavBarSliverSpacer(),
-              ],
+              ),
             ),
           ],
         ),

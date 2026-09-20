@@ -67,6 +67,7 @@ extension _ArtistScreenSections on _ArtistScreenState {
           : const Center(child: Icon(CupertinoIcons.person, size: 80));
       return MornyeArtistHeader(
         name: widget.artistName,
+        logoUrl: _headerLogoUrl ?? widget.headerLogoUrl,
         listeners: listenersText,
         showTitle: _showTitleInAppBar,
         artwork: hasMotionBanner
@@ -79,9 +80,9 @@ extension _ArtistScreenSections on _ArtistScreenState {
                   icon: isFavoriteArtist
                       ? CupertinoIcons.heart_fill
                       : CupertinoIcons.heart,
-                  iconColor: isFavoriteArtist
-                      ? colorScheme.primary
-                      : Colors.white,
+                  iconColor: colorScheme.primary,
+                  glassTintColor: Colors.white,
+                  glassTintOpacity: 0.10,
                   tooltip: isFavoriteArtist
                       ? context.l10n.artistOptionRemoveFromFavorites
                       : context.l10n.artistOptionAddToFavorites,
@@ -95,23 +96,26 @@ extension _ArtistScreenSections on _ArtistScreenState {
                   CupertinoButton(
                     padding: EdgeInsets.zero,
                     borderRadius: BorderRadius.circular(30),
-                    color: Colors.white,
+                    color: colorScheme.primary,
                     onPressed: () =>
                         _showDiscographyOptions(context, colorScheme, albums),
                     child: SizedBox.square(
                       dimension: 60,
                       child: Semantics(
                         label: context.l10n.discographyDownload,
-                        child: const Icon(
+                        child: Icon(
                           CupertinoIcons.arrow_down,
                           size: 26,
-                          color: Colors.black,
+                          color: colorScheme.onPrimary,
                         ),
                       ),
                     ),
                   ),
                 HeaderCircleButton(
                   icon: CupertinoIcons.ellipsis,
+                  iconColor: colorScheme.primary,
+                  glassTintColor: Colors.white,
+                  glassTintOpacity: 0.10,
                   tooltip: context.l10n.openInOtherServices,
                   onPressed: () => _showShareSheet(context),
                 ),
@@ -795,26 +799,29 @@ extension _ArtistScreenSections on _ArtistScreenState {
             ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
           ),
         ),
-        SizedBox(
-          height: sectionHeight,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            itemCount: albums.length,
-            itemBuilder: (context, index) {
-              final album = albums[index];
-              return KeyedSubtree(
-                key: ValueKey(album.id),
-                child: _buildAlbumCard(
-                  context,
-                  album,
-                  colorScheme,
-                  tileSize: tileSize,
-                  sectionHeight: sectionHeight,
-                  showTypeBadge: showTypeBadge,
-                ),
-              );
-            },
+        NotificationListener<ScrollNotification>(
+          onNotification: _onAlbumsScroll,
+          child: SizedBox(
+            height: sectionHeight,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              itemCount: albums.length,
+              itemBuilder: (context, index) {
+                final album = albums[index];
+                return KeyedSubtree(
+                  key: ValueKey(album.id),
+                  child: _buildAlbumCard(
+                    context,
+                    album,
+                    colorScheme,
+                    tileSize: tileSize,
+                    sectionHeight: sectionHeight,
+                    showTypeBadge: showTypeBadge,
+                  ),
+                );
+              },
+            ),
           ),
         ),
       ],

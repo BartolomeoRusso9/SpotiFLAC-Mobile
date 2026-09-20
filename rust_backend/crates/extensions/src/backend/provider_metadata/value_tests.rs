@@ -17,7 +17,11 @@ function collection(id) {
             provider_id: "supplied-track", duration_ms: 123456, track_number: i + 1,
             explicit: i % 2 === 0, external_links: {example: "https://example.invalid/track/" + i}}))};
 }
-registerExtension({getAlbum: collection, getPlaylist: collection});
+function getArtist(id) {
+    return {id, name: "Example Artist", image_url: "https://example.invalid/portrait.jpg",
+        headerLogo: "https://example.invalid/logo.png", albumsNext: "artist-page-2", albums: []};
+}
+registerExtension({getAlbum: collection, getPlaylist: collection, getArtist});
 "#;
 
 fn fixture() -> (tempfile::TempDir, Backend) {
@@ -43,6 +47,26 @@ fn fixture() -> (tempfile::TempDir, Backend) {
     backend.load_all().unwrap();
     backend.set_enabled(ID, true).unwrap();
     (root, backend)
+}
+
+#[test]
+fn artist_metadata_preserves_logo_separately_from_portrait() {
+    let (_root, backend) = fixture();
+    let raw = backend
+        .get_provider_metadata_json(ID, "artist", "artist-1", &|| Ok(()))
+        .unwrap();
+    let value: Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(
+        value["artist_info"]["header_logo"],
+        "https://example.invalid/logo.png"
+    );
+    assert_eq!(
+        value["artist_info"]["images"],
+        "https://example.invalid/portrait.jpg"
+    );
+    assert_eq!(value["artist_info"]["name"], "Example Artist");
+    assert_eq!(value["artist_info"]["albums_next"], "artist-page-2");
+    backend.shutdown();
 }
 
 #[test]

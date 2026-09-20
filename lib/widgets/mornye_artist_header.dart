@@ -1,4 +1,9 @@
+import 'dart:ui';
+
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:spotiflac_android/providers/runtime_profile_provider.dart';
 import 'package:spotiflac_android/theme/cover_palette.dart';
 import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/services/shell_navigation_service.dart';
@@ -61,8 +66,8 @@ class _MornyeArtistSurfaceState extends State<MornyeArtistSurface> {
             data: darkTheme.copyWith(
               scaffoldBackgroundColor: surface,
               colorScheme: darkTheme.colorScheme.copyWith(
-                primary: widget.neutralActions ? Colors.white : null,
-                onPrimary: widget.neutralActions ? surface : null,
+                primary: widget.neutralActions ? Colors.white : palette.primary,
+                onPrimary: widget.neutralActions ? surface : palette.onPrimary,
                 onSurfaceVariant: widget.neutralActions ? Colors.white70 : null,
                 surface: surface,
                 surfaceContainer: Color.alphaBlend(
@@ -93,6 +98,7 @@ class MornyeArtistHeader extends StatelessWidget {
     required this.actions,
     required this.showTitle,
     this.listeners,
+    this.logoUrl,
   });
 
   final String name;
@@ -100,6 +106,7 @@ class MornyeArtistHeader extends StatelessWidget {
   final List<Widget> actions;
   final bool showTitle;
   final String? listeners;
+  final String? logoUrl;
 
   @override
   Widget build(BuildContext context) =>
@@ -137,25 +144,9 @@ class MornyeArtistHeader extends StatelessWidget {
           ),
           flexibleSpace: FlexibleSpaceBar(
             collapseMode: CollapseMode.pin,
-            background: Stack(
-              fit: StackFit.expand,
-              children: [
-                artwork,
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      stops: const [0, 0.52, 1],
-                      colors: [
-                        Colors.black.withValues(alpha: 0.15),
-                        surface.withValues(alpha: 0),
-                        surface,
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+            background: _ArtistCollapsingArtwork(
+              surface: surface,
+              child: artwork,
             ),
           ),
         ),
@@ -165,15 +156,7 @@ class MornyeArtistHeader extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(24, 0, 24, 4),
           child: Column(
             children: [
-              Text(
-                name,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
+              _buildIdentity(),
               if (listeners != null) ...[
                 const SizedBox(height: 7),
                 Text(
@@ -198,5 +181,107 @@ class MornyeArtistHeader extends StatelessWidget {
         ),
       ),
     ];
+  }
+
+  Widget _buildIdentity() {
+    final fallback = Text(
+      name,
+      textAlign: TextAlign.center,
+      style: const TextStyle(
+        fontSize: 30,
+        fontWeight: FontWeight.bold,
+        color: Colors.white,
+      ),
+    );
+    final logo = logoUrl?.trim();
+    if (logo == null || logo.isEmpty) return fallback;
+    return Semantics(
+      label: name,
+      image: true,
+      excludeSemantics: true,
+      child: CachedNetworkImage(
+        imageUrl: logo,
+        fadeInDuration: Duration.zero,
+        fadeOutDuration: Duration.zero,
+        imageBuilder: (_, provider) => ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 320, maxHeight: 124),
+          child: Image(image: provider, fit: BoxFit.contain),
+        ),
+        placeholder: (_, _) => fallback,
+        errorWidget: (_, _, _) => fallback,
+      ),
+    );
+  }
+}
+
+/// Follow the sliver's actual collapse extent so scrolling back restores the
+/// same artwork immediately, without a timer or rebuilding the discography.
+class _ArtistCollapsingArtwork extends ConsumerWidget {
+  const _ArtistCollapsingArtwork({required this.surface, required this.child});
+
+  final Color surface;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = context
+        .dependOnInheritedWidgetOfExactType<FlexibleSpaceBarSettings>();
+    final range = settings == null
+        ? 0.0
+        : settings.maxExtent - settings.minExtent;
+    final collapse = range <= 0
+        ? 0.0
+        : ((settings!.maxExtent - settings.currentExtent) / range).clamp(
+            0.0,
+            1.0,
+          );
+    final fade = const Interval(
+      0.30,
+      0.88,
+      curve: Curves.easeInOut,
+    ).transform(collapse);
+    final blur = 18 * Curves.easeOut.transform(collapse);
+    final blurEnabled =
+        !MediaQuery.disableAnimationsOf(context) &&
+        (!ref.watch(lowEndDeviceProvider) ||
+            ref.watch(backdropBlurEnabledProvider));
+
+    return ClipRect(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          TickerMode(
+            enabled: fade < 1,
+            child: ImageFiltered(
+              enabled: blurEnabled && blur > 0 && fade < 1,
+              imageFilter: ImageFilter.blur(
+                sigmaX: blur,
+                sigmaY: blur,
+                tileMode: TileMode.clamp,
+              ),
+              child: RepaintBoundary(child: child),
+            ),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                stops: const [0, 0.52, 1],
+                colors: [
+                  Colors.black.withValues(alpha: 0.15),
+                  surface.withValues(alpha: 0),
+                  surface,
+                ],
+              ),
+            ),
+          ),
+          ColoredBox(
+            key: const ValueKey('artist-artwork-fade'),
+            color: surface.withValues(alpha: fade),
+          ),
+        ],
+      ),
+    );
   }
 }

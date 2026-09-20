@@ -1335,6 +1335,8 @@ class _ExtensionArtistScreenState extends ConsumerState<ExtensionArtistScreen>
   List<Track>? _topTracks;
   String? _headerImageUrl;
   String? _headerVideoUrl;
+  String? _headerLogoUrl;
+  String? _albumsNext;
   int? _monthlyListeners;
   bool _isLoading = true;
   String? _error;
@@ -1392,12 +1394,17 @@ class _ExtensionArtistScreenState extends ConsumerState<ExtensionArtistScreen>
           result['header_video'] as String?;
       final listeners =
           artistInfo['listeners'] as int? ?? result['listeners'] as int?;
+      final headerLogo = normalizeRemoteHttpUrl(
+        (artistInfo['header_logo'] ?? result['header_logo'])?.toString(),
+      );
 
       setState(() {
         _albums = albums;
         _topTracks = topTracks;
         _headerImageUrl = headerImage;
         _headerVideoUrl = headerVideo;
+        _headerLogoUrl = headerLogo;
+        _albumsNext = artistInfo['albums_next'] as String?;
         _monthlyListeners = listeners;
         _isLoading = false;
       });
@@ -1463,6 +1470,8 @@ class _ExtensionArtistScreenState extends ConsumerState<ExtensionArtistScreen>
         coverUrl: widget.coverUrl,
         headerImageUrl: _headerImageUrl,
         headerVideoUrl: _headerVideoUrl,
+        headerLogoUrl: _headerLogoUrl,
+        albumsNext: _albumsNext,
         monthlyListeners: _monthlyListeners,
         albums: _albums,
         topTracks: _topTracks,

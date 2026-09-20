@@ -25,6 +25,8 @@ class TrackState {
   final String? coverUrl;
   final String? headerImageUrl;
   final String? headerVideoUrl;
+  final String? headerLogoUrl;
+  final String? artistAlbumsNext;
   final int? monthlyListeners;
   final List<ArtistAlbum>? artistAlbums;
   final List<Track>? artistTopTracks;
@@ -47,6 +49,8 @@ class TrackState {
     this.coverUrl,
     this.headerImageUrl,
     this.headerVideoUrl,
+    this.headerLogoUrl,
+    this.artistAlbumsNext,
     this.monthlyListeners,
     this.artistAlbums,
     this.artistTopTracks,
@@ -72,6 +76,8 @@ class TrackState {
     String? coverUrl,
     String? headerImageUrl,
     String? headerVideoUrl,
+    String? headerLogoUrl,
+    String? artistAlbumsNext,
     int? monthlyListeners,
     List<ArtistAlbum>? artistAlbums,
     List<Track>? artistTopTracks,
@@ -96,6 +102,8 @@ class TrackState {
       coverUrl: coverUrl ?? this.coverUrl,
       headerImageUrl: headerImageUrl ?? this.headerImageUrl,
       headerVideoUrl: headerVideoUrl ?? this.headerVideoUrl,
+      headerLogoUrl: headerLogoUrl ?? this.headerLogoUrl,
+      artistAlbumsNext: artistAlbumsNext ?? this.artistAlbumsNext,
       monthlyListeners: monthlyListeners ?? this.monthlyListeners,
       artistAlbums: artistAlbums ?? this.artistAlbums,
       artistTopTracks: artistTopTracks ?? this.artistTopTracks,
@@ -290,7 +298,11 @@ class TrackNotifier extends Notifier<TrackState> {
             headerVideoUrl: normalizeRemoteHttpUrl(
               artistData['header_video']?.toString(),
             ),
+            headerLogoUrl: normalizeRemoteHttpUrl(
+              artistData['header_logo']?.toString(),
+            ),
             monthlyListeners: artistData['listeners'] as int?,
+            artistAlbumsNext: artistData['albums_next'] as String?,
             artistAlbums: albums,
             artistTopTracks: topTracks.isNotEmpty ? topTracks : null,
             searchExtensionId: extensionId,
