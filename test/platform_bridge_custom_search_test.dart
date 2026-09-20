@@ -23,6 +23,7 @@ void main() {
           'artist_name': 'Artist',
           'album_name': 'Album',
           'duration': 123000,
+          'external_links': {'example': 'https://example.invalid/track/$index'},
         },
       );
       final json = jsonEncode(rows);
@@ -42,6 +43,8 @@ void main() {
       );
       expect(result, rows);
       result.first['name'] = 'Changed by caller';
+      (result.first['external_links'] as Map<String, dynamic>)['example'] =
+          'Changed by caller';
       final cached = await PlatformBridge.customSearchWithExtension(
         'decode-test-$format',
         'query',

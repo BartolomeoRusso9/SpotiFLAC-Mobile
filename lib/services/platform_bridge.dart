@@ -22,6 +22,11 @@ bool isForegroundServiceStartNotAllowed(Object error) {
 Object? _decodeJsonInBackground(String json) => jsonDecode(json);
 String _encodeJsonInBackground(Object? value) => jsonEncode(value);
 
+Object? _decodeJsonFileInBackground(String path) {
+  final contents = File(path).readAsStringSync();
+  return contents.isEmpty ? null : jsonDecode(contents);
+}
+
 class LibraryScanNDJSONFile {
   final File file;
   final int expectedCount;
@@ -292,7 +297,7 @@ class PlatformBridge {
     dynamic args,
   ]) async {
     final result = await _channel.invokeMethod(method, args);
-    return _decodeRequiredMapResult(result, method);
+    return _decodeRequiredMapResultAsync(result, method);
   }
 
   static Future<InstallationState> ensureInstallMarker() async {
@@ -327,13 +332,15 @@ class PlatformBridge {
       if (generation == _lookupCacheGeneration) {
         _putCachedMap(cache, cacheKey, value, ttl, persistentCacheKey);
       }
-      return _copyStringMap(value);
+      return value;
     }();
     inFlight[cacheKey] = future;
     try {
       return _copyStringMap(await future);
     } finally {
-      inFlight.remove(cacheKey);
+      if (identical(inFlight[cacheKey], future)) {
+        inFlight.remove(cacheKey);
+      }
     }
   }
 
@@ -375,7 +382,8 @@ class PlatformBridge {
       cache.remove(cache.keys.first);
     }
     cache[key] = _BridgeCacheEntry(
-      value: _copyStringMap(value),
+      // Loader results stay private; every caller receives its own deep copy.
+      value: value,
       expiresAt: DateTime.now().add(ttl),
     );
     _scheduleLookupCachePersist(
@@ -448,25 +456,28 @@ class PlatformBridge {
     try {
       final prefs = await SharedPreferences.getInstance();
       if (generation != _lookupCacheGeneration) return;
-      _restorePersistentCache(
+      await _restorePersistentCache(
         prefs,
         _metadataPersistentCacheKey,
         _metadataCache,
+        generation,
       );
     } catch (e) {
       _log.w('Failed to load bridge lookup cache: $e');
     }
   }
 
-  static void _restorePersistentCache(
+  static Future<void> _restorePersistentCache(
     SharedPreferences prefs,
     String prefsKey,
     Map<String, _BridgeCacheEntry> target,
-  ) {
+    int generation,
+  ) async {
     final raw = prefs.getString(prefsKey);
     if (raw == null || raw.isEmpty) return;
 
-    final decoded = jsonDecode(raw);
+    final decoded = await _decodeJsonStringAsync(raw);
+    if (generation != _lookupCacheGeneration) return;
     if (decoded is! Map) return;
 
     final now = DateTime.now();
@@ -484,7 +495,7 @@ class PlatformBridge {
       if (!expiresAt.isAfter(now)) continue;
 
       target[key] = _BridgeCacheEntry(
-        value: _copyStringMap(Map<String, dynamic>.from(value)),
+        value: Map<String, dynamic>.from(value),
         expiresAt: expiresAt,
       );
     }
@@ -1496,7 +1507,7 @@ class PlatformBridge {
             'getProviderMetadata returned null for $providerId:$resourceType:$resourceId',
           );
         }
-        return _decodeRequiredMapResult(result, 'getProviderMetadata');
+        return _decodeRequiredMapResultAsync(result, 'getProviderMetadata');
       },
     );
   }
@@ -1996,7 +2007,7 @@ class PlatformBridge {
         final result = await _channel.invokeMethod('handleURLWithExtension', {
           'url': url,
         });
-        final decoded = _decodeNullableMapResult(
+        final decoded = await _decodeNullableMapResultAsync(
           result,
           'handleURLWithExtension',
         );
@@ -2049,7 +2060,7 @@ class PlatformBridge {
       cache.remove(cache.keys.first);
     }
     cache[key] = _BridgeCacheEntry(
-      value: _copyStringMap(value),
+      value: value,
       expiresAt: DateTime.now().add(ttl),
     );
   }
@@ -2079,7 +2090,7 @@ class PlatformBridge {
       cache.remove(cache.keys.first);
     }
     cache[key] = _BridgeListCacheEntry(
-      value: _copyMapList(value),
+      value: value,
       expiresAt: DateTime.now().add(ttl),
     );
   }
@@ -2386,9 +2397,9 @@ class PlatformBridge {
     if (result is Map && result[_jsonResultFileKey] is String) {
       final file = File(result[_jsonResultFileKey] as String);
       try {
-        final contents = await file.readAsString();
-        if (contents.isEmpty) return null;
-        return await _decodeJsonStringAsync(contents);
+        // Read and decode where the result is built, so the UI isolate never
+        // retains a second copy of the entire spill file's text.
+        return await compute(_decodeJsonFileInBackground, file.path);
       } finally {
         try {
           await file.delete();
@@ -2446,6 +2457,18 @@ class PlatformBridge {
     }
     throw FormatException(
       'Expected map result from $method, got ${decoded.runtimeType}',
+    );
+  }
+
+  static Future<Map<String, dynamic>?> _decodeNullableMapResultAsync(
+    dynamic result,
+    String method,
+  ) async {
+    final decoded = await _decodeJsonResultAsync(result);
+    if (decoded == null) return null;
+    if (decoded is Map) return decoded.cast<String, dynamic>();
+    throw FormatException(
+      'Expected nullable map result from $method, got ${decoded.runtimeType}',
     );
   }
 
