@@ -222,6 +222,58 @@ lavfi.r128.true_peak=0.907
     const height = 800;
     const nyquist = 96000.0;
 
+    test('preserves exact cutoffs across noisy and transient spectra', () {
+      // Captured from the estimator before sharing sorted percentile windows.
+      // Cover sharp/gradual limits, full-band slopes, noise and stepped bands
+      // at several resolutions and Nyquist frequencies.
+      const expected = <int, double>{
+        3: 5290.322580645161,
+        7: 5406.25,
+        11: 5403.508771929824,
+        15: 5395.0,
+        31: 14952.65625,
+        47: 16305.0,
+        63: 32610.0,
+        79: 65220.0,
+        83: 5032.258064516129,
+        87: 5156.25,
+        91: 5162.907268170426,
+        95: 5155.0,
+        111: 14291.15625,
+        127: 15585.0,
+        143: 31230.0,
+        159: 62340.0,
+        175: 8000.0,
+        191: 22050.0,
+        207: 24000.0,
+        223: 48000.0,
+        239: 96000.0,
+        255: 8000.0,
+        271: 22050.0,
+        287: 24000.0,
+        303: 48000.0,
+        319: 96000.0,
+        335: 5795.0,
+        351: 16055.15625,
+        367: 17505.0,
+        383: 35010.0,
+        399: 70020.0,
+      };
+      for (final entry in expected.entries) {
+        final spectrum = _noisySpectrum(entry.key);
+        expect(
+          estimateEffectiveSpectralCutoffHz(
+            intensity: spectrum.intensity,
+            width: spectrum.width,
+            height: spectrum.height,
+            maxFrequencyHz: spectrum.maxFrequencyHz,
+          ),
+          entry.value,
+          reason: 'spectrum ${entry.key}',
+        );
+      }
+    });
+
     test('ignores a narrow ultrasonic pilot above a 22 kHz music band', () {
       final intensity = _blankIntensity(width, height, value: 12);
       _paintFrequencyBand(
@@ -583,6 +635,51 @@ lavfi.r128.true_peak=0.907
       );
     });
   });
+}
+
+({Uint8List intensity, int width, int height, double maxFrequencyHz})
+_noisySpectrum(int seed) {
+  final width = [17, 83, 200, 400][seed % 4];
+  final height = [31, 128, 399, 800][(seed ~/ 4) % 4];
+  final maxFrequencyHz = [
+    8000.0,
+    22050.0,
+    24000.0,
+    48000.0,
+    96000.0,
+  ][(seed ~/ 16) % 5];
+  final intensity = Uint8List(width * height);
+  var random = seed + 1;
+  final mode = (seed ~/ 80) % 5;
+  for (var y = 0; y < height; y++) {
+    final frequency = (height - y - 1) / (height - 1);
+    for (var x = 0; x < width; x++) {
+      random = (1664525 * random + 1013904223) & 0xffffffff;
+      final noise = (random >> 24) % 13;
+      final base = switch (mode) {
+        0 => frequency < 0.68 ? 120 : 24,
+        1 => frequency < 0.65 ? (160 - frequency * 170).round() : 24,
+        2 => (140 - frequency * 110).round(),
+        3 => 16 + (random >> 20) % 170,
+        _ =>
+          frequency < 0.35
+              ? 90
+              : frequency < 0.73
+              ? 64
+              : 35,
+      };
+      // Five percent broadband transients remain below the temporal P90.
+      intensity[y * width + x] = x < width ~/ 20
+          ? 255
+          : (base + noise).clamp(0, 255);
+    }
+  }
+  return (
+    intensity: intensity,
+    width: width,
+    height: height,
+    maxFrequencyHz: maxFrequencyHz,
+  );
 }
 
 Uint8List _blankIntensity(int width, int height, {int value = 0}) {

@@ -430,18 +430,9 @@ double? estimateEffectiveSpectralCutoffHz({
 
   final centralStart = math.max(0, (height * 0.05).floor());
   final centralEnd = math.min(height, (height * 0.95).ceil());
-  final lowLevel = _spectralPercentile(
-    smoothed,
-    centralStart,
-    centralEnd,
-    0.10,
-  );
-  final highLevel = _spectralPercentile(
-    smoothed,
-    centralStart,
-    centralEnd,
-    0.95,
-  );
+  final central = _sortedSpectralWindow(smoothed, centralStart, centralEnd);
+  final lowLevel = _sortedSpectralPercentile(central, 0.10);
+  final highLevel = _sortedSpectralPercentile(central, 0.95);
   final dynamicSpan = highLevel - lowLevel;
   if (highLevel < 24) return null;
   if (dynamicSpan < 1) return maxFrequencyHz;
@@ -485,16 +476,19 @@ double? estimateEffectiveSpectralCutoffHz({
     if (belowEnd > belowStart && aboveEnd > aboveStart) {
       final belowLevel = _spectralMedian(smoothed, belowStart, belowEnd);
       final aboveLevel = _spectralMedian(smoothed, aboveStart, aboveEnd);
-      final tailLevel = _spectralMedian(smoothed, aboveStart, height);
+      if (belowLevel - aboveLevel < minimumDrop) continue;
+      // All tail statistics share one sorted window. Rejected local edges do
+      // not need to copy and sort the rest of the spectrum at all.
+      final tail = _sortedSpectralWindow(smoothed, aboveStart, height);
+      final tailLevel = _sortedSpectralPercentile(tail, 0.50);
+      if (belowLevel - tailLevel < minimumDrop) continue;
       final tailSpread =
-          _spectralPercentile(smoothed, aboveStart, height, 0.80) -
-          _spectralPercentile(smoothed, aboveStart, height, 0.20);
+          _sortedSpectralPercentile(tail, 0.80) -
+          _sortedSpectralPercentile(tail, 0.20);
+      if (tailSpread > stableTailSpread) continue;
       final baseStart = math.max(0, edgeIndex - (3000 / hzPerRow).ceil());
       final baseLevel = _spectralMedian(smoothed, baseStart, belowEnd);
-      if (belowLevel - aboveLevel >= minimumDrop &&
-          belowLevel - tailLevel >= minimumDrop &&
-          baseLevel - tailLevel >= minimumDrop &&
-          tailSpread <= stableTailSpread) {
+      if (baseLevel - tailLevel >= minimumDrop) {
         final cutoff = (edgeIndex + 0.5) * hzPerRow;
         return cutoff.clamp(0.0, maxFrequencyHz).toDouble();
       }
@@ -523,12 +517,13 @@ double? estimateEffectiveSpectralCutoffHz({
     if (belowEnd <= belowStart || aboveStart >= height) continue;
     final belowLevel = _spectralMedian(smoothed, belowStart, belowEnd);
     if (belowLevel < activeThreshold) continue;
-    final tailLevel = _spectralMedian(smoothed, aboveStart, height);
+    final tail = _sortedSpectralWindow(smoothed, aboveStart, height);
+    final tailLevel = _sortedSpectralPercentile(tail, 0.50);
+    if (belowLevel - tailLevel < activeMargin) continue;
     final tailSpread =
-        _spectralPercentile(smoothed, aboveStart, height, 0.80) -
-        _spectralPercentile(smoothed, aboveStart, height, 0.20);
-    if (belowLevel - tailLevel >= activeMargin &&
-        tailSpread <= stableTailSpread) {
+        _sortedSpectralPercentile(tail, 0.80) -
+        _sortedSpectralPercentile(tail, 0.20);
+    if (tailSpread <= stableTailSpread) {
       final cutoffIndex = edgeIndex - supportRows / 2;
       final cutoff = (cutoffIndex + 0.5) * hzPerRow;
       return cutoff.clamp(0.0, maxFrequencyHz).toDouble();
@@ -571,19 +566,20 @@ double? estimateEffectiveSpectralCutoffHz({
 }
 
 double _spectralMedian(Float64List values, int start, int end) {
-  return _spectralPercentile(values, start, end, 0.50);
+  return _sortedSpectralPercentile(
+    _sortedSpectralWindow(values, start, end),
+    0.50,
+  );
 }
 
-double _spectralPercentile(
-  Float64List values,
-  int start,
-  int end,
-  double percentile,
-) {
+Float64List _sortedSpectralWindow(Float64List values, int start, int end) {
   final safeStart = start.clamp(0, values.length).toInt();
   final safeEnd = end.clamp(safeStart, values.length).toInt();
-  if (safeEnd <= safeStart) return 0;
-  final sorted = values.sublist(safeStart, safeEnd)..sort();
+  return values.sublist(safeStart, safeEnd)..sort();
+}
+
+double _sortedSpectralPercentile(Float64List sorted, double percentile) {
+  if (sorted.isEmpty) return 0;
   final index = ((sorted.length - 1) * percentile)
       .round()
       .clamp(0, sorted.length - 1)
