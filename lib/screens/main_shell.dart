@@ -9,6 +9,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
+import 'package:spotiflac_android/constants/app_info.dart';
+import 'package:spotiflac_android/screens/upgrade_intro_screen.dart';
+import 'package:spotiflac_android/services/upgrade_intro_service.dart';
 import 'package:spotiflac_android/services/discord_presence_service.dart';
 import 'package:spotiflac_android/providers/download_queue_provider.dart';
 import 'package:spotiflac_android/providers/settings_provider.dart';
@@ -140,6 +143,8 @@ class _MainShellState extends ConsumerState<MainShell>
       _initialSafRepairComplete = true;
       if (!mounted) return;
       unawaited(restorePersistedPlaybackSession());
+      await _checkUpgradeIntro();
+      if (!mounted) return;
       _setupShareListener();
       await _checkSafMigration();
       final updateDialogShown = await _checkForUpdates();
@@ -336,6 +341,34 @@ class _MainShellState extends ConsumerState<MainShell>
                 ),
         ),
       );
+    }
+  }
+
+  Future<void> _checkUpgradeIntro() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      if (!mounted) return;
+      final existingInstallation = !ref
+          .read(initialSettingsProvider)
+          .isFirstLaunch;
+      if (UpgradeIntroService.shouldShow(
+        preferences,
+        version: AppInfo.version,
+        existingInstallation: existingInstallation,
+      )) {
+        await Navigator.of(context, rootNavigator: true).push<void>(
+          MaterialPageRoute(
+            builder: (_) => const UpgradeIntroScreen(),
+            fullscreenDialog: true,
+          ),
+        );
+        await UpgradeIntroService.markSeen(preferences);
+      } else if (!existingInstallation) {
+        // Fresh installs already have their own setup tutorial.
+        await UpgradeIntroService.markSeen(preferences);
+      }
+    } catch (error) {
+      _log.w('Could not present upgrade introduction: $error');
     }
   }
 

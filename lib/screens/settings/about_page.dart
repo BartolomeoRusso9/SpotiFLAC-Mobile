@@ -9,6 +9,7 @@ import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/utils/adaptive_layout.dart';
 import 'package:spotiflac_android/widgets/settings_group.dart';
 import 'package:spotiflac_android/widgets/app_sliver_header.dart';
+import 'package:spotiflac_android/screens/upgrade_intro_screen.dart';
 
 class AboutPage extends StatelessWidget {
   const AboutPage({super.key});
@@ -36,6 +37,24 @@ class AboutPage extends StatelessWidget {
               ),
             ),
 
+            SliverToBoxAdapter(
+              child: SettingsGroup(
+                children: [
+                  SettingsItem(
+                    icon: Icons.new_releases,
+                    title: context.l10n.upgradeIntroReplay,
+                    showDivider: false,
+                    onTap: () =>
+                        Navigator.of(context, rootNavigator: true).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) => const UpgradeIntroScreen(),
+                            fullscreenDialog: true,
+                          ),
+                        ),
+                  ),
+                ],
+              ),
+            ),
             SliverToBoxAdapter(
               child: SettingsSectionHeader(
                 title: context.l10n.aboutContributors,
