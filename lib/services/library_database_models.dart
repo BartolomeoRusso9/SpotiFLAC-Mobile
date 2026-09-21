@@ -298,6 +298,8 @@ class IsrcDuplicateGroup {
 }
 
 class QueueLibraryDbQuery {
+  final bool includeSingleTrackAlbums;
+  final String? albumArtist;
   final int limit;
   final int offset;
   final String filterMode;
@@ -311,6 +313,8 @@ class QueueLibraryDbQuery {
   final QueueLibraryDbCursor? cursor;
 
   const QueueLibraryDbQuery({
+    this.includeSingleTrackAlbums = false,
+    this.albumArtist,
     this.limit = 100,
     this.offset = 0,
     this.filterMode = 'all',

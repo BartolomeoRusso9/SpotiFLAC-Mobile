@@ -50,6 +50,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:spotiflac_android/services/cover_cache_manager.dart';
 import 'package:spotiflac_android/screens/library_tracks_folder_screen.dart';
 import 'package:spotiflac_android/screens/local_album_screen.dart';
+import 'package:spotiflac_android/screens/mornye_library_screen.dart';
 import 'package:spotiflac_android/screens/queue_library_refresh_policy.dart';
 import 'package:spotiflac_android/utils/clickable_metadata.dart';
 import 'package:spotiflac_android/utils/string_utils.dart';
@@ -207,12 +208,14 @@ DownloadHistoryItem? _historyItemForCompletionBridge(
 }
 
 class QueueTab extends ConsumerStatefulWidget {
+  final String? librarySection;
   final PageController? parentPageController;
   final int parentPageIndex;
   final int? nextPageIndex;
 
   const QueueTab({
     super.key,
+    this.librarySection,
     this.parentPageController,
     this.parentPageIndex = 1,
     this.nextPageIndex,
@@ -349,13 +352,16 @@ class _QueueTabState extends ConsumerState<QueueTab> {
     if (_isPageControllerInitialized) return;
     _isPageControllerInitialized = true;
     final settings = ref.read(settingsProvider);
-    final initialFilter = settings.defaultLibraryView == 'last'
-        ? settings.historyFilterMode
-        : settings.defaultLibraryView;
+    final initialFilter =
+        widget.librarySection ??
+        (settings.defaultLibraryView == 'last'
+            ? settings.historyFilterMode
+            : settings.defaultLibraryView);
     final initialPage = _filterModes
         .indexOf(initialFilter)
         .clamp(0, _filterModes.length - 1);
-    if (settings.historyFilterMode != _filterModes[initialPage]) {
+    if (widget.librarySection == null &&
+        settings.historyFilterMode != _filterModes[initialPage]) {
       Future.microtask(() {
         if (!mounted) return;
         ref
@@ -369,6 +375,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
   /// When the shell switches back to this tab and a fixed default view is
   /// configured, jump the filter pager to it.
   void _applyDefaultLibraryViewOnTabVisible() {
+    if (widget.librarySection != null) return;
     final isVisible = TickerMode.valuesOf(context).enabled;
     final becameVisible = isVisible && !_wasTabVisible;
     _wasTabVisible = isVisible;
@@ -651,6 +658,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
   }
 
   void _onFilterPageChanged(int index) {
+    if (widget.librarySection != null) return;
     HapticFeedback.selectionClick();
     final filterMode = _filterModes[index];
     ref.read(settingsProvider.notifier).setHistoryFilterMode(filterMode);
@@ -1220,6 +1228,15 @@ class _QueueTabState extends ConsumerState<QueueTab> {
 
   @override
   Widget build(BuildContext context) {
+    if (context.isMornye && widget.librarySection == null) {
+      return MornyeLibraryScreen(
+        onOpenSection: (section) => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => Scaffold(body: QueueTab(librarySection: section)),
+          ),
+        ),
+      );
+    }
     _initializePageController();
     _applyDefaultLibraryViewOnTabVisible();
 
@@ -1278,6 +1295,34 @@ class _QueueTabState extends ConsumerState<QueueTab> {
       },
     );
 
+    if (widget.librarySection == 'downloads') {
+      final ids = ref.watch(
+        downloadQueueLookupProvider.select((s) => s.notCompletedItemIds),
+      );
+      final colors = Theme.of(context).colorScheme;
+      return CustomScrollView(
+        slivers: [
+          AppSliverHeader.page(title: context.l10n.libraryDownloads),
+          _buildQueueHeaderSliver(context, colors),
+          SliverList.builder(
+            itemCount: ids.length,
+            itemBuilder: (context, index) => _QueueItemSliverRow(
+              key: ValueKey(ids[index]),
+              itemId: ids[index],
+              colorScheme: colors,
+              itemBuilder: _buildQueueItem,
+            ),
+          ),
+          if (ids.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(child: Text(context.l10n.libraryNoActiveDownloads)),
+            ),
+          const NavBarSliverSpacer(),
+        ],
+      );
+    }
+
     final hasQueueItems = ref.watch(
       downloadQueueLookupProvider.select((lookup) => lookup.itemIds.isNotEmpty),
     );
@@ -1314,9 +1359,9 @@ class _QueueTabState extends ConsumerState<QueueTab> {
     final historyViewMode = ref.watch(
       settingsProvider.select((s) => s.historyViewMode),
     );
-    final historyFilterMode = ref.watch(
-      settingsProvider.select((s) => s.historyFilterMode),
-    );
+    final String historyFilterMode =
+        widget.librarySection ??
+        ref.watch<String>(settingsProvider.select((s) => s.historyFilterMode));
     // Keep this mode out of the page-provider request: changing only badge
     // text must not re-query the database or reset Library pagination.
     _libraryQualityLabelMode = ref.watch(
@@ -1493,7 +1538,14 @@ class _QueueTabState extends ConsumerState<QueueTab> {
             ).copyWith(overscroll: false),
             child: NestedScrollView(
               headerSliverBuilder: (context, innerBoxIsScrolled) => [
-                AppSliverHeader.tabRoot(title: context.l10n.navLibrary),
+                if (widget.librarySection == null)
+                  AppSliverHeader.tabRoot(title: context.l10n.navLibrary)
+                else
+                  AppSliverHeader.page(
+                    title: widget.librarySection == 'playlists'
+                        ? context.l10n.searchPlaylists
+                        : context.l10n.searchSongs,
+                  ),
 
                 if (shouldShowLibraryControls || hasQueueItems)
                   SliverToBoxAdapter(
@@ -1504,7 +1556,9 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                         child: AppSearchField(
                           controller: _searchController,
                           focusNode: _searchFocusNode,
-                          hintText: context.l10n.historySearchHint,
+                          hintText: widget.librarySection == null
+                              ? context.l10n.historySearchHint
+                              : context.l10n.librarySearchHint,
                           clearTooltip: context.l10n.dialogClear,
                           onChanged: _onSearchChanged,
                           onClear: () {
@@ -1516,7 +1570,7 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                     ),
                   ),
 
-                if (shouldShowLibraryControls)
+                if (shouldShowLibraryControls && widget.librarySection == null)
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
@@ -1585,30 +1639,43 @@ class _QueueTabState extends ConsumerState<QueueTab> {
                     ),
                   ),
               ],
-              body: PageView.builder(
-                controller: _filterPageController!,
-                physics: const ClampingScrollPhysics(),
-                onPageChanged: _onFilterPageChanged,
-                itemCount: _filterModes.length,
-                itemBuilder: (context, index) {
-                  final filterMode = _filterModes[index];
-                  final filterData = getFilterData(filterMode);
-                  return _buildFilterContent(
-                    context: context,
-                    colorScheme: colorScheme,
-                    filterMode: filterMode,
-                    historyViewMode: historyViewMode,
-                    hasQueueItems: hasQueueItems,
-                    filterData: filterData,
-                    collectionState: collectionState,
-                    hasMoreLibrary: filterMode == historyFilterMode
-                        ? hasMoreLibrary
-                        : false,
-                    isPageLoading: isLibraryPageLoading,
-                    inMemoryHistoryItems: inMemoryHistoryItems,
-                  );
-                },
-              ),
+              body: widget.librarySection != null
+                  ? _buildFilterContent(
+                      context: context,
+                      colorScheme: colorScheme,
+                      filterMode: historyFilterMode,
+                      historyViewMode: 'list',
+                      hasQueueItems: false,
+                      filterData: getFilterData(historyFilterMode),
+                      collectionState: collectionState,
+                      hasMoreLibrary: hasMoreLibrary,
+                      isPageLoading: isLibraryPageLoading,
+                      inMemoryHistoryItems: inMemoryHistoryItems,
+                    )
+                  : PageView.builder(
+                      controller: _filterPageController!,
+                      physics: const ClampingScrollPhysics(),
+                      onPageChanged: _onFilterPageChanged,
+                      itemCount: _filterModes.length,
+                      itemBuilder: (context, index) {
+                        final filterMode = _filterModes[index];
+                        final filterData = getFilterData(filterMode);
+                        return _buildFilterContent(
+                          context: context,
+                          colorScheme: colorScheme,
+                          filterMode: filterMode,
+                          historyViewMode: historyViewMode,
+                          hasQueueItems: hasQueueItems,
+                          filterData: filterData,
+                          collectionState: collectionState,
+                          hasMoreLibrary: filterMode == historyFilterMode
+                              ? hasMoreLibrary
+                              : false,
+                          isPageLoading: isLibraryPageLoading,
+                          inMemoryHistoryItems: inMemoryHistoryItems,
+                        );
+                      },
+                    ),
             ),
           ), // ScrollConfiguration
         ],

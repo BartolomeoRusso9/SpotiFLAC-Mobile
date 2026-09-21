@@ -15,7 +15,13 @@ void main() {
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
-  for (final scenario in ['fallback', 'local', 'empty', 'unavailable']) {
+  for (final scenario in [
+    'fallback',
+    'local',
+    'instrumental',
+    'empty',
+    'unavailable',
+  ]) {
     testWidgets('metadata reads local lyrics: $scenario', (tester) async {
       SharedPreferences.setMockInitialValues({});
       const path = 'content://library/document/song.flac';
@@ -34,7 +40,11 @@ void main() {
               throw PlatformException(code: 'backend_unavailable');
             }
             return jsonEncode({
-              'lyrics': scenario == 'local' ? lyrics : '',
+              'lyrics': scenario == 'instrumental'
+                  ? '[instrumental:true]'
+                  : scenario == 'local'
+                  ? lyrics
+                  : '',
               'source': scenario == 'local' ? 'Embedded' : '',
             });
           case 'readFileMetadata':
@@ -68,10 +78,19 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(metadataReads, scenario == 'local' ? 0 : 1);
+      expect(
+        metadataReads,
+        ['local', 'instrumental'].contains(scenario) ? 0 : 1,
+      );
       expect(
         find.text('A locally stored lyric line'),
-        scenario == 'empty' ? findsNothing : findsOneWidget,
+        ['empty', 'instrumental'].contains(scenario)
+            ? findsNothing
+            : findsOneWidget,
+      );
+      expect(
+        find.text('Instrumental track'),
+        scenario == 'instrumental' ? findsOneWidget : findsNothing,
       );
       expect(
         find.text('No lyrics found in this file'),

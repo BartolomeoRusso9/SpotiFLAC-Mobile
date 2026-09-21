@@ -108,8 +108,12 @@ void main() {
                 selectedIndex: activeTab?.value ?? 0,
                 onSelected: (index) {
                   activeTab?.value = index;
+                  chrome.expand();
                 },
-                onHome: chrome.expand,
+                onHome: () {
+                  activeTab?.value = 0;
+                  chrome.expand();
+                },
                 onSearch: () {
                   searches++;
                   activeTab?.value = 3;
@@ -144,6 +148,7 @@ void main() {
 
       for (final (index, label) in [
         (1, 'Library'),
+        (2, 'Repo'),
         (3, 'Search'),
         (0, 'Home'),
       ]) {
@@ -180,15 +185,55 @@ void main() {
           }
         }
         expect(
-          iconColor('mornye-compact-home', Icons.home),
-          index == 0 ? primary : isNot(primary),
+          iconColor('mornye-compact-leading', switch (index) {
+            1 => Icons.music_note,
+            2 => Icons.grid_view,
+            _ => Icons.home,
+          }),
+          index == 3 ? isNot(primary) : primary,
         );
         expect(
           iconColor('mornye-compact-search', Icons.search),
           index == 3 ? primary : isNot(primary),
         );
+        final movingIcon = switch (index) {
+          1 => Icons.music_note,
+          2 => Icons.grid_view,
+          _ => Icons.home,
+        };
+        final leading = find.byKey(const ValueKey('mornye-compact-leading'));
+        final origin = tester.getCenter(
+          find.descendant(of: leading, matching: find.byIcon(movingIcon)),
+        );
+        final originalTabIcon = find
+            .descendant(
+              of: find.byType(MornyeTabBar),
+              matching: find.byIcon(movingIcon),
+            )
+            .first;
+        expect(
+          (origin - tester.getCenter(originalTabIcon)).distance,
+          lessThan(0.5),
+        );
         chrome.value = true;
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(
+          tester
+              .widget<MornyeTabBar>(find.byType(MornyeTabBar))
+              .hiddenIconIndex,
+          index == 3 ? 0 : index,
+        );
         await tester.pumpAndSettle();
+        expect(
+          tester.widget<IconButton>(leading).tooltip,
+          index == 3 ? 'Home' : label,
+        );
+        await tester.tap(leading);
+        await tester.pumpAndSettle();
+        expect(activeTab.value, index == 3 ? 0 : index);
+        expect(chrome.value, isFalse);
+        activeTab.value = index;
         chrome.expand();
         await tester.pumpAndSettle();
         expect(
@@ -202,7 +247,7 @@ void main() {
       'edge icons travel continuously without fading (glass: $blur)',
       (tester) async {
         await pumpShell(tester, blur: blur);
-        final homeButton = find.byKey(const ValueKey('mornye-compact-home'));
+        final homeButton = find.byKey(const ValueKey('mornye-compact-leading'));
         final icon = find.descendant(
           of: homeButton,
           matching: find.byIcon(Icons.home),
@@ -292,11 +337,11 @@ void main() {
         expect(height, lessThanOrEqualTo(previousHeight + 0.01));
         previousHeight = height;
         firstHomeCenter ??= tester.getCenter(
-          find.byKey(const ValueKey('mornye-compact-home')),
+          find.byKey(const ValueKey('mornye-compact-leading')),
         );
       }
       final homeCenter = tester.getCenter(
-        find.byKey(const ValueKey('mornye-compact-home')),
+        find.byKey(const ValueKey('mornye-compact-leading')),
       );
       expect((homeCenter.dy - firstHomeCenter!.dy).abs(), lessThan(20));
       expect(find.byTooltip('Home').hitTestable(), findsOneWidget);

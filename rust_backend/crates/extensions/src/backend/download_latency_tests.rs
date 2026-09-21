@@ -1,6 +1,9 @@
 use super::*;
 use crate::environment::ExtensionEnvironment;
-use crate::{RuntimeLimits, backend::MetadataOptions};
+use crate::{
+    RuntimeLimits,
+    backend::{LyricsRequest, MetadataOptions},
+};
 use spotiflac_network::{NetworkOptions, NetworkService};
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -494,19 +497,36 @@ fn catalog_search_gates_required_tracks_then_overlaps_optional_categories() {
 
 #[test]
 fn reenrich_cover_and_lyrics_overlap_preserve_best_effort_results_and_cancel() {
-    for mode in ["success", "cover_failure", "lyrics_failure", "cancel"] {
+    for mode in [
+        "success",
+        "cover_failure",
+        "lyrics_failure",
+        "missing",
+        "instrumental",
+        "instrumental_native",
+        "instrumental_with_lyrics",
+        "cancel",
+    ] {
         let (network, config) = network();
         let mut server = GatedServer::new(
             config,
             &[
                 (
                     "/cover",
-                    if mode == "cover_failure" { 404 } else { 200 },
+                    if matches!(mode, "cover_failure" | "instrumental_native") {
+                        404
+                    } else {
+                        200
+                    },
                     "artwork",
                 ),
                 (
                     "/lyrics",
-                    if mode == "lyrics_failure" { 404 } else { 200 },
+                    if matches!(mode, "lyrics_failure" | "missing") {
+                        404
+                    } else {
+                        200
+                    },
                     "New lyrics",
                 ),
             ],
@@ -524,8 +544,13 @@ fn reenrich_cover_and_lyrics_overlap_preserve_best_effort_results_and_cancel() {
             "description":"Generic lyrics fixture","type":["lyrics_provider"],"permissions":{"network":["127.0.0.1"]}});
         let source = format!(
             r#"registerExtension({{fetchLyrics(){{const response=http.get({});
-            return response.statusCode===200 ? {{plainLyrics:response.body}} : {{}};}}}});"#,
-            json!(format!("{}/lyrics", server.url))
+            return response.statusCode===200 ? {} : {{}};}}}});"#,
+            json!(format!("{}/lyrics", server.url)),
+            if mode.starts_with("instrumental") {
+                "{instrumental:true}"
+            } else {
+                "{plainLyrics:response.body}"
+            },
         );
         for (name, body) in [
             ("manifest.json", manifest.to_string()),
@@ -542,11 +567,24 @@ fn reenrich_cover_and_lyrics_overlap_preserve_best_effort_results_and_cancel() {
         backend
             .set_lyrics_providers_json(r#"["extension:example.lyrics"]"#)
             .unwrap();
-        let audio = directory.path().join("data/track.mp3");
+        let native = mode == "instrumental_native";
+        let file_name = if native { "track.flac" } else { "track.mp3" };
+        let audio = directory.path().join("data").join(file_name);
         let sidecar = directory.path().join("data/track.lrc");
-        std::fs::write(&audio, "original audio").unwrap();
-        std::fs::write(&sidecar, "[00:01.00]Old lyrics").unwrap();
-        let request = json!({"file_path":"track.mp3","track_name":"Track","artist_name":"Artist",
+        if native {
+            let mut flac = b"fLaC\x80\x00\x00\x22".to_vec();
+            flac.extend_from_slice(&[0; 34]);
+            flac.extend_from_slice(&[0xff, 0xf8]);
+            flac.extend_from_slice(&[0; 32]);
+            std::fs::write(&audio, flac).unwrap();
+        } else {
+            std::fs::write(&audio, "original audio").unwrap();
+        }
+        let has_existing = !matches!(mode, "missing" | "instrumental" | "instrumental_native");
+        if has_existing {
+            std::fs::write(&sidecar, "[00:01.00]Old lyrics").unwrap();
+        }
+        let request = json!({"file_path":file_name,"track_name":"Track","artist_name":"Artist",
             "cover_url":format!("{}/cover", server.url),"embed_lyrics":true,"lyrics_mode":"both",
             "update_fields":["cover","lyrics"]})
         .to_string();
@@ -588,25 +626,54 @@ fn reenrich_cover_and_lyrics_overlap_preserve_best_effort_results_and_cancel() {
             second.1.send(()).unwrap();
         } else {
             let result: Value = serde_json::from_str(&result.unwrap()).unwrap();
-            assert_eq!(result["method"], "ffmpeg");
-            assert_eq!(result["write_external_lrc"], true);
+            assert_eq!(result["method"], if native { "native" } else { "ffmpeg" });
+            assert_eq!(result["write_external_lrc"], mode != "missing");
             let lyrics = result["lyrics"].as_str().unwrap();
-            assert!(lyrics.contains(if mode == "lyrics_failure" {
-                "Old lyrics"
+            let (status, expected) = match mode {
+                "lyrics_failure" | "instrumental_with_lyrics" => ("preserved", "Old lyrics"),
+                "missing" => ("not_found", ""),
+                "instrumental" | "instrumental_native" => ("instrumental", "[instrumental:true]"),
+                _ => ("updated", "New lyrics"),
+            };
+            assert_eq!(result["lyrics_status"], status);
+            if mode == "missing" {
+                assert!(lyrics.is_empty());
+                assert!(result["metadata"].get("LYRICS").is_none());
             } else {
-                "New lyrics"
-            }));
-            assert_eq!(result["metadata"]["LYRICS"], lyrics);
-            let cover = result["cover_path"].as_str().unwrap();
-            if mode == "cover_failure" {
-                assert!(cover.is_empty());
+                assert!(lyrics.contains(expected));
+                if !native {
+                    assert_eq!(result["metadata"]["LYRICS"], lyrics);
+                }
+            }
+            if !native {
+                let cover = result["cover_path"].as_str().unwrap();
+                if mode == "cover_failure" {
+                    assert!(cover.is_empty());
+                } else {
+                    assert_eq!(std::fs::read(cover).unwrap(), b"artwork");
+                    std::fs::remove_file(cover).unwrap();
+                }
             } else {
-                assert_eq!(std::fs::read(cover).unwrap(), b"artwork");
-                std::fs::remove_file(cover).unwrap();
+                let embedded = backend
+                    .get_lyrics_lrc(
+                        &LyricsRequest {
+                            file_path: file_name.into(),
+                            ..Default::default()
+                        },
+                        &|| Ok(()),
+                    )
+                    .unwrap();
+                assert_eq!(embedded, "[instrumental:true]");
             }
         }
-        assert_eq!(std::fs::read(&audio).unwrap(), b"original audio");
-        assert_eq!(std::fs::read(&sidecar).unwrap(), b"[00:01.00]Old lyrics");
+        if !native {
+            assert_eq!(std::fs::read(&audio).unwrap(), b"original audio");
+        }
+        if has_existing {
+            assert_eq!(std::fs::read(&sidecar).unwrap(), b"[00:01.00]Old lyrics");
+        } else {
+            assert!(!sidecar.exists());
+        }
         assert!(
             std::fs::read_dir(directory.path().join("data"))
                 .unwrap()

@@ -2069,6 +2069,11 @@
   "@filenameFormat": {
     "description": "Setting title - filename pattern"
   },
+  "libraryRecentlyAdded": "Baru Ditambahkan",
+  "libraryDownloads": "Unduhan",
+  "libraryNoActiveDownloads": "Tidak ada unduhan aktif",
+  "librarySearchHint": "Cari di koleksi musik",
+  "libraryEmptyCollection": "Musikmu akan muncul di sini",
   "historySearchHint": "Cari riwayat...",
   "@historySearchHint": {
     "description": "Search bar placeholder in history"
@@ -2345,6 +2350,10 @@
     "description": "Filter section title"
   },
   "trackReEnrichSuccess": "Metadata re-enriched successfully",
+  "trackReEnrichMetadataSaved": "Metadata disimpan",
+  "trackReEnrichLyricsUpdated": "Lirik diperbarui",
+  "trackReEnrichLyricsPreserved": "Lirik baru tidak ditemukan; lirik lama dipertahankan",
+  "trackReEnrichLyricsDisabled": "Lirik tidak diperbarui: unduhan lirik dinonaktifkan di Pengaturan",
   "@trackReEnrichSuccess": {
     "description": "Snackbar after successful re-enrichment"
   },

@@ -23,6 +23,21 @@ class ProfileAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // ListTile can constrain height more than width. Keep the clipped
+        // image square even when the surrounding slot is rectangular.
+        final diameter = constraints.biggest.shortestSide.clamp(0.0, size);
+        return Align(
+          widthFactor: 1,
+          heightFactor: 1,
+          child: _buildAvatar(context, diameter),
+        );
+      },
+    );
+  }
+
+  Widget _buildAvatar(BuildContext context, double diameter) {
     final scheme = Theme.of(context).colorScheme;
     final fallback = ColoredBox(
       color: scheme.primaryContainer,
@@ -30,13 +45,13 @@ class ProfileAvatar extends StatelessWidget {
         child: name.trim().isEmpty
             ? Icon(
                 Icons.person,
-                size: size * 0.55,
+                size: diameter * 0.55,
                 color: scheme.onPrimaryContainer,
               )
             : Text(
                 name.trim().characters.first.toUpperCase(),
                 style: TextStyle(
-                  fontSize: size * 0.42,
+                  fontSize: diameter * 0.42,
                   fontWeight: FontWeight.w600,
                   color: scheme.onPrimaryContainer,
                 ),
@@ -46,7 +61,7 @@ class ProfileAvatar extends StatelessWidget {
     return ExcludeSemantics(
       child: ClipOval(
         child: SizedBox.square(
-          dimension: size,
+          dimension: diameter,
           child: photo != null
               ? Image.memory(
                   photo!,
@@ -57,8 +72,9 @@ class ProfileAvatar extends StatelessWidget {
               ? Image.file(
                   File(photoPath!),
                   fit: BoxFit.cover,
-                  cacheWidth: (size * MediaQuery.devicePixelRatioOf(context))
-                      .ceil(),
+                  cacheWidth:
+                      (diameter * MediaQuery.devicePixelRatioOf(context))
+                          .ceil(),
                   errorBuilder: (_, _, _) => fallback,
                 )
               : fallback,

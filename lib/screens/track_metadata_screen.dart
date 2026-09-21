@@ -19,6 +19,7 @@ import 'package:path/path.dart' as p;
 import 'package:spotiflac_android/services/conversion_library_service.dart';
 import 'package:spotiflac_android/services/library_database.dart';
 import 'package:spotiflac_android/utils/file_access.dart';
+import 'package:spotiflac_android/utils/re_enrich_result.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';

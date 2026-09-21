@@ -56,6 +56,7 @@ void main() {
       final requests = <Map<String, dynamic>>[];
       final sidecars = <String>[];
       final ffmpegModes = <String>[];
+      final reported = <String>[];
       final runner = BatchReEnrichRunner(
         beginPhase: () async {
           phaseCount++;
@@ -107,8 +108,10 @@ void main() {
         previews,
         shouldStop: running,
         onProgress: progress,
+        onResult: (result) => reported.add(result['method'] as String),
       );
       expect(successes, 2);
+      expect(reported, ['native', 'ffmpeg']);
       expect(phaseCount, 2);
       expect(sidecars, ['/music/1.flac']);
       expect(ffmpegModes, ['split_vorbis']);

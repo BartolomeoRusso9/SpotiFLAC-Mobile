@@ -52,7 +52,7 @@ extension _QueueTabFilterWidgets on _QueueTabState {
     final totalTrackCount = filterData.totalTrackCount;
     final totalAlbumCount = filterData.totalAlbumCount;
 
-    final activeDownloadIds = filterMode == 'albums'
+    final activeDownloadIds = !hasQueueItems || filterMode == 'albums'
         ? const <String>[]
         : ref
               .watch(
@@ -74,7 +74,9 @@ extension _QueueTabFilterWidgets on _QueueTabState {
         ),
     };
     List<String> bridgeIds = const [];
-    if (filterMode != 'albums' && _completionBridge.isNotEmpty) {
+    if (hasQueueItems &&
+        filterMode != 'albums' &&
+        _completionBridge.isNotEmpty) {
       final now = DateTime.now();
       final stale = <String>[];
       final pending = <String>[];
@@ -394,7 +396,8 @@ extension _QueueTabFilterWidgets on _QueueTabState {
             ),
           ),
 
-        if (filterMode == 'all') _buildQueueHeaderSliver(context, colorScheme),
+        if (filterMode == 'all' && hasQueueItems)
+          _buildQueueHeaderSliver(context, colorScheme),
 
         if (filterMode == 'albums' &&
             (filteredGroupedAlbums.isNotEmpty ||

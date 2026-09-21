@@ -71,6 +71,11 @@
   "@historyFilterSingles": {
     "description": "Filter chip - show singles only"
   },
+  "libraryRecentlyAdded": "Recently Added",
+  "libraryDownloads": "Downloads",
+  "libraryNoActiveDownloads": "No active downloads",
+  "librarySearchHint": "Search your library",
+  "libraryEmptyCollection": "Your music will appear here",
   "historySearchHint": "Search history...",
   "@historySearchHint": {
     "description": "Search bar placeholder in history"
@@ -3372,6 +3377,10 @@
     "description": "Progress message while preparing manual batch metadata changes"
   },
   "trackReEnrichSuccess": "Metadata re-enriched successfully",
+  "trackReEnrichMetadataSaved": "Metadata saved",
+  "trackReEnrichLyricsUpdated": "Lyrics updated",
+  "trackReEnrichLyricsPreserved": "No new lyrics found; existing lyrics kept",
+  "trackReEnrichLyricsDisabled": "Lyrics not updated: lyric downloading is disabled in Settings",
   "@trackReEnrichSuccess": {
     "description": "Snackbar after successful re-enrichment"
   },

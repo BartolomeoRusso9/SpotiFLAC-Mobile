@@ -67,10 +67,11 @@ impl Backend {
                 None
             }
         };
-        let fetch_lyrics = || -> Result<String, String> {
+        let fetch_lyrics = || -> Result<(String, &str), String> {
             // Fetches and existing lyrics are best-effort; cancellation is not.
             check()?;
             let mut lyrics = String::new();
+            let mut status = "not_requested";
             if request.selected("lyrics", "lyrics") {
                 if let Ok(existing) = file::extract(
                     &request.file_path,
@@ -81,11 +82,17 @@ impl Backend {
                             .map_err(|error| error.to_string())
                     },
                     &check,
-                ) {
+                ) && lrc::has_usable_content(&existing)
+                {
                     lyrics = existing;
                 }
                 check()?;
                 if request.embed_lyrics {
+                    status = if lyrics.is_empty() {
+                        "not_found"
+                    } else {
+                        "preserved"
+                    };
                     let query = LyricsRequest {
                         spotify_id: request.spotify_id.clone(),
                         track: request.track_name.clone(),
@@ -93,17 +100,31 @@ impl Backend {
                         duration_ms: request.duration_ms,
                         ..LyricsRequest::default()
                     };
-                    if let Ok(response) = self.fetch_lyrics(&query, &check)
-                        && !response.instrumental
-                    {
-                        lyrics = lrc::with_metadata(&response, &query.track, &query.artist);
+                    if let Ok(response) = self.fetch_lyrics(&query, &check) {
+                        if response.instrumental {
+                            // Preserve real existing lyrics if a provider disagrees.
+                            // Otherwise persist the marker used by the offline player.
+                            if lyrics.is_empty() || lrc::is_instrumental_marker(&lyrics) {
+                                lyrics = "[instrumental:true]".into();
+                                status = "instrumental";
+                            }
+                        } else {
+                            let fetched =
+                                lrc::with_metadata(&response, &query.track, &query.artist);
+                            if lrc::has_usable_content(&fetched) {
+                                lyrics = fetched;
+                                status = "updated";
+                            }
+                        }
                     }
                     check()?;
+                } else {
+                    status = "disabled";
                 }
             }
-            Ok(lyrics)
+            Ok((lyrics, status))
         };
-        let (cover, lyrics) = std::thread::scope(|scope| {
+        let (cover, (lyrics, lyrics_status)) = std::thread::scope(|scope| {
             let worker = (wants_cover && request.selected("lyrics", "lyrics")).then(|| {
                 std::thread::Builder::new()
                     .name("reenrich-cover".into())
@@ -163,7 +184,7 @@ impl Backend {
             })?;
             return Ok(
                 json!({"method":"native","success":true,"enriched_metadata":enriched,
-                "lyrics":lyrics,"write_external_lrc":external})
+                "lyrics":lyrics,"lyrics_status":lyrics_status,"write_external_lrc":external})
                 .to_string(),
             );
         }
@@ -194,7 +215,7 @@ impl Backend {
         } else {
             String::new()
         };
-        let result = json!({"method":"ffmpeg","cover_path":cover_path,"lyrics":lyrics,
+        let result = json!({"method":"ffmpeg","cover_path":cover_path,"lyrics":lyrics,"lyrics_status":lyrics_status,
             "enriched_metadata":enriched,"metadata":metadata,"write_external_lrc":external})
         .to_string();
         check()?;

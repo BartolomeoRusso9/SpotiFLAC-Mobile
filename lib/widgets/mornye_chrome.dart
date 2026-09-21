@@ -437,15 +437,15 @@ class MornyeTabBar extends StatelessWidget {
     required this.selectedIndex,
     required this.onSelected,
     required this.blurEnabled,
-    this.hideHomeIcon = false,
+    this.hiddenIconIndex,
   });
 
   final List<NavigationDestination> destinations;
   final int selectedIndex;
   final ValueChanged<int> onSelected;
   final bool blurEnabled;
-  // Home moves independently while the full tab capsule folds away.
-  final bool hideHomeIcon;
+  // The active icon moves independently while the full capsule folds away.
+  final int? hiddenIconIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -535,7 +535,7 @@ class MornyeTabBar extends StatelessWidget {
                                 : inactiveIconColor,
                           ),
                           child: Opacity(
-                            opacity: hideHomeIcon && index == 0 ? 0 : 1,
+                            opacity: hiddenIconIndex == index ? 0 : 1,
                             child: destination.icon,
                           ),
                         ),
@@ -635,7 +635,7 @@ class MornyeTabBar extends StatelessWidget {
                               // Keep tab selection quiet, as in Mornye. Badges
                               // stay live without the Material bounce/spin.
                               child: Opacity(
-                                opacity: hideHomeIcon && index == 0 ? 0 : 1,
+                                opacity: hiddenIconIndex == index ? 0 : 1,
                                 child: destinations[index].icon,
                               ),
                             ),

@@ -1067,9 +1067,12 @@ extension _TrackMetadataLyricsAndSaving on _TrackMetadataScreenState {
             (result['lyrics'] ?? result['lyrics_lrc'])?.toString() ?? '',
           ),
         );
+        await _checkEmbeddedLyrics();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(context.l10n.trackReEnrichSuccess)),
+            SnackBar(
+              content: Text(reEnrichCompletionMessage(context.l10n, result)),
+            ),
           );
         }
       } else if (method == 'ffmpeg') {
@@ -1168,9 +1171,14 @@ extension _TrackMetadataLyricsAndSaving on _TrackMetadataScreenState {
                 (result['lyrics'] ?? result['lyrics_lrc'])?.toString() ?? '',
               ),
             );
+            await _checkEmbeddedLyrics();
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(context.l10n.trackReEnrichSuccess)),
+                SnackBar(
+                  content: Text(
+                    reEnrichCompletionMessage(context.l10n, result),
+                  ),
+                ),
               );
             }
           } else if (mounted) {

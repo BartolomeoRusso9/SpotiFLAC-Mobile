@@ -98,10 +98,11 @@ class MornyeBottomBar extends ConsumerWidget {
         child: const SizedBox.expand(),
       ),
     );
-    final homeSurface = sideSurface();
+    final leadingSurface = sideSurface();
     final searchSurface = sideSurface(radius: 32);
     final mainDestinations = destinations.sublist(0, destinations.length - 1);
     final searchSelected = selectedIndex == destinations.length - 1;
+    final leadingIndex = searchSelected ? 0 : selectedIndex;
     final scheme = Theme.of(context).colorScheme;
     final inactiveIconColor = Color.lerp(
       scheme.onSurfaceVariant,
@@ -109,7 +110,7 @@ class MornyeBottomBar extends ConsumerWidget {
       scheme.brightness == Brightness.dark ? 0.5 : 0.4,
     );
     final player = MiniPlayer(compact: collapsed, bottomPadding: 0);
-    Widget tabs({required bool hideHomeIcon}) => TickerMode(
+    Widget tabs({required bool hideLeadingIcon}) => TickerMode(
       enabled: !collapsed,
       child: RepaintBoundary(
         child: MornyeTabBar(
@@ -117,15 +118,15 @@ class MornyeBottomBar extends ConsumerWidget {
           selectedIndex: searchSelected ? -1 : selectedIndex,
           onSelected: onSelected,
           blurEnabled: blurEnabled,
-          hideHomeIcon: hideHomeIcon,
+          hiddenIconIndex: hideLeadingIcon ? leadingIndex : null,
         ),
       ),
     );
-    // At rest the glass bar must paint its own Home icon: its selected layer
+    // At rest the glass bar must paint its own active icon: its selected layer
     // follows a dragged pill before the destination is committed. Hand them
     // to the moving overlays only while folding, at the same coordinates.
-    final fullTabs = tabs(hideHomeIcon: false);
-    final foldingTabs = tabs(hideHomeIcon: true);
+    final fullTabs = tabs(hideLeadingIcon: false);
+    final foldingTabs = tabs(hideLeadingIcon: true);
     return LayoutBuilder(
       builder: (context, constraints) {
         // Match the tab's actual label height, including accessibility scaling.
@@ -149,8 +150,8 @@ class MornyeBottomBar extends ConsumerWidget {
         final fullIconStart =
             tabInset +
             (constraints.maxWidth - 76 - tabInset * 2) /
-                mainDestinations.length /
-                2;
+                mainDestinations.length *
+                (leadingIndex + 0.5);
         final fullSearchBottom = glassTabs
             ? 8.0
             : (math.max(64.0, 49 + labelHeight) - 64) / 2;
@@ -161,28 +162,31 @@ class MornyeBottomBar extends ConsumerWidget {
               : const Duration(milliseconds: 380),
           curve: Curves.easeInOutCubic,
           builder: (context, amount, _) {
-            Widget movingIcon({required bool home, required Widget surface}) {
-              final index = home ? 0 : destinations.length - 1;
+            Widget movingIcon({
+              required bool leading,
+              required Widget surface,
+            }) {
+              final index = leading ? leadingIndex : destinations.length - 1;
               final offset = (fullIconStart - 26) * (1 - amount);
-              final size = home ? 52.0 : 64 - 12 * amount;
+              final size = leading ? 52.0 : 64 - 12 * amount;
               return PositionedDirectional(
-                start: home ? offset : null,
-                end: home ? null : 0,
-                bottom: home
+                start: leading ? offset : null,
+                end: leading ? null : 0,
+                bottom: leading
                     ? fullIconBottom * (1 - amount) + 34 * amount - 26
                     : fullSearchBottom * (1 - amount) + 8 * amount,
                 width: size,
                 height: size,
                 child: IgnorePointer(
-                  ignoring: home && amount < 0.5,
+                  ignoring: leading && amount < 0.5,
                   child: ExcludeSemantics(
-                    excluding: home && amount < 0.5,
+                    excluding: leading && amount < 0.5,
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
                         Positioned.fill(
                           child: Opacity(
-                            opacity: home ? amount : 1,
+                            opacity: leading ? amount : 1,
                             child: surface,
                           ),
                         ),
@@ -190,12 +194,12 @@ class MornyeBottomBar extends ConsumerWidget {
                           color: Colors.transparent,
                           child: IconButton(
                             key: ValueKey(
-                              home
-                                  ? 'mornye-compact-home'
+                              leading
+                                  ? 'mornye-compact-leading'
                                   : 'mornye-compact-search',
                             ),
-                            tooltip: home
-                                ? context.l10n.navHome
+                            tooltip: leading
+                                ? destinations[leadingIndex].label
                                 : context.l10n.mornyeSearch,
                             iconSize: 25,
                             constraints: BoxConstraints.tightFor(
@@ -210,10 +214,14 @@ class MornyeBottomBar extends ConsumerWidget {
                               amount,
                             ),
                             icon: Opacity(
-                              opacity: home && amount == 0 ? 0 : 1,
+                              opacity: leading && amount == 0 ? 0 : 1,
                               child: destinations[index].icon,
                             ),
-                            onPressed: home ? onHome : onSearch,
+                            onPressed: leading
+                                ? leadingIndex == 0
+                                      ? onHome
+                                      : () => onSelected(leadingIndex)
+                                : onSearch,
                           ),
                         ),
                       ],
@@ -279,8 +287,8 @@ class MornyeBottomBar extends ConsumerWidget {
                     ),
                   ],
                 ),
-                movingIcon(home: true, surface: homeSurface),
-                movingIcon(home: false, surface: searchSurface),
+                movingIcon(leading: true, surface: leadingSurface),
+                movingIcon(leading: false, surface: searchSurface),
               ],
             );
           },

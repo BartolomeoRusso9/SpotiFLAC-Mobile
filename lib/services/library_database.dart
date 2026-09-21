@@ -1604,6 +1604,55 @@ class LibraryDatabase {
     );
   }
 
+  /// Album artists across downloaded and scanned music, without loading tracks
+  /// into Dart. Scanned paths already represented by downloads are excluded.
+  Future<List<Map<String, dynamic>>> getQueueArtistPage(
+    QueueLibraryDbQuery request,
+  ) async {
+    final db = await database;
+    await _ensureHistoryAttached(db);
+    final parts = <String>[
+      '''
+        SELECT sort_album_artist AS artist_key,
+          COALESCE(NULLIF(album_artist, ''), artist_name) AS artist_name,
+          cover_url, NULL AS cover_path, file_path AS sample_file_path
+        FROM history_db.history
+      ''',
+      if (request.includeLocal)
+        '''
+          SELECT album_artist_norm AS artist_key,
+            COALESCE(NULLIF(album_artist, ''), artist_name) AS artist_name,
+            NULL AS cover_url, cover_path, file_path AS sample_file_path
+          FROM $visibleLibraryView l
+          WHERE NOT EXISTS (
+            SELECT 1 FROM library_path_keys lpk
+            JOIN history_db.history_path_keys hpk ON hpk.path_key = lpk.path_key
+            WHERE lpk.item_id = l.id
+          )
+        ''',
+    ];
+    final search = normalizeLookupText(request.searchQuery);
+    return db.rawQuery(
+      '''
+      SELECT artist_key, MIN(artist_name) AS artist_name,
+        MAX(NULLIF(cover_url, '')) AS cover_url,
+        MAX(NULLIF(cover_path, '')) AS cover_path,
+        MAX(sample_file_path) AS sample_file_path,
+        COUNT(*) AS track_count
+      FROM (${parts.join(' UNION ALL ')})
+      WHERE artist_key != '' ${search.isEmpty ? '' : "AND artist_key LIKE ? ESCAPE '\\'"}
+      GROUP BY artist_key
+      ORDER BY artist_key
+      LIMIT ? OFFSET ?
+    ''',
+      [
+        if (search.isNotEmpty) '%${_escapeLikePattern(search)}%',
+        request.limit,
+        request.offset,
+      ],
+    );
+  }
+
   Future<List<Map<String, dynamic>>> getQueueLocalAlbumTracks(
     String albumName,
     String artistName,

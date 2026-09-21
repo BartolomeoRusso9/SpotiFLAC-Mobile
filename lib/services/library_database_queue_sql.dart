@@ -266,7 +266,7 @@ extension _LibraryDbQueueSql on LibraryDatabase {
             MAX(COALESCE(sort_added, 0)) AS latest_added
           FROM history_db.history
           GROUP BY album_key
-          HAVING COUNT(*) > 1
+          HAVING COUNT(*) > ${request.includeSingleTrackAlbums ? 0 : 1}
         ) c
           ON c.album_key = h.album_key
         ${where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}'}
@@ -325,7 +325,7 @@ extension _LibraryDbQueueSql on LibraryDatabase {
             WHERE lpk.item_id = candidate.id
           )
           GROUP BY album_key
-          HAVING COUNT(*) > 1
+          HAVING COUNT(*) > ${request.includeSingleTrackAlbums ? 0 : 1}
         ) c ON c.album_key = l.album_key
         ${where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}'}
         GROUP BY c.album_key
@@ -368,6 +368,10 @@ extension _LibraryDbQueueSql on LibraryDatabase {
     List<Object?> args,
     QueueLibraryDbQuery request,
   ) {
+    if (request.albumArtist != null) {
+      where.add('h.sort_album_artist = ?');
+      args.add(LibraryDatabase.normalizeLookupText(request.albumArtist));
+    }
     final query = LibraryDatabase.normalizeLookupText(request.searchQuery);
     if (query.isNotEmpty) {
       final ftsQuery = sqlite.ftsPhraseSearchQuery(query);
@@ -412,6 +416,10 @@ extension _LibraryDbQueueSql on LibraryDatabase {
     List<Object?> args,
     QueueLibraryDbQuery request,
   ) {
+    if (request.albumArtist != null) {
+      where.add('l.album_artist_norm = ?');
+      args.add(LibraryDatabase.normalizeLookupText(request.albumArtist));
+    }
     final query = LibraryDatabase.normalizeLookupText(request.searchQuery);
     if (query.isNotEmpty) {
       final ftsQuery = sqlite.ftsPhraseSearchQuery(query);

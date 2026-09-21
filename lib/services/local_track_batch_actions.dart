@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:spotiflac_android/widgets/app_alert_dialog.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
+import 'package:spotiflac_android/utils/re_enrich_result.dart';
 import 'package:spotiflac_android/models/settings.dart';
 import 'package:spotiflac_android/models/track.dart';
 import 'package:spotiflac_android/providers/download_queue_provider.dart';
@@ -228,8 +229,10 @@ Future<void> reEnrichLocalTracks(
     },
   );
 
+  final lyricsSummary = ReEnrichLyricsSummary();
   final successCount = await runner.apply(
     previews,
+    onResult: lyricsSummary.add,
     shouldStop: () => cancelled || !context.mounted || !isActive(),
     onProgress: (index, item) => BatchProgressDialog.update(
       current: index + 1,
@@ -254,14 +257,7 @@ Future<void> reEnrichLocalTracks(
   onComplete();
 
   ScaffoldMessenger.of(context).clearSnackBars();
-  final failedCount = total - successCount;
-  final summary = failedCount <= 0
-      ? '${context.l10n.trackReEnrichSuccess} ($successCount/$total)'
-      : context.l10n.trackReEnrichSuccessWithFailures(
-          successCount,
-          total,
-          failedCount,
-        );
+  final summary = lyricsSummary.message(context.l10n, successCount, total);
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(summary)));
 }
 
@@ -345,6 +341,7 @@ class BatchReEnrichRunner {
     List<BatchReEnrichPreview> previews, {
     required bool Function() shouldStop,
     required void Function(int, LocalLibraryItem) onProgress,
+    void Function(Map<String, dynamic>)? onResult,
   }) async {
     if (shouldStop()) return 0;
     // Settings may have changed while the review sheet was open.
@@ -370,6 +367,7 @@ class BatchReEnrichRunner {
               reEnrichResult: result,
             );
             successes++;
+            onResult?.call(result);
           case 'ffmpeg':
             if (await applyFfmpeg(
               item: preview.item,
@@ -377,6 +375,7 @@ class BatchReEnrichRunner {
               artistTagMode: settings.artistTagMode,
             )) {
               successes++;
+              onResult?.call(result);
             }
         }
       } catch (_) {
