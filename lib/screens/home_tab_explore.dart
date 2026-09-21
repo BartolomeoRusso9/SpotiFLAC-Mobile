@@ -45,6 +45,12 @@ extension _HomeTabExploreUI on _HomeTabState {
   }
 
   Widget _buildExploreSection(ExploreSection section, ColorScheme colorScheme) {
+    if (section.isFeatured) {
+      return ExploreFeaturedSection(
+        section: section,
+        onItemTap: _navigateToExploreItem,
+      );
+    }
     final sectionHeight = _exploreSectionHeight(context);
     final isTablet = MediaQuery.sizeOf(context).shortestSide >= 600;
     if (section.isYTMusicQuickPicks) {

@@ -18,6 +18,8 @@ class ExploreItem {
   final String artists;
   final String? description;
   final String? coverUrl;
+  final String? featuredCoverUrl;
+  final String? heading;
   final String? providerId;
   final String? albumId;
   final String? albumName;
@@ -32,6 +34,8 @@ class ExploreItem {
     required this.artists,
     this.description,
     this.coverUrl,
+    this.featuredCoverUrl,
+    this.heading,
     this.providerId,
     this.albumId,
     this.albumName,
@@ -48,6 +52,8 @@ class ExploreItem {
       artists: json['artists'] as String? ?? '',
       description: json['description'] as String?,
       coverUrl: json['cover_url'] as String?,
+      featuredCoverUrl: json['featured_cover_url'] as String?,
+      heading: json['heading'] as String?,
       providerId: json['provider_id'] as String?,
       albumId: json['album_id'] as String?,
       albumName: json['album_name'] as String?,
@@ -64,6 +70,8 @@ class ExploreItem {
     'artists': artists,
     'description': description,
     'cover_url': coverUrl,
+    'featured_cover_url': featuredCoverUrl,
+    'heading': heading,
     'provider_id': providerId,
     'album_id': albumId,
     'album_name': albumName,
@@ -77,12 +85,14 @@ class ExploreSection {
   final String title;
   final List<ExploreItem> items;
   final bool isYTMusicQuickPicks;
+  final bool isFeatured;
 
   const ExploreSection({
     required this.uri,
     required this.title,
     required this.items,
     this.isYTMusicQuickPicks = false,
+    this.isFeatured = false,
   });
 
   factory ExploreSection.fromJson(Map<String, dynamic> json) {
@@ -96,12 +106,14 @@ class ExploreSection {
       title: json['title'] as String? ?? '',
       items: items,
       isYTMusicQuickPicks: isQuickPicks,
+      isFeatured: json['layout'] == 'featured',
     );
   }
 
   Map<String, dynamic> toJson() => {
     'uri': uri,
     'title': title,
+    'layout': isFeatured ? 'featured' : 'shelf',
     'items': items.map((i) => i.toJson()).toList(),
   };
 }
@@ -188,6 +200,7 @@ List<Map<String, Object?>> _normalizeExploreSectionsPayload(
     sections.add({
       'uri': section['uri']?.toString() ?? '',
       'title': section['title']?.toString() ?? '',
+      'layout': section['layout']?.toString() ?? 'shelf',
       'items': items,
     });
   }
