@@ -6,6 +6,7 @@ import 'package:archive/archive_io.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:spotiflac_android/constants/app_info.dart';
+import 'package:spotiflac_android/services/user_profile_store.dart';
 import 'package:spotiflac_android/utils/logger.dart';
 
 typedef BackupHistoryPageLoader =
@@ -18,6 +19,7 @@ class BackupBundle {
   final String appVersion;
   final DateTime? createdAt;
   final Map<String, dynamic>? settings;
+  final UserProfile? profile;
   final List<Map<String, dynamic>> history;
   final Map<String, dynamic> collections;
   final Map<String, dynamic> playlistCovers;
@@ -36,6 +38,7 @@ class BackupBundle {
     required this.collections,
     required this.playlistCovers,
     required this.extensions,
+    this.profile,
     this.hasHistory = true,
     String? historyNdjsonPath,
     int? historyCount,
@@ -89,6 +92,7 @@ class BackupBundle {
   bool get hasExtensions => extensionCount > 0;
   bool get isEmpty =>
       !hasSettings &&
+      profile == null &&
       historyCount == 0 &&
       likedCount == 0 &&
       wishlistCount == 0 &&
@@ -110,6 +114,8 @@ class BackupService {
   static const int _maxHistoryBytes = 512 << 20;
   static const int _maxCoverBytes = 20 << 20;
   static const int _maxAllCoversBytes = 256 << 20;
+  static const int _maxProfilePhotoBytes = 2 << 20;
+  static const String _profilePhotoEntry = 'profile/avatar.png';
 
   static String encode(Map<String, dynamic> envelope) =>
       const JsonEncoder.withIndent('  ').convert(envelope);
@@ -148,6 +154,7 @@ class BackupService {
     Directory? outputDirectory,
     Directory? temporaryDirectory,
     bool includeHistory = true,
+    UserProfile? profile,
   }) async {
     final output = await _newBackupFile(outputDirectory);
     final tempRoot = temporaryDirectory ?? await getTemporaryDirectory();
@@ -193,6 +200,11 @@ class BackupService {
         coverManifest[entry.key] = {'ext': ext, 'file': archiveName};
       }
 
+      final photoPath = profile?.photoPath;
+      if (photoPath != null &&
+          await File(photoPath).length() > _maxProfilePhotoBytes) {
+        throw const FormatException('Profile photo is too large');
+      }
       final metadata = {
         'magic': magic,
         'format_version': formatVersion,
@@ -202,6 +214,11 @@ class BackupService {
         'history_count': historyCount,
         'data': {
           'settings': ?settings,
+          if (profile != null)
+            'profile': {
+              'name': profile.name,
+              if (photoPath != null) 'photo': _profilePhotoEntry,
+            },
           if (collections.isNotEmpty) 'collections': collections,
           if (coverManifest.isNotEmpty) 'playlist_covers': coverManifest,
           if (extensions.isNotEmpty) 'extensions': extensions,
@@ -214,6 +231,8 @@ class BackupService {
         (path: metadataFile.path, name: 'metadata.json', store: false),
         if (includeHistory)
           (path: historyFile.path, name: 'history.ndjson', store: false),
+        if (photoPath != null)
+          (path: photoPath, name: _profilePhotoEntry, store: true),
       ];
       for (final entry in coverManifest.entries) {
         final sourcePath = playlistCoverFiles[entry.key]?['path'];
@@ -399,11 +418,43 @@ class BackupService {
         }
       }
 
+      UserProfile? profile;
+      if (data.containsKey('profile')) {
+        final rawProfile = data['profile'];
+        if (rawProfile is! Map || rawProfile['name'] is! String) {
+          throw const FormatException('Invalid profile');
+        }
+        String? photoPath;
+        if (rawProfile['photo'] != null) {
+          if (rawProfile['photo'] != _profilePhotoEntry) {
+            throw const FormatException('Invalid profile photo entry');
+          }
+          final photoEntry = archive.find(_profilePhotoEntry);
+          if (photoEntry == null ||
+              !photoEntry.isFile ||
+              photoEntry.size > _maxProfilePhotoBytes) {
+            throw const FormatException('Missing or oversized profile photo');
+          }
+          photoPath = p.join(extractionDir.path, 'profile.png');
+          final output = OutputFileStream(photoPath);
+          try {
+            photoEntry.writeContent(output);
+          } finally {
+            output.closeSync();
+          }
+        }
+        profile = UserProfile(
+          name: rawProfile['name'] as String,
+          photoPath: photoPath,
+        );
+      }
+
       return BackupBundle(
         formatVersion: version as int,
         appVersion: root['app_version'] as String? ?? '',
         createdAt: DateTime.tryParse(root['created_at'] as String? ?? ''),
         settings: _mapOrNull(data['settings']),
+        profile: profile,
         history: const [],
         hasHistory: historyEntry != null,
         historyNdjsonPath: historyPath,

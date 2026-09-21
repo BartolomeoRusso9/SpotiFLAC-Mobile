@@ -1262,14 +1262,22 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 6),
-                    Text(
-                      mediaItem.artist ?? '',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    Consumer(
+                      builder: (context, ref, _) {
+                        final track = ref
+                            .watch(playerCollectionTrackProvider(mediaItem))
+                            .value;
+                        return ClickableArtistName(
+                          artistName: mediaItem.artist ?? '',
+                          artistId: track?.artistId,
+                          extensionId: track?.source,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(color: colorScheme.onSurfaceVariant),
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        );
+                      },
                     ),
                   ],
                 ),

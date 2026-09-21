@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spotiflac_android/constants/app_info.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
+import 'package:spotiflac_android/providers/user_profile_provider.dart';
+import 'package:spotiflac_android/screens/settings/profile_settings_page.dart';
 import 'package:spotiflac_android/screens/settings/about_page.dart';
 import 'package:spotiflac_android/screens/settings/app_settings_page.dart';
 import 'package:spotiflac_android/screens/settings/appearance_settings_page.dart';
@@ -24,6 +26,7 @@ import 'package:spotiflac_android/widgets/animation_utils.dart';
 import 'package:spotiflac_android/widgets/app_search_field.dart';
 import 'package:spotiflac_android/widgets/app_sliver_header.dart';
 import 'package:spotiflac_android/widgets/settings_group.dart';
+import 'package:spotiflac_android/widgets/profile_avatar.dart';
 
 /// One entry on the Settings tab.
 class _Destination {
@@ -66,7 +69,9 @@ class _Group {
 }
 
 class SettingsTab extends ConsumerStatefulWidget {
-  const SettingsTab({super.key});
+  const SettingsTab({super.key, this.asPage = false});
+
+  final bool asPage;
 
   @override
   ConsumerState<SettingsTab> createState() => _SettingsTabState();
@@ -389,7 +394,10 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
     return MornyeSettingsTheme(
       child: CustomScrollView(
         slivers: [
-          AppSliverHeader.tabRoot(title: context.l10n.settingsTitle),
+          if (widget.asPage)
+            AppSliverHeader.page(title: context.l10n.settingsTitle)
+          else
+            AppSliverHeader.tabRoot(title: context.l10n.settingsTitle),
           SliverToBoxAdapter(
             child: Padding(
               padding: EdgeInsets.fromLTRB(
@@ -406,6 +414,45 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                 onChanged: (value) => setState(() => _query = value),
                 onClear: () => setState(() => _query = ''),
               ),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Consumer(
+              builder: (context, ref, _) {
+                final profile = ref.watch(userProfileProvider).value;
+                return SettingsGroup(
+                  margin: margin,
+                  children: [
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 16,
+                      ),
+                      leading: ProfileAvatar(
+                        name: profile?.name ?? '',
+                        photoPath: profile?.photoPath,
+                        size: 64,
+                      ),
+                      title: Text(
+                        profile?.name.isNotEmpty == true
+                            ? profile!.name
+                            : context.l10n.profileSetUp,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      subtitle: Text(context.l10n.profileEdit),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: profile == null
+                          ? null
+                          : () => _navigateTo(
+                              context,
+                              ProfileSettingsPage(profile: profile),
+                            ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
           ...body,

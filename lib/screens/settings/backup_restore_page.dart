@@ -10,6 +10,7 @@ import 'package:spotiflac_android/providers/download_queue_provider.dart';
 import 'package:spotiflac_android/providers/extension_provider.dart';
 import 'package:spotiflac_android/providers/library_collections_provider.dart';
 import 'package:spotiflac_android/providers/settings_provider.dart';
+import 'package:spotiflac_android/providers/user_profile_provider.dart';
 import 'package:spotiflac_android/services/backup_service.dart';
 import 'package:spotiflac_android/services/history_database.dart';
 import 'package:spotiflac_android/utils/logger.dart';
@@ -65,6 +66,9 @@ class _BackupRestorePageState extends ConsumerState<BackupRestorePage> {
 
       final file = await BackupService.writeBackupArchive(
         settings: settings,
+        profile: _includeSettings
+            ? await ref.read(userProfileProvider.future)
+            : null,
         includeHistory: _includeHistory,
         loadHistoryPage: (limit, offset) =>
             HistoryDatabase.instance.getAll(limit: limit, offset: offset),
@@ -125,6 +129,11 @@ class _BackupRestorePageState extends ConsumerState<BackupRestorePage> {
 
     setState(() => _isImporting = true);
     try {
+      if (bundle.profile != null) {
+        await ref
+            .read(userProfileProvider.notifier)
+            .restoreFromBackup(bundle.profile!);
+      }
       if (bundle.hasSettings) {
         await ref
             .read(settingsProvider.notifier)
@@ -200,6 +209,11 @@ class _BackupRestorePageState extends ConsumerState<BackupRestorePage> {
                 _ContentRow(
                   icon: Icons.settings_outlined,
                   label: l10n.backupContentsSettings,
+                ),
+              if (bundle.profile != null)
+                _ContentRow(
+                  icon: Icons.person_outline,
+                  label: l10n.profileTitle,
                 ),
               if (bundle.hasHistory)
                 _ContentRow(
@@ -281,6 +295,7 @@ class _BackupRestorePageState extends ConsumerState<BackupRestorePage> {
                 SettingsSwitchItem(
                   icon: Icons.settings_outlined,
                   title: l10n.backupContentsSettings,
+                  subtitle: l10n.backupIncludesProfile,
                   value: _includeSettings,
                   onChanged: _isBusy
                       ? null

@@ -102,10 +102,6 @@ void main() {
                     label: 'Repo',
                   ),
                   NavigationDestination(
-                    icon: Icon(Icons.settings),
-                    label: 'Settings',
-                  ),
-                  NavigationDestination(
                     icon: Icon(Icons.search),
                     label: 'Search',
                   ),
@@ -169,7 +165,7 @@ void main() {
       },
     );
 
-    testWidgets('five tabs keep Search at the right edge (glass: $blur)', (
+    testWidgets('four tabs keep Search at the right edge (glass: $blur)', (
       tester,
     ) async {
       await pumpShell(tester, blur: blur);
@@ -177,18 +173,20 @@ void main() {
       final search = find
           .descendant(of: tabs, matching: find.text('Search'))
           .first;
-      final settings = find
-          .descendant(of: tabs, matching: find.text('Settings'))
-          .first;
-      expect(tester.widget<MornyeTabBar>(tabs).destinations, hasLength(5));
+      final repo = find.descendant(of: tabs, matching: find.text('Repo')).first;
+      expect(tester.widget<MornyeTabBar>(tabs).destinations, hasLength(4));
+      expect(
+        find.descendant(of: tabs, matching: find.text('Settings')),
+        findsNothing,
+      );
       expect(
         tester.getCenter(search).dx,
-        greaterThan(tester.getCenter(settings).dx),
+        greaterThan(tester.getCenter(repo).dx),
       );
       // The glass renderer paints the labels under a gesture overlay.
       await tester.tapAt(tester.getCenter(search));
       await tester.pumpAndSettle();
-      expect(selected, 4);
+      expect(selected, 3);
       expect(tester.takeException(), isNull);
     });
   }

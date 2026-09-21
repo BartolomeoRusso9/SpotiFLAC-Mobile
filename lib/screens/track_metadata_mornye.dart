@@ -58,57 +58,56 @@ extension _TrackMetadataMornye on _TrackMetadataScreenState {
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Row(
-                          children: [
-                            Hero(
-                              tag: _coverHeroTag,
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(10),
-                                child: SizedBox.square(
-                                  dimension: 70,
+                        Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 320),
+                            child: AspectRatio(
+                              aspectRatio: 1,
+                              child: Hero(
+                                tag: _coverHeroTag,
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(16),
                                   child: PlayerArtwork(
                                     artUri: artwork,
                                     colorScheme: scheme,
+                                    iconSize: 80,
                                   ),
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  ExplicitTrackTitle(
-                                    title: trackName,
-                                    explicit: isExplicit,
-                                    style: theme.textTheme.titleLarge,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  const SizedBox(height: 5),
-                                  Text(
-                                    artistName,
-                                    style: theme.textTheme.bodyLarge?.copyWith(
-                                      color: scheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                  if (albumName.trim().isNotEmpty)
-                                    Text(
-                                      albumName,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.bodyMedium
-                                          ?.copyWith(
-                                            color: scheme.onSurfaceVariant,
-                                          ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
+                        const SizedBox(height: 20),
+                        ExplicitTrackTitle(
+                          title: trackName,
+                          explicit: isExplicit,
+                          style: theme.textTheme.titleLarge,
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          artistName,
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                        if (albumName.trim().isNotEmpty)
+                          Text(
+                            albumName,
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        const SizedBox(height: 16),
+                        _buildActionButtons(context, ref, scheme, _fileExists),
                         if (_hasCheckedFile && !_fileExists)
                           Padding(
                             padding: const EdgeInsets.only(top: 16),

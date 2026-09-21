@@ -77,9 +77,10 @@ extension _TrackMetadataCards on _TrackMetadataScreenState {
               ),
             ],
 
-            const SizedBox(height: 24),
-
-            _buildActionButtons(context, ref, colorScheme, _fileExists),
+            if (!context.isMornye) ...[
+              const SizedBox(height: 24),
+              _buildActionButtons(context, ref, colorScheme, _fileExists),
+            ],
 
             const SizedBox(height: 32),
           ],

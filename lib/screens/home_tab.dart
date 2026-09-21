@@ -52,6 +52,7 @@ import 'package:spotiflac_android/widgets/in_library_badge.dart';
 import 'package:spotiflac_android/widgets/preview_button.dart';
 import 'package:spotiflac_android/widgets/app_search_field.dart';
 import 'package:spotiflac_android/widgets/view_queue_snackbar_action.dart';
+import 'package:spotiflac_android/widgets/profile_avatar.dart';
 import 'package:spotiflac_android/widgets/downloadable_cover.dart';
 
 part 'home_tab_helpers.dart';
@@ -896,6 +897,9 @@ class _HomeTabState extends ConsumerState<HomeTab>
                 title: widget.mode == HomeTabMode.search
                     ? context.l10n.mornyeSearch
                     : context.l10n.homeTitle,
+                actions: context.isMornye && _showsHome
+                    ? const [HomeProfileButton()]
+                    : null,
               ),
 
               SliverToBoxAdapter(

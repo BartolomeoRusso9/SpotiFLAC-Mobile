@@ -128,6 +128,7 @@ void main() {
         temporaryDirectory: root,
       ))!;
       expect(bundle.hasSettings, settings);
+      expect(bundle.profile, isNull);
       expect(bundle.hasHistory, history);
       expect(bundle.hasCollections, collections);
       expect(bundle.hasExtensions, extensions);
@@ -170,7 +171,36 @@ void main() {
       expect(bundle.formatVersion, 2);
       expect(bundle.hasHistory, isTrue);
       expect(bundle.hasSettings, isTrue);
+      expect(bundle.profile, isNull);
       await bundle.cleanup();
     },
   );
+
+  test('profile archive rejects foreign paths and missing photos', () async {
+    final root = await Directory.systemTemp.createTemp('profile-backup-');
+    addTearDown(() => root.delete(recursive: true));
+    for (final photo in ['../avatar.png', 'profile/avatar.png']) {
+      final metadata = utf8.encode(
+        jsonEncode({
+          'magic': BackupService.magic,
+          'format_version': BackupService.formatVersion,
+          'data': {
+            'profile': {'name': 'Listener', 'photo': photo},
+          },
+        }),
+      );
+      final archive = Archive()
+        ..addFile(ArchiveFile('metadata.json', metadata.length, metadata));
+      final file = File(p.join(root.path, 'invalid.sflb'));
+      await file.writeAsBytes(ZipEncoder().encode(archive));
+      expect(
+        await BackupService.parseFile(file.path, temporaryDirectory: root),
+        isNull,
+      );
+      expect(
+        await root.list().where((entry) => entry is Directory).isEmpty,
+        isTrue,
+      );
+    }
+  });
 }

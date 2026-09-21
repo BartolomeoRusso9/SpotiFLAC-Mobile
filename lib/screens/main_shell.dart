@@ -494,17 +494,39 @@ class _MainShellState extends ConsumerState<MainShell>
   }
 
   void _onShellTabRequested(ShellTab tab) {
+    if (tab == ShellTab.settings && context.isMornye) {
+      unawaited(_openProfileSettings());
+      return;
+    }
     final showStore = ref.read(
       settingsProvider.select((s) => s.showExtensionStore),
     );
     final index = switch (tab) {
       ShellTab.home => 0,
-      ShellTab.search => context.isMornye ? (showStore ? 4 : 3) : 0,
+      ShellTab.search => context.isMornye ? (showStore ? 3 : 2) : 0,
       ShellTab.library => 1,
       ShellTab.repository => showStore ? 2 : null,
       ShellTab.settings => showStore ? 3 : 2,
     };
     if (index != null) _onNavTap(index, resetHome: tab != ShellTab.search);
+  }
+
+  bool _settingsPageOpen = false;
+
+  Future<void> _openProfileSettings() async {
+    if (_settingsPageOpen) return;
+    _settingsPageOpen = true;
+    FocusManager.instance.primaryFocus?.unfocus();
+    ref.read(previewPlayerProvider.notifier).stop();
+    try {
+      await Navigator.of(context).push(
+        slidePageRoute<void>(
+          page: const Scaffold(body: SettingsTab(asPage: true)),
+        ),
+      );
+    } finally {
+      _settingsPageOpen = false;
+    }
   }
 
   void _onNavTap(int index, {bool resetHome = true}) {
@@ -594,7 +616,7 @@ class _MainShellState extends ConsumerState<MainShell>
 
     final trackState = ref.read(trackProvider);
     final isSearchTab =
-        _currentIndex == (context.isMornye ? (showStore ? 4 : 3) : 0);
+        _currentIndex == (context.isMornye ? (showStore ? 3 : 2) : 0);
 
     final isKeyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
 
@@ -664,7 +686,7 @@ class _MainShellState extends ConsumerState<MainShell>
     if (index == 0) return _homeTabNavigatorKey.currentState;
     if (index == 1) return _libraryTabNavigatorKey.currentState;
     if (showStore && index == 2) return _repoTabNavigatorKey.currentState;
-    if (context.isMornye && index == (showStore ? 4 : 3)) {
+    if (context.isMornye && index == (showStore ? 3 : 2)) {
       return _searchTabNavigatorKey.currentState;
     }
     return null;
@@ -732,7 +754,7 @@ class _MainShellState extends ConsumerState<MainShell>
           heroAnimationsEnabled: heroAnimationsEnabled,
           child: const RepoTab(),
         ),
-      const SettingsTab(),
+      if (!context.isMornye) const SettingsTab(),
       if (context.isMornye)
         _TabNavigator(
           key: const ValueKey('tab-search'),
@@ -803,13 +825,12 @@ class _MainShellState extends ConsumerState<MainShell>
           ),
           label: l10n.navStore,
         ),
-      NavigationDestination(
-        icon: Icon(
-          context.isMornye ? CupertinoIcons.gear : Icons.settings_outlined,
+      if (!context.isMornye)
+        NavigationDestination(
+          icon: const Icon(Icons.settings_outlined),
+          selectedIcon: SpinIcon(child: const Icon(Icons.settings)),
+          label: l10n.navSettings,
         ),
-        selectedIcon: SpinIcon(child: const Icon(Icons.settings)),
-        label: l10n.navSettings,
-      ),
       if (context.isMornye)
         NavigationDestination(
           icon: const Icon(CupertinoIcons.search),
