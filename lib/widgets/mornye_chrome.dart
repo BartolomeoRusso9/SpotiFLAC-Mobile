@@ -437,16 +437,15 @@ class MornyeTabBar extends StatelessWidget {
     required this.selectedIndex,
     required this.onSelected,
     required this.blurEnabled,
-    this.hideEdgeIcons = false,
+    this.hideHomeIcon = false,
   });
 
   final List<NavigationDestination> destinations;
   final int selectedIndex;
   final ValueChanged<int> onSelected;
   final bool blurEnabled;
-  // The folding bottom bar paints these two icons above both layouts so they
-  // can travel without fading along with the full tab capsule.
-  final bool hideEdgeIcons;
+  // Home moves independently while the full tab capsule folds away.
+  final bool hideHomeIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -489,7 +488,7 @@ class MornyeTabBar extends StatelessWidget {
                   width: constraints.maxWidth,
                   height: 64,
                   margin: const EdgeInsets.only(bottom: 8),
-                  selectedIndex: selectedIndex,
+                  selectedIndex: selectedIndex < 0 ? 0 : selectedIndex,
                   onChanged: onSelected,
                   style: LiquidGlassTabBar.defaultStyle.copyWith(
                     // The frosted base owns the subtle outline. Disable the
@@ -515,6 +514,7 @@ class MornyeTabBar extends StatelessWidget {
                   ),
                   pillStyle: LiquidGlassTabPillStyle(
                     mode: LiquidGlassPillMode.impellerOnly,
+                    show: selectedIndex >= 0,
                     color: selectionFill,
                     animated: true,
                     // Keep the moving refractive pill, without stacking the
@@ -530,17 +530,12 @@ class MornyeTabBar extends StatelessWidget {
                         iconBuilder: (context, icon) => IconTheme(
                           data: IconThemeData(
                             size: icon.size,
-                            color: icon.selected
+                            color: icon.selected && selectedIndex >= 0
                                 ? scheme.primary
                                 : inactiveIconColor,
                           ),
                           child: Opacity(
-                            opacity:
-                                hideEdgeIcons &&
-                                    (index == 0 ||
-                                        index == destinations.length - 1)
-                                ? 0
-                                : 1,
+                            opacity: hideHomeIcon && index == 0 ? 0 : 1,
                             child: destination.icon,
                           ),
                         ),
@@ -552,12 +547,40 @@ class MornyeTabBar extends StatelessWidget {
                               ?.copyWith(
                                 fontSize: label.textStyle.fontSize,
                                 fontWeight: FontWeight.w600,
-                                color: label.textStyle.color,
+                                color: selectedIndex < 0
+                                    ? scheme.onSurface
+                                    : label.textStyle.color,
                               ),
                         ),
                       ),
                   ],
                 ),
+                // Search lives outside the capsule. With no selected tab the
+                // package still needs an internal index; handle taps here so
+                // returning to that index (Home) is not swallowed as a re-tap.
+                if (selectedIndex < 0)
+                  Positioned(
+                    left: 6,
+                    right: 6,
+                    bottom: 8,
+                    height: 64,
+                    child: Row(
+                      children: [
+                        for (
+                          var index = 0;
+                          index < destinations.length;
+                          index++
+                        )
+                          Expanded(
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () => onSelected(index),
+                              child: const SizedBox.expand(),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),
@@ -612,12 +635,7 @@ class MornyeTabBar extends StatelessWidget {
                               // Keep tab selection quiet, as in Mornye. Badges
                               // stay live without the Material bounce/spin.
                               child: Opacity(
-                                opacity:
-                                    hideEdgeIcons &&
-                                        (index == 0 ||
-                                            index == destinations.length - 1)
-                                    ? 0
-                                    : 1,
+                                opacity: hideHomeIcon && index == 0 ? 0 : 1,
                                 child: destinations[index].icon,
                               ),
                             ),

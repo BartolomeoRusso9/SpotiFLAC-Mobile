@@ -23,14 +23,12 @@ void main() {
   late MornyeChromeController chrome;
   late ScrollController scroll;
   late int searches;
-  late int selected;
   final capture = GlobalKey();
 
   setUp(() {
     chrome = MornyeChromeController();
     scroll = ScrollController();
     searches = 0;
-    selected = 0;
   });
   tearDown(() {
     chrome.dispose();
@@ -109,11 +107,13 @@ void main() {
                 ],
                 selectedIndex: activeTab?.value ?? 0,
                 onSelected: (index) {
-                  selected = index;
                   activeTab?.value = index;
                 },
                 onHome: chrome.expand,
-                onSearch: () => searches++,
+                onSearch: () {
+                  searches++;
+                  activeTab?.value = 3;
+                },
                 blurEnabled: blur,
               ),
             ),
@@ -147,21 +147,25 @@ void main() {
         (3, 'Search'),
         (0, 'Home'),
       ]) {
-        await tester.tapAt(
-          tester.getCenter(
-            find
-                .descendant(
-                  of: find.byType(MornyeTabBar),
-                  matching: find.text(label),
-                )
-                .first,
-          ),
-        );
+        if (index == 3) {
+          await tester.tap(find.byTooltip('Search'));
+        } else {
+          await tester.tapAt(
+            tester.getCenter(
+              find
+                  .descendant(
+                    of: find.byType(MornyeTabBar),
+                    matching: find.text(label),
+                  )
+                  .first,
+            ),
+          );
+        }
         await tester.pumpAndSettle();
         expect(activeTab.value, index);
         final tabIcons = find.descendant(
           of: find.byType(MornyeTabBar),
-          matching: find.byIcon(index == 3 ? Icons.search : Icons.home),
+          matching: find.byIcon(Icons.home),
         );
         // Edge icons stay in the glass bar's selected/unselected layers at
         // rest, so the pill can reveal their red state during a held drag.
@@ -189,7 +193,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(
           tester.widget<MornyeTabBar>(find.byType(MornyeTabBar)).selectedIndex,
-          index,
+          index == 3 ? -1 : index,
         );
       }
     });
@@ -236,16 +240,18 @@ void main() {
       },
     );
 
-    testWidgets('four tabs keep Search at the right edge (glass: $blur)', (
+    testWidgets('Search is a separate circle at the right (glass: $blur)', (
       tester,
     ) async {
       await pumpShell(tester, blur: blur);
       final tabs = find.byType(MornyeTabBar);
-      final search = find
-          .descendant(of: tabs, matching: find.text('Search'))
-          .first;
+      final search = find.byKey(const ValueKey('mornye-compact-search'));
       final repo = find.descendant(of: tabs, matching: find.text('Repo')).first;
-      expect(tester.widget<MornyeTabBar>(tabs).destinations, hasLength(4));
+      expect(tester.widget<MornyeTabBar>(tabs).destinations, hasLength(3));
+      expect(
+        find.descendant(of: tabs, matching: find.text('Search')),
+        findsNothing,
+      );
       expect(
         find.descendant(of: tabs, matching: find.text('Settings')),
         findsNothing,
@@ -254,10 +260,15 @@ void main() {
         tester.getCenter(search).dx,
         greaterThan(tester.getCenter(repo).dx),
       );
+      expect(
+        tester.getRect(search).left - tester.getRect(tabs).right,
+        closeTo(12, 0.1),
+      );
+      expect(tester.getSize(search), const Size(64, 64));
       // The glass renderer paints the labels under a gesture overlay.
       await tester.tapAt(tester.getCenter(search));
       await tester.pumpAndSettle();
-      expect(selected, 3);
+      expect(searches, 1);
       expect(tester.takeException(), isNull);
     });
   }
