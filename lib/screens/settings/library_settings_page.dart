@@ -838,50 +838,12 @@ class _LibrarySettingsPageState extends ConsumerState<LibrarySettingsPage> {
           ],
 
           SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: colorScheme.primaryContainer.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      Icons.info_outline,
-                      size: 20,
-                      color: colorScheme.primary,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            context.l10n.libraryAbout,
-                            style: Theme.of(context).textTheme.titleSmall
-                                ?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: colorScheme.onPrimaryContainer,
-                                ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            context.l10n.libraryAboutDescription,
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: colorScheme.onPrimaryContainer
-                                      .withValues(alpha: 0.8),
-                                ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            child: SettingsInfoCard(
+              glass: true,
+              icon: Icons.info_outline,
+              title: context.l10n.libraryAbout,
+              message: context.l10n.libraryAboutDescription,
+              margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             ),
           ),
 
@@ -953,15 +915,6 @@ class _LibrarySettingsPageState extends ConsumerState<LibrarySettingsPage> {
               ],
             ),
           ),
-          SliverToBoxAdapter(
-            child: SettingsInfoCard(
-              icon: Icons.info_outline,
-              tone: SettingsInfoTone.warning,
-              message: context.l10n.libraryBuiltInPlayerInfo,
-              margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            ),
-          ),
-
           const SliverToBoxAdapter(child: SizedBox(height: 32)),
         ],
       ),
