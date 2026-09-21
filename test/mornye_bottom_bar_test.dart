@@ -45,6 +45,7 @@ void main() {
     Color? backdrop,
     Color? chromeSurface,
     Widget? body,
+    ValueNotifier<int>? activeTab,
   }) async {
     tester.view.physicalSize = const Size(393, 760);
     tester.view.devicePixelRatio = 1;
@@ -87,10 +88,10 @@ void main() {
                     itemBuilder: (_, index) => Text('Row $index'),
                   ),
             ),
-            bottomNavigationBar: ValueListenableBuilder<bool>(
-              valueListenable: chrome,
-              builder: (_, collapsed, _) => MornyeBottomBar(
-                collapsed: collapsed,
+            bottomNavigationBar: ListenableBuilder(
+              listenable: Listenable.merge([chrome, ?activeTab]),
+              builder: (_, _) => MornyeBottomBar(
+                collapsed: chrome.value,
                 destinations: const [
                   NavigationDestination(icon: Icon(Icons.home), label: 'Home'),
                   NavigationDestination(
@@ -106,8 +107,11 @@ void main() {
                     label: 'Search',
                   ),
                 ],
-                selectedIndex: 0,
-                onSelected: (index) => selected = index,
+                selectedIndex: activeTab?.value ?? 0,
+                onSelected: (index) {
+                  selected = index;
+                  activeTab?.value = index;
+                },
                 onHome: chrome.expand,
                 onSearch: () => searches++,
                 blurEnabled: blur,
@@ -123,6 +127,73 @@ void main() {
   const albumBlue = Color(0xff464566);
 
   for (final blur in [false, true]) {
+    testWidgets('active edge icons and tabs stay synchronized (glass: $blur)', (
+      tester,
+    ) async {
+      final activeTab = ValueNotifier(0);
+      addTearDown(activeTab.dispose);
+      await pumpShell(tester, blur: blur, activeTab: activeTab);
+      final primary = MornyeTheme.build(Brightness.light).colorScheme.primary;
+      Color? iconColor(String key, IconData data) {
+        final icon = find.descendant(
+          of: find.byKey(ValueKey(key)),
+          matching: find.byIcon(data),
+        );
+        return IconTheme.of(tester.element(icon)).color;
+      }
+
+      for (final (index, label) in [
+        (1, 'Library'),
+        (3, 'Search'),
+        (0, 'Home'),
+      ]) {
+        await tester.tapAt(
+          tester.getCenter(
+            find
+                .descendant(
+                  of: find.byType(MornyeTabBar),
+                  matching: find.text(label),
+                )
+                .first,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(activeTab.value, index);
+        final tabIcons = find.descendant(
+          of: find.byType(MornyeTabBar),
+          matching: find.byIcon(index == 3 ? Icons.search : Icons.home),
+        );
+        // Edge icons stay in the glass bar's selected/unselected layers at
+        // rest, so the pill can reveal their red state during a held drag.
+        for (final icon in tabIcons.evaluate()) {
+          for (final opacity in tester.widgetList<Opacity>(
+            find.ancestor(
+              of: find.byElementPredicate((e) => e == icon),
+              matching: find.byType(Opacity),
+            ),
+          )) {
+            expect(opacity.opacity, 1);
+          }
+        }
+        expect(
+          iconColor('mornye-compact-home', Icons.home),
+          index == 0 ? primary : isNot(primary),
+        );
+        expect(
+          iconColor('mornye-compact-search', Icons.search),
+          index == 3 ? primary : isNot(primary),
+        );
+        chrome.value = true;
+        await tester.pumpAndSettle();
+        chrome.expand();
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<MornyeTabBar>(find.byType(MornyeTabBar)).selectedIndex,
+          index,
+        );
+      }
+    });
+
     testWidgets(
       'edge icons travel continuously without fading (glass: $blur)',
       (tester) async {

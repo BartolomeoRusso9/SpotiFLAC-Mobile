@@ -451,6 +451,9 @@ class MornyeTabBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final selectionFill = scheme.onSurface.withValues(
+      alpha: scheme.brightness == Brightness.dark ? 0.12 : 0.08,
+    );
     final inactiveIconColor = Color.lerp(
       scheme.onSurfaceVariant,
       scheme.onSurface,
@@ -510,12 +513,13 @@ class MornyeTabBar extends StatelessWidget {
                     iconSize: 25,
                     labelFontSize: 11,
                   ),
-                  pillStyle: const LiquidGlassTabPillStyle(
+                  pillStyle: LiquidGlassTabPillStyle(
                     mode: LiquidGlassPillMode.impellerOnly,
+                    color: selectionFill,
                     animated: true,
                     // Keep the moving refractive pill, without stacking the
                     // package's second magnifier lens beneath it.
-                    magnifierPill: LiquidGlassTabMagnifierPillStyle(
+                    magnifierPill: const LiquidGlassTabMagnifierPillStyle(
                       enabled: false,
                     ),
                   ),
@@ -548,7 +552,7 @@ class MornyeTabBar extends StatelessWidget {
                               ?.copyWith(
                                 fontSize: label.textStyle.fontSize,
                                 fontWeight: FontWeight.w600,
-                                color: scheme.onSurface,
+                                color: label.textStyle.color,
                               ),
                         ),
                       ),
@@ -591,7 +595,7 @@ class MornyeTabBar extends StatelessWidget {
                         ),
                         decoration: BoxDecoration(
                           color: index == selectedIndex
-                              ? scheme.onSurface.withValues(alpha: 0.09)
+                              ? selectionFill
                               : Colors.transparent,
                           borderRadius: BorderRadius.circular(28),
                         ),
@@ -625,7 +629,9 @@ class MornyeTabBar extends StatelessWidget {
                               style: Theme.of(context).textTheme.labelSmall
                                   ?.copyWith(
                                     fontWeight: FontWeight.w600,
-                                    color: scheme.onSurface,
+                                    color: index == selectedIndex
+                                        ? scheme.primary
+                                        : scheme.onSurface,
                                   ),
                             ),
                           ],

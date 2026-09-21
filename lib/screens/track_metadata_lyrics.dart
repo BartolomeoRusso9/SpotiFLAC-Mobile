@@ -207,6 +207,29 @@ extension _TrackMetadataLyricsAndSaving on _TrackMetadataScreenState {
     );
   }
 
+  /// The lyrics reader can miss files outside the extension file grants.
+  /// Fall back to the same local tag reader used by Now Playing before
+  /// reporting that a file has no lyrics. Neither call fetches online lyrics.
+  Future<Map<String, dynamic>> _readLocalLyrics(String sourcePath) async {
+    try {
+      final result = await PlatformBridge.getLyricsLRCWithSource(
+        '',
+        trackName,
+        artistName,
+        filePath: sourcePath,
+      ).timeout(const Duration(seconds: 5));
+      if (hasUsableLyricsContent(result['lyrics']?.toString() ?? '')) {
+        return result;
+      }
+    } catch (e) {
+      _log.d('Local lyrics reader failed; trying playback metadata: $e');
+    }
+    final metadata = await readPlaybackFileMetadataWithRetry(
+      sourcePath,
+    ).timeout(const Duration(seconds: 5));
+    return {'lyrics': metadata['lyrics']?.toString() ?? '', 'source': ''};
+  }
+
   /// Check for lyrics embedded in the audio file only (no network requests).
   /// Called automatically when the screen opens.
   Future<void> _checkEmbeddedLyrics() async {
@@ -223,17 +246,7 @@ extension _TrackMetadataLyricsAndSaving on _TrackMetadataScreenState {
     });
 
     try {
-      final embeddedResult =
-          await PlatformBridge.getLyricsLRCWithSource(
-            '',
-            trackName,
-            artistName,
-            filePath: sourcePath,
-            durationMs: 0,
-          ).timeout(
-            const Duration(seconds: 5),
-            onTimeout: () => <String, dynamic>{'lyrics': '', 'source': ''},
-          );
+      final embeddedResult = await _readLocalLyrics(sourcePath);
 
       final embeddedLyrics = embeddedResult['lyrics']?.toString() ?? '';
       final embeddedSource = embeddedResult['source']?.toString() ?? '';
@@ -273,6 +286,7 @@ extension _TrackMetadataLyricsAndSaving on _TrackMetadataScreenState {
         _setState(() {
           _lyricsLoading = false;
           _embeddedLyricsChecked = true;
+          _lyricsError = context.l10n.trackLyricsLoadFailed;
         });
       }
     }
@@ -369,17 +383,7 @@ extension _TrackMetadataLyricsAndSaving on _TrackMetadataScreenState {
       final durationMs = (duration ?? 0) * 1000;
 
       if (_fileExists) {
-        final embeddedResult =
-            await PlatformBridge.getLyricsLRCWithSource(
-              '',
-              trackName,
-              artistName,
-              filePath: cleanFilePath,
-              durationMs: 0,
-            ).timeout(
-              const Duration(seconds: 5),
-              onTimeout: () => <String, dynamic>{'lyrics': '', 'source': ''},
-            );
+        final embeddedResult = await _readLocalLyrics(cleanFilePath);
 
         final embeddedLyrics = embeddedResult['lyrics']?.toString() ?? '';
         final embeddedSource = embeddedResult['source']?.toString() ?? '';

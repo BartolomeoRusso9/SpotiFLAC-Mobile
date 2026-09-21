@@ -107,7 +107,7 @@ class MornyeBottomBar extends ConsumerWidget {
       scheme.brightness == Brightness.dark ? 0.5 : 0.4,
     );
     final player = MiniPlayer(compact: collapsed, bottomPadding: 0);
-    final tabs = TickerMode(
+    Widget tabs({required bool hideEdgeIcons}) => TickerMode(
       enabled: !collapsed,
       child: RepaintBoundary(
         child: MornyeTabBar(
@@ -115,10 +115,15 @@ class MornyeBottomBar extends ConsumerWidget {
           selectedIndex: selectedIndex,
           onSelected: onSelected,
           blurEnabled: blurEnabled,
-          hideEdgeIcons: true,
+          hideEdgeIcons: hideEdgeIcons,
         ),
       ),
     );
+    // At rest the glass bar must paint its own edge icons: its selected layer
+    // follows a dragged pill before the destination is committed. Hand them
+    // to the moving overlays only while folding, at the same coordinates.
+    final fullTabs = tabs(hideEdgeIcons: false);
+    final foldingTabs = tabs(hideEdgeIcons: true);
     return LayoutBuilder(
       builder: (context, constraints) {
         // Match the tab's actual label height, including accessibility scaling.
@@ -185,7 +190,10 @@ class MornyeBottomBar extends ConsumerWidget {
                               scheme.primary,
                               amount,
                             ),
-                            icon: destinations[index].icon,
+                            icon: Opacity(
+                              opacity: amount == 0 ? 0 : 1,
+                              child: destinations[index].icon,
+                            ),
                             onPressed: home ? onHome : onSearch,
                           ),
                         ),
@@ -237,7 +245,10 @@ class MornyeBottomBar extends ConsumerWidget {
                           ignoring: amount > 0.5,
                           child: ExcludeSemantics(
                             excluding: amount > 0.5,
-                            child: Opacity(opacity: 1 - amount, child: tabs),
+                            child: Opacity(
+                              opacity: 1 - amount,
+                              child: amount == 0 ? fullTabs : foldingTabs,
+                            ),
                           ),
                         ),
                       ),

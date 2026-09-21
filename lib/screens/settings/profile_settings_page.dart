@@ -150,6 +150,8 @@ class _ProfileSettingsPageState extends ConsumerState<ProfileSettingsPage> {
                             decoration: InputDecoration(
                               labelText: context.l10n.profileName,
                               hintText: context.l10n.profileNameHint,
+                              filled: false,
+                              contentPadding: EdgeInsets.zero,
                               border: InputBorder.none,
                               counterText: '',
                             ),
