@@ -594,7 +594,12 @@ class _FilesSettingsPageState extends ConsumerState<FilesSettingsPage> {
               },
             ),
             AppSheetOption(
-              leading: Icon(Icons.cloud, color: colorScheme.onSurfaceVariant),
+              leading: Icon(
+                Icons.cloud,
+                color: context.isMornye
+                    ? colorScheme.primary
+                    : colorScheme.onSurfaceVariant,
+              ),
               title: Text(context.l10n.setupChooseFromFiles),
               subtitle: Text(context.l10n.setupChooseFromFilesSubtitle),
               onTap: () async {

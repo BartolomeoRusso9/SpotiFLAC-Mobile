@@ -7,6 +7,7 @@ IconData mornyeIconFor(IconData icon) {
   return switch (icon) {
     Icons.extension ||
     Icons.extension_outlined ||
+    Icons.extension_rounded ||
     Icons.apps ||
     Icons.grid_view ||
     Icons.grid_view_outlined ||
@@ -29,6 +30,8 @@ IconData mornyeIconFor(IconData icon) {
     Icons.file_download_outlined ||
     Icons.downloading_outlined => CupertinoIcons.arrow_down_circle,
     Icons.folder_outlined ||
+    Icons.folder_open ||
+    Icons.folder_special ||
     Icons.folder_special_outlined => CupertinoIcons.folder,
     Icons.create_new_folder_outlined => CupertinoIcons.folder_badge_plus,
     Icons.storage_outlined ||
@@ -38,11 +41,13 @@ IconData mornyeIconFor(IconData icon) {
     Icons.settings_backup_restore ||
     Icons.history ||
     Icons.history_toggle_off_outlined => CupertinoIcons.clock,
-    Icons.article_outlined || Icons.source_outlined => CupertinoIcons.doc_text,
+    Icons.article_outlined ||
+    Icons.source_outlined ||
+    Icons.insert_drive_file_outlined => CupertinoIcons.doc_text,
     Icons.favorite_outline || Icons.favorite_border => CupertinoIcons.heart,
     Icons.favorite => CupertinoIcons.heart_fill,
     Icons.arrow_back || Icons.chevron_left => CupertinoIcons.chevron_back,
-    Icons.close => CupertinoIcons.xmark,
+    Icons.close || Icons.close_rounded => CupertinoIcons.xmark,
     Icons.play_arrow || Icons.play_arrow_rounded => CupertinoIcons.play_fill,
     Icons.shuffle => CupertinoIcons.shuffle,
     Icons.playlist_add || Icons.queue_music => CupertinoIcons.text_badge_plus,
@@ -53,19 +58,23 @@ IconData mornyeIconFor(IconData icon) {
     Icons.playlist_add_check_circle => CupertinoIcons.text_badge_checkmark,
     Icons.add_circle_outline => CupertinoIcons.add_circled,
     Icons.format_list_numbered => CupertinoIcons.list_number,
-    Icons.checklist => CupertinoIcons.list_bullet,
-    Icons.calendar_today_outlined => CupertinoIcons.calendar,
+    Icons.checklist || Icons.view_list => CupertinoIcons.list_bullet,
+    Icons.calendar_today_outlined ||
+    Icons.date_range ||
+    Icons.today ||
+    Icons.event_outlined => CupertinoIcons.calendar,
     Icons.preview_outlined => CupertinoIcons.doc_text_search,
     Icons.check || Icons.check_rounded => CupertinoIcons.checkmark,
     Icons.download_for_offline_outlined => CupertinoIcons.arrow_down_circle,
     Icons.call_split => CupertinoIcons.arrow_branch,
     Icons.download_rounded => CupertinoIcons.arrow_down,
     Icons.info_outline => CupertinoIcons.info,
-    Icons.settings_outlined => CupertinoIcons.gear_alt,
+    Icons.settings || Icons.settings_outlined => CupertinoIcons.gear_alt,
     Icons.tune ||
     Icons.tune_outlined ||
+    Icons.tune_rounded ||
     Icons.table_chart_outlined => CupertinoIcons.slider_horizontal_3,
-    Icons.build_outlined => CupertinoIcons.wrench,
+    Icons.build || Icons.build_outlined => CupertinoIcons.wrench,
     Icons.people_alt_outlined ||
     Icons.people_outline => CupertinoIcons.person_2,
     Icons.person ||
@@ -77,6 +86,9 @@ IconData mornyeIconFor(IconData icon) {
     Icons.photo_size_select_large_outlined ||
     Icons.image_outlined ||
     Icons.wallpaper => CupertinoIcons.photo,
+    Icons.photo_library_outlined => CupertinoIcons.photo_on_rectangle,
+    Icons.compress_outlined => CupertinoIcons.arrow_down_right_arrow_up_left,
+    Icons.segment_outlined => CupertinoIcons.text_alignleft,
     Icons.graphic_eq ||
     Icons.graphic_eq_outlined ||
     Icons.graphic_eq_rounded => CupertinoIcons.waveform,
@@ -96,25 +108,37 @@ IconData mornyeIconFor(IconData icon) {
     Icons.audio_file_outlined ||
     Icons.audiotrack ||
     Icons.music_note_outlined => CupertinoIcons.music_note,
-    Icons.speed || Icons.speed_outlined => CupertinoIcons.gauge,
+    Icons.speed ||
+    Icons.speed_outlined ||
+    Icons.speed_rounded => CupertinoIcons.gauge,
     Icons.auto_fix_high ||
     Icons.auto_fix_high_outlined ||
+    Icons.auto_awesome ||
     Icons.auto_awesome_outlined => CupertinoIcons.wand_stars,
     Icons.wifi => CupertinoIcons.wifi,
+    Icons.signal_cellular_alt => CupertinoIcons.antenna_radiowaves_left_right,
+    Icons.cloud || Icons.cloud_outlined => CupertinoIcons.cloud,
+    Icons.high_quality => CupertinoIcons.hifispeaker,
+    Icons.four_k => CupertinoIcons.waveform,
     Icons.dynamic_feed_outlined ||
     Icons.tab_outlined => CupertinoIcons.square_on_square,
-    Icons.security_outlined => CupertinoIcons.lock_shield,
+    Icons.security || Icons.security_outlined => CupertinoIcons.lock_shield,
     Icons.lan_outlined || Icons.link => CupertinoIcons.link,
-    Icons.sync || Icons.autorenew_rounded => CupertinoIcons.arrow_2_circlepath,
+    Icons.sync ||
+    Icons.sync_rounded ||
+    Icons.autorenew_rounded => CupertinoIcons.arrow_2_circlepath,
     Icons.refresh ||
+    Icons.refresh_rounded ||
     Icons.update ||
     Icons.system_update => CupertinoIcons.arrow_clockwise,
     Icons.content_copy_outlined ||
     Icons.content_copy_rounded ||
     Icons.copy_all_rounded ||
     Icons.copy_outlined ||
+    Icons.copy_rounded ||
     Icons.copy => CupertinoIcons.doc_on_doc,
     Icons.swap_horiz ||
+    Icons.swap_horiz_rounded ||
     Icons.compare_arrows ||
     Icons.difference_outlined ||
     Icons.alt_route => CupertinoIcons.arrow_right_arrow_left,
@@ -149,13 +173,26 @@ IconData mornyeIconFor(IconData icon) {
     Icons.code => CupertinoIcons.chevron_left_slash_chevron_right,
     Icons.lightbulb_outline => CupertinoIcons.lightbulb,
     Icons.telegram => CupertinoIcons.paperplane,
-    Icons.check => CupertinoIcons.check_mark,
     Icons.album || Icons.album_outlined => CupertinoIcons.square_stack,
     Icons.playlist_play => CupertinoIcons.music_note_list,
-    Icons.video_library => CupertinoIcons.play_rectangle,
+    Icons.video_library ||
+    Icons.video_library_outlined ||
+    Icons.smart_display_outlined => CupertinoIcons.play_rectangle,
     Icons.podcasts => CupertinoIcons.mic,
     Icons.monitor_heart_outlined => CupertinoIcons.waveform_path_ecg,
-    Icons.warning_amber_rounded => CupertinoIcons.exclamationmark_triangle,
-    _ => CupertinoIcons.gear_alt,
+    Icons.warning_amber_rounded ||
+    Icons.warning_amber_outlined => CupertinoIcons.exclamationmark_triangle,
+    Icons.error_outline => CupertinoIcons.exclamationmark_circle,
+    Icons.cancel_outlined => CupertinoIcons.xmark_circle,
+    Icons.check_circle ||
+    Icons.check_circle_outline => CupertinoIcons.checkmark_circle,
+    Icons.help_outline => CupertinoIcons.question_circle,
+    Icons.phone_android => CupertinoIcons.device_phone_portrait,
+    Icons.computer => CupertinoIcons.desktopcomputer,
+    Icons.hub_outlined => CupertinoIcons.link,
+    Icons.campaign_outlined => CupertinoIcons.speaker_2,
+    // Preserve meaning for symbols without a Cupertino counterpart, such as
+    // numbered download limits. An unrelated gear hides the action's purpose.
+    _ => icon,
   };
 }

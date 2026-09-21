@@ -708,7 +708,12 @@ class _LanguageSelector extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final content = ListTile(
-      leading: Icon(Icons.language, color: colorScheme.onSurfaceVariant),
+      leading: Icon(
+        context.isMornye ? mornyeIconFor(Icons.language) : Icons.language,
+        color: context.isMornye
+            ? colorScheme.primary
+            : colorScheme.onSurfaceVariant,
+      ),
       title: Text(context.l10n.appearanceLanguage),
       subtitle: Text(_getLanguageName(currentLocale)),
       trailing: Icon(Icons.chevron_right, color: colorScheme.onSurfaceVariant),

@@ -585,7 +585,7 @@ class SettingsChoiceChip extends StatelessWidget {
           )
         : colorScheme.surfaceContainerHigh;
     final foreground = context.isMornye && isSelected
-        ? colorScheme.onSurface
+        ? colorScheme.primary
         : isSelected
         ? colorScheme.onPrimaryContainer
         : colorScheme.onSurfaceVariant;

@@ -4,6 +4,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:spotiflac_android/services/cover_cache_manager.dart';
 import 'package:spotiflac_android/constants/app_info.dart';
 import 'package:spotiflac_android/l10n/l10n.dart';
+import 'package:spotiflac_android/theme/mornye_icons.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/utils/adaptive_layout.dart';
 import 'package:spotiflac_android/widgets/settings_group.dart';
 import 'package:spotiflac_android/widgets/app_sliver_header.dart';
@@ -676,8 +678,10 @@ class _AboutSettingsItem extends StatelessWidget {
                   width: 40,
                   height: 40,
                   child: Icon(
-                    icon,
-                    color: colorScheme.onSurfaceVariant,
+                    context.isMornye ? mornyeIconFor(icon) : icon,
+                    color: context.isMornye
+                        ? colorScheme.primary
+                        : colorScheme.onSurfaceVariant,
                     size: 24,
                   ),
                 ),
