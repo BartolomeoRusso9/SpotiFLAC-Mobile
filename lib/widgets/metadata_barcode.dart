@@ -23,7 +23,7 @@ class MetadataBarcode extends StatelessWidget {
       label: '$label ${barcode.value}',
       button: onCopy != null,
       child: Material(
-        color: colorScheme.surfaceContainerHighest,
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(16),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
