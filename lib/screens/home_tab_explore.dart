@@ -233,8 +233,9 @@ extension _HomeTabExploreUI on _HomeTabState {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  item.name,
+                ExplicitTrackTitle(
+                  title: item.name,
+                  explicit: item.explicit == true,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textAlign: isArtist ? TextAlign.center : TextAlign.start,
@@ -414,8 +415,9 @@ extension _HomeTabExploreUI on _HomeTabState {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          item.name,
+                        ExplicitTrackTitle(
+                          title: item.name,
+                          explicit: item.explicit == true,
                           style: Theme.of(context).textTheme.titleMedium
                               ?.copyWith(fontWeight: FontWeight.w600),
                           maxLines: 2,
@@ -478,6 +480,7 @@ extension _HomeTabExploreUI on _HomeTabState {
       releaseDate: item.releaseDate,
       coverUrl: item.coverUrl,
       source: _providerIdForExploreItem(item),
+      explicit: item.explicit,
     );
 
     if (settings.askQualityBeforeDownload || settings.allowQualityVariants) {

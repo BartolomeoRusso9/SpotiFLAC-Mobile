@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:spotiflac_android/providers/explore_provider.dart';
 import 'package:spotiflac_android/widgets/explore_featured_section.dart';
+import 'package:spotiflac_android/widgets/audio_quality_badges.dart';
+import 'package:spotiflac_android/l10n/app_localizations.dart';
 
 void main() {
   test('featured layout and artwork survive cache serialization', () {
@@ -18,6 +20,7 @@ void main() {
           'featured_cover_url': 'https://example.test/banner.jpg',
           'heading': 'Updated playlist',
           'provider_id': 'example-provider',
+          'explicit': true,
         },
       ],
     });
@@ -27,6 +30,9 @@ void main() {
     expect(restored.items.single.featuredCoverUrl, endsWith('/banner.jpg'));
     expect(restored.items.single.coverUrl, endsWith('/cover.jpg'));
     expect(restored.items.single.providerId, 'example-provider');
+    expect(restored.items.single.explicit, isTrue);
+    expect(ExploreItem.fromJson({'explicit': false}).explicit, isFalse);
+    expect(ExploreItem.fromJson({}).explicit, isNull);
     expect(ExploreSection.fromJson({'items': <Object?>[]}).isFeatured, isFalse);
   });
 
@@ -51,11 +57,14 @@ void main() {
           name: 'Featured $index',
           artists: 'Example artist',
           heading: 'New album',
+          explicit: index == 0,
           description: 'An editorial description of the featured album.',
         ),
       );
       await tester.pumpWidget(
         MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           home: MediaQuery(
             data: MediaQueryData(textScaler: TextScaler.linear(scale)),
             child: Scaffold(
@@ -75,12 +84,23 @@ void main() {
         ),
       );
       expect(tester.takeException(), isNull);
+      expect(find.byType(ExplicitBadge), findsOneWidget);
+      expect(
+        tester
+            .widget<ExplicitTrackTitle>(find.byType(ExplicitTrackTitle).first)
+            .explicit,
+        isTrue,
+      );
+      final firstTitle = find.byWidgetPredicate(
+        (widget) =>
+            widget is ExplicitTrackTitle && widget.title == 'Featured 0',
+      );
       final card = find.ancestor(
-        of: find.text('Featured 0'),
+        of: firstTitle,
         matching: find.byType(GestureDetector),
       );
       expect(tester.getSize(card).width, greaterThan(250));
-      await tester.tap(find.text('Featured 0'));
+      await tester.tap(firstTitle);
       expect(opened?.id, 'collection-0');
       await tester.drag(find.byType(ListView), const Offset(-600, 0));
       await tester.pumpAndSettle();

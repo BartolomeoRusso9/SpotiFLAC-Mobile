@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:spotiflac_android/providers/explore_provider.dart';
 import 'package:spotiflac_android/widgets/cached_cover_image.dart';
+import 'package:spotiflac_android/widgets/audio_quality_badges.dart';
 
 /// Large editorial cards requested by a home-feed provider.
 class ExploreFeaturedSection extends StatelessWidget {
@@ -92,8 +93,9 @@ class ExploreFeaturedSection extends StatelessWidget {
                             ),
                             SizedBox(
                               height: titleHeight,
-                              child: Text(
-                                item.name,
+                              child: ExplicitTrackTitle(
+                                title: item.name,
+                                explicit: item.explicit == true,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(

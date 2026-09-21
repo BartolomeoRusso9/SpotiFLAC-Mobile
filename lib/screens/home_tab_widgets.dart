@@ -1022,6 +1022,7 @@ class ExtensionAlbumScreen extends ConsumerStatefulWidget {
 
 class _ExtensionAlbumScreenState extends ConsumerState<ExtensionAlbumScreen> {
   List<Track>? _tracks;
+  String? _albumName;
   bool _isLoading = true;
   String? _error;
   String? _artistId;
@@ -1074,6 +1075,9 @@ class _ExtensionAlbumScreenState extends ConsumerState<ExtensionAlbumScreen> {
 
       final artistId = (albumInfo['artist_id'] ?? albumInfo['artistId'])
           ?.toString();
+      final albumName =
+          normalizeOptionalString(albumInfo['name']?.toString()) ??
+          widget.albumName;
       final artistName = (albumInfo['artists'] ?? albumInfo['artist'])
           ?.toString();
       final albumType =
@@ -1090,6 +1094,7 @@ class _ExtensionAlbumScreenState extends ConsumerState<ExtensionAlbumScreen> {
           .map(
             (t) => _parseTrack(
               t as Map<String, dynamic>,
+              albumNameFallback: albumName,
               albumTypeFallback: albumType,
               totalTracksFallback: totalTracks,
             ),
@@ -1098,6 +1103,7 @@ class _ExtensionAlbumScreenState extends ConsumerState<ExtensionAlbumScreen> {
 
       setState(() {
         _tracks = tracks;
+        _albumName = albumName;
         _artistId = artistId;
         _artistName = artistName;
         _albumType = albumType;
@@ -1124,13 +1130,17 @@ class _ExtensionAlbumScreenState extends ConsumerState<ExtensionAlbumScreen> {
 
   Track _parseTrack(
     Map<String, dynamic> data, {
+    String? albumNameFallback,
     String? albumTypeFallback,
     int? totalTracksFallback,
   }) {
     final base = Track.fromBackendMap(data, source: widget.extensionId);
     return base.copyWith(
       id: (data['id'] ?? '').toString(),
-      albumName: (data['album_name'] ?? widget.albumName).toString(),
+      albumName:
+          normalizeOptionalString(data['album_name']?.toString()) ??
+          albumNameFallback ??
+          widget.albumName,
       albumArtist: normalizeOptionalString(data['album_artist']?.toString()),
       artistId: base.artistId ?? _artistId,
       albumId: base.albumId ?? widget.albumId,
@@ -1163,7 +1173,7 @@ class _ExtensionAlbumScreenState extends ConsumerState<ExtensionAlbumScreen> {
 
     return AlbumScreen(
       albumId: widget.albumId,
-      albumName: widget.albumName,
+      albumName: _albumName ?? widget.albumName,
       coverUrl: widget.coverUrl,
       headerVideoUrl: _headerVideoUrl,
       headerImageUrl: _headerImageUrl,
@@ -1638,8 +1648,9 @@ class _QuickPicksPageViewState extends State<_QuickPicksPageView> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    item.name,
+                  ExplicitTrackTitle(
+                    title: item.name,
+                    explicit: item.explicit == true,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(

@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:spotiflac_android/models/settings.dart';
 import 'package:spotiflac_android/services/platform_bridge.dart';
 import 'package:spotiflac_android/utils/logger.dart';
+import 'package:spotiflac_android/utils/string_utils.dart';
 import 'package:spotiflac_android/providers/extension_provider.dart';
 import 'package:spotiflac_android/providers/settings_provider.dart';
 
@@ -20,6 +21,7 @@ class ExploreItem {
   final String? coverUrl;
   final String? featuredCoverUrl;
   final String? heading;
+  final bool? explicit;
   final String? providerId;
   final String? albumId;
   final String? albumName;
@@ -36,6 +38,7 @@ class ExploreItem {
     this.coverUrl,
     this.featuredCoverUrl,
     this.heading,
+    this.explicit,
     this.providerId,
     this.albumId,
     this.albumName,
@@ -54,6 +57,7 @@ class ExploreItem {
       coverUrl: json['cover_url'] as String?,
       featuredCoverUrl: json['featured_cover_url'] as String?,
       heading: json['heading'] as String?,
+      explicit: parseExplicitFlag(json['explicit']),
       providerId: json['provider_id'] as String?,
       albumId: json['album_id'] as String?,
       albumName: json['album_name'] as String?,
@@ -72,6 +76,7 @@ class ExploreItem {
     'cover_url': coverUrl,
     'featured_cover_url': featuredCoverUrl,
     'heading': heading,
+    'explicit': explicit,
     'provider_id': providerId,
     'album_id': albumId,
     'album_name': albumName,

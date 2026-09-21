@@ -8,11 +8,98 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:spotiflac_android/l10n/app_localizations.dart';
 import 'package:spotiflac_android/models/track.dart';
 import 'package:spotiflac_android/screens/album_screen.dart';
+import 'package:spotiflac_android/screens/home_tab.dart';
+import 'package:spotiflac_android/services/platform_bridge.dart';
 import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/widgets/audio_quality_badges.dart';
 import 'package:spotiflac_android/widgets/track_list_tile.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  const backendChannel = MethodChannel('com.zarz.spotiflac/backend');
+  final backendMessenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    backendMessenger.setMockMethodCallHandler(
+      backendChannel,
+      (_) async => null,
+    );
+    await PlatformBridge.clearTrackCache();
+  });
+  tearDown(() async {
+    backendMessenger.setMockMethodCallHandler(
+      backendChannel,
+      (_) async => null,
+    );
+    await PlatformBridge.clearTrackCache();
+    backendMessenger.setMockMethodCallHandler(backendChannel, null);
+  });
+
+  for (final nested in [true, false]) {
+    for (final fetchedName in ['Actual Album Title', '  ']) {
+      testWidgets(
+        'extension album resolves its title (nested: $nested, name: "$fetchedName")',
+        (tester) async {
+          SharedPreferences.setMockInitialValues({});
+          await tester.binding.setSurfaceSize(const Size(430, 1200));
+          addTearDown(() => tester.binding.setSurfaceSize(null));
+          const channel = MethodChannel('com.zarz.spotiflac/backend');
+          final messenger = tester.binding.defaultBinaryMessenger;
+          var requests = 0;
+          messenger.setMockMethodCallHandler(channel, (call) async {
+            if (call.method != 'getProviderMetadata') return null;
+            requests++;
+            final info = <String, dynamic>{
+              'name': fetchedName,
+              'artists': 'Example Artist',
+              'total_tracks': 1,
+            };
+            final tracks = [
+              {
+                'id': 'example-song',
+                'name': 'Example Song',
+                'artists': 'Example Artist',
+                'album_name': '',
+                'duration_ms': 180000,
+              },
+            ];
+            return jsonEncode(
+              nested
+                  ? {'album_info': info, 'track_list': tracks}
+                  : {...info, 'tracks': tracks},
+            );
+          });
+          addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+          await tester.pumpWidget(
+            ProviderScope(
+              child: MaterialApp(
+                theme: MornyeTheme.build(Brightness.light),
+                localizationsDelegates: AppLocalizations.localizationsDelegates,
+                supportedLocales: AppLocalizations.supportedLocales,
+                home: const ExtensionAlbumScreen(
+                  extensionId: 'example-metadata',
+                  albumId: 'example-album',
+                  albumName: 'Album',
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final expected = fetchedName.trim().isEmpty ? 'Album' : fetchedName;
+          final album = tester.widget<AlbumScreen>(find.byType(AlbumScreen));
+          expect(album.albumName, expected);
+          expect(album.tracks!.single.albumName, expected);
+          expect(find.text(expected), findsWidgets);
+          expect(requests, 1);
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox());
+          await tester.pumpAndSettle();
+        },
+      );
+    }
+  }
+
   testWidgets('album tracks retain the extended tags supplied in search', (
     tester,
   ) async {

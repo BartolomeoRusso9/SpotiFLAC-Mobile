@@ -441,7 +441,11 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
-                      subtitle: Text(context.l10n.profileEdit),
+                      subtitle:
+                          profile?.name.isNotEmpty == true ||
+                              profile?.photoPath?.isNotEmpty == true
+                          ? null
+                          : Text(context.l10n.profileEdit),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: profile == null
                           ? null
