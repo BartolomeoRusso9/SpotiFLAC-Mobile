@@ -137,7 +137,7 @@ void main() {
       tester,
     ) async {
       await openTour(tester, brightness: brightness);
-      expect(find.text('Welcome to\nSpotiFLAC 5.0'), findsOneWidget);
+      expect(find.text('Welcome to\nSpotiFLAC-Mobile 5.0'), findsOneWidget);
       expect(find.byType(Image), findsNothing);
       await capturePage(tester, '${brightness.name}-welcome');
       await tester.tap(find.text('Continue'));
@@ -146,7 +146,7 @@ void main() {
       await capturePage(tester, '${brightness.name}-themes');
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
-      expect(find.text('Welcome to\nSpotiFLAC 5.0'), findsOneWidget);
+      expect(find.text('Welcome to\nSpotiFLAC-Mobile 5.0'), findsOneWidget);
       for (var i = 0; i < 4; i++) {
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();

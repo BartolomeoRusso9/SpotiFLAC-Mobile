@@ -11,6 +11,19 @@ final ImageFilter _trackMetadataBackdropBlur = ImageFilter.blur(
 );
 
 extension _TrackMetadataCards on _TrackMetadataScreenState {
+  List<Widget> _headerMetadataItems(BuildContext context) => [
+    if (_displayAudioQuality != null && _displayAudioQuality!.isNotEmpty)
+      HeaderMetaItem(_displayAudioQuality!),
+    if (duration != null) HeaderMetaItem(formatClock(duration!)),
+    if (_service == 'local')
+      HeaderMetaItem(
+        context.l10n.librarySourceLocal,
+        icon: context.isMornye ? CupertinoIcons.folder : Icons.folder,
+      )
+    else if (_service.isNotEmpty)
+      HeaderMetaItem(_service[0].toUpperCase() + _service.substring(1)),
+  ];
+
   Widget _buildAnimatedTrackContent(
     BuildContext context,
     WidgetRef ref,
@@ -265,20 +278,7 @@ extension _TrackMetadataCards on _TrackMetadataScreenState {
                   scheme: _trackMetadataHeroScheme,
                   child: HeaderMetaRow(
                     items: [
-                      if (_displayAudioQuality != null &&
-                          _displayAudioQuality!.isNotEmpty)
-                        HeaderMetaItem(_displayAudioQuality!),
-                      if (duration != null)
-                        HeaderMetaItem(formatClock(duration!)),
-                      if (_service != 'local')
-                        HeaderMetaItem(
-                          _service[0].toUpperCase() + _service.substring(1),
-                        )
-                      else
-                        HeaderMetaItem(
-                          context.l10n.librarySourceLocal,
-                          icon: Icons.folder,
-                        ),
+                      ..._headerMetadataItems(context),
                       if (_hasCheckedFile && !_fileExists)
                         HeaderMetaItem(
                           context.l10n.trackFileNotFound,

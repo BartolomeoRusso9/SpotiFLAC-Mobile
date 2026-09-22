@@ -106,6 +106,8 @@ extension _TrackMetadataMornye on _TrackMetadataScreenState {
                               color: scheme.onSurfaceVariant,
                             ),
                           ),
+                        const SizedBox(height: 12),
+                        HeaderMetaRow(items: _headerMetadataItems(context)),
                         const SizedBox(height: 16),
                         _buildActionButtons(context, ref, scheme, _fileExists),
                         if (_hasCheckedFile && !_fileExists)
