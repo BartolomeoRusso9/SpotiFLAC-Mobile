@@ -43,16 +43,39 @@ pub fn text_from_bytes(bytes: &[u8]) -> String {
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LyricsWord {
+    pub text: String,
+    pub start_time_ms: i64,
+    pub end_time_ms: i64,
+}
+
+json::go_deserialize!(LyricsWord {
+    "text" => text,
+    "starttimems" => start_time_ms,
+    "endtimems" => end_time_ms,
+});
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LyricsLine {
     pub start_time_ms: i64,
     pub words: String,
     pub end_time_ms: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub romanization: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub romanization_words: Option<Vec<LyricsWord>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub translation: Option<String>,
 }
 
 json::go_deserialize!(LyricsLine {
     "starttimems" => start_time_ms,
     "words" => words,
     "endtimems" => end_time_ms,
+    "romanization" => romanization,
+    "romanizationwords" => romanization_words,
+    "translation" => translation,
 });
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]

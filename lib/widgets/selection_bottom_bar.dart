@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:spotiflac_android/theme/app_tokens.dart';
 import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/widgets/mornye_chrome.dart';
@@ -29,18 +30,33 @@ class _SelectionOverlayHostState extends State<SelectionOverlayHost> {
       _owner == owner && _builder != null;
 
   void show(SelectionOverlayController owner, WidgetBuilder builder) {
-    if (!mounted) return;
-    setState(() {
+    _update(() {
       _owner = owner;
       _builder = builder;
     });
   }
 
   void hide(SelectionOverlayController owner) {
-    if (!mounted || _owner != owner) return;
-    setState(() {
+    if (_owner != owner) return;
+    _update(() {
       _owner = null;
       _builder = null;
+    });
+  }
+
+  /// A screen can remove its bar from dispose while Flutter has locked the
+  /// tree. Clear ownership immediately, then rebuild after that frame so the
+  /// bar cannot outlive the screen or retain its disposed callbacks.
+  void _update(VoidCallback change) {
+    if (!mounted) return;
+    if (SchedulerBinding.instance.schedulerPhase !=
+        SchedulerPhase.persistentCallbacks) {
+      setState(change);
+      return;
+    }
+    change();
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
     });
   }
 

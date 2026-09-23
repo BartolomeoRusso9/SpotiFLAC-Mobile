@@ -1165,6 +1165,127 @@ void main() {
     },
   );
 
+  for (final mornye in [false, true]) {
+    testWidgets('player shows original, romanization and English ($mornye)', (
+      tester,
+    ) async {
+      metadataOverrides['lyrics'] =
+          '[x-romaji:1009:${base64.encode(utf8.encode('Romanized text'))}]\n'
+          '[x-translation:1009:${base64.encode(utf8.encode('English text'))}]\n'
+          '[00:01.01]Original text';
+      await pumpNowPlaying(
+        tester,
+        theme: mornye ? MornyeTheme.build(Brightness.dark) : null,
+        size: const Size(390, 844),
+      );
+      mediaItems.add(item('first'));
+      await tester.pumpAndSettle();
+      if (mornye) {
+        await tester.tap(find.byIcon(CupertinoIcons.quote_bubble));
+      } else {
+        await tester.drag(find.byType(PageView), const Offset(-350, 0));
+      }
+      await tester.pumpAndSettle();
+      for (final text in ['Original text', 'Romanized text', 'English text']) {
+        expect(find.text(text), findsOneWidget);
+      }
+      expect(
+        tester.getTopLeft(find.text('Romanized text')).dy,
+        greaterThan(tester.getBottomLeft(find.text('Original text')).dy),
+      );
+      expect(
+        tester.getTopLeft(find.text('English text')).dy,
+        greaterThan(tester.getBottomLeft(find.text('Romanized text')).dy),
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+      'original and romanization follow word timing and pauses ($mornye)',
+      (tester) async {
+        final romanizationWords = base64.encode(
+          utf8.encode(
+            jsonEncode([
+              {'text': 'Firsu ', 'startTimeMs': 1009, 'endTimeMs': 1307},
+              {'text': 'secondu', 'startTimeMs': 2003, 'endTimeMs': 2497},
+            ]),
+          ),
+        );
+        metadataOverrides['lyrics'] =
+            '[x-romaji:1009:${base64.encode(utf8.encode('Firsu secondu'))}]\n'
+            '[x-romaji-words:1009:$romanizationWords]\n'
+            '[00:01.009]<00:01.009>First <00:01.307>'
+            '<00:02.003>second<00:02.497>';
+        final playback = StreamController<PlaybackState>.broadcast();
+        addTearDown(playback.close);
+        await pumpNowPlaying(
+          tester,
+          theme: mornye ? MornyeTheme.build(Brightness.dark) : null,
+          size: const Size(390, 844),
+          playbackEvents: playback.stream,
+        );
+        mediaItems.add(item('first'));
+        await tester.pumpAndSettle();
+        if (mornye) {
+          await tester.tap(find.byIcon(CupertinoIcons.quote_bubble));
+        } else {
+          await tester.drag(find.byType(PageView), const Offset(-350, 0));
+        }
+        await tester.pumpAndSettle();
+
+        Future<List<int>> pixelsAt(int milliseconds, String text) async {
+          playback.add(
+            PlaybackState(
+              processingState: AudioProcessingState.ready,
+              playing: false,
+              updatePosition: Duration(milliseconds: milliseconds),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final paint = find.descendant(
+            of: find.byWidgetPredicate(
+              (widget) =>
+                  widget is Semantics && widget.properties.label == text,
+            ),
+            matching: find.byType(CustomPaint),
+          );
+          expect(paint, findsOneWidget, reason: '$text at $milliseconds ms');
+          final painter = tester.widget<CustomPaint>(paint).painter!;
+          final size = tester.getSize(paint);
+          return (await tester.runAsync(() async {
+            final recorder = ui.PictureRecorder();
+            painter.paint(Canvas(recorder), size);
+            final picture = recorder.endRecording();
+            final image = await picture.toImage(
+              size.width.ceil(),
+              size.height.ceil(),
+            );
+            final bytes = (await image.toByteData(
+              format: ui.ImageByteFormat.rawRgba,
+            ))!;
+            final pixels = bytes.buffer.asUint8List().toList();
+            image.dispose();
+            picture.dispose();
+            return pixels;
+          }))!;
+        }
+
+        for (final text in ['First second', 'Firsu secondu']) {
+          final singingFirst = await pixelsAt(1100, text);
+          final firstEnded = await pixelsAt(1307, text);
+          expect(firstEnded, isNot(orderedEquals(singingFirst)));
+          expect(await pixelsAt(1800, text), orderedEquals(firstEnded));
+          final singingLast = await pixelsAt(2150, text);
+          final lastEnded = await pixelsAt(2497, text);
+          expect(lastEnded, isNot(orderedEquals(singingLast)));
+          expect(await pixelsAt(2900, text), orderedEquals(lastEnded));
+          expect(await pixelsAt(1100, text), orderedEquals(singingFirst));
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets('timed lyric fills text fragments in reading order', (
     tester,
   ) async {

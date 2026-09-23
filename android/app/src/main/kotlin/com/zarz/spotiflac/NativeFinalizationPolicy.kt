@@ -30,7 +30,7 @@ internal object NativeFinalizationPolicy {
     }
 
     private val lyricsMetadataLinePattern = Regex(
-        "^\\[[a-z][a-z0-9_]*:.*]$",
+        "^\\[[a-z][a-z0-9_-]*:.*]$",
         RegexOption.IGNORE_CASE,
     )
     private val lyricsBackgroundPattern = Regex(

@@ -2324,7 +2324,13 @@ class _SyncedLyricsViewState extends ConsumerState<_SyncedLyricsView> {
         style: style,
       );
       painter.layout(maxWidth: width);
-      extents.add(painter.height + 32);
+      var height = painter.height + 32;
+      for (final (text, style, _) in _lyricSupplements(context, line)) {
+        painter.text = TextSpan(text: text, style: style);
+        painter.layout(maxWidth: width);
+        height += 6 + painter.height;
+      }
+      extents.add(height);
     }
     _lineExtents = extents;
     painter.dispose();
@@ -2470,8 +2476,11 @@ class _SyncedLyricsViewState extends ConsumerState<_SyncedLyricsView> {
                   ? '\u00b7\u00b7\u00b7'
                   : line.text;
 
+              final timed =
+                  isActive &&
+                  (line.hasWordTiming || line.romanizationWords.isNotEmpty);
               Widget content;
-              if (isActive && line.hasWordTiming) {
+              if (timed) {
                 content = _WordHighlightedLyricLine(
                   line: line,
                   colorScheme: widget.colorScheme,
@@ -2495,6 +2504,7 @@ class _SyncedLyricsViewState extends ConsumerState<_SyncedLyricsView> {
                             color: color,
                           ),
                 );
+                content = _withLyricSupplements(context, line, content, color);
               }
               content = AnimatedSwitcher(
                 duration: const Duration(milliseconds: 320),
@@ -2502,7 +2512,7 @@ class _SyncedLyricsViewState extends ConsumerState<_SyncedLyricsView> {
                 switchInCurve: Curves.easeOutCubic,
                 switchOutCurve: Curves.easeInCubic,
                 child: KeyedSubtree(
-                  key: ValueKey(isActive && line.hasWordTiming),
+                  key: ValueKey(timed),
                   child: mornye
                       ? SizedBox(width: double.infinity, child: content)
                       : content,
@@ -2558,6 +2568,61 @@ class _SyncedLyricsViewState extends ConsumerState<_SyncedLyricsView> {
       ),
     );
   }
+}
+
+Iterable<(String, TextStyle, List<LyricWord>)> _lyricSupplements(
+  BuildContext context,
+  LyricLine line,
+) sync* {
+  final base = Theme.of(context).textTheme.bodyMedium ?? const TextStyle();
+  for (final (text, translation) in [
+    (line.romanization, false),
+    (line.translation, true),
+  ]) {
+    if (text == null || text.trim().isEmpty) continue;
+    yield (
+      text,
+      base.copyWith(
+        fontSize: context.isMornye
+            ? (translation ? 15 : 17)
+            : (translation ? 14 : 16),
+        height: 1.35,
+        fontWeight: FontWeight.w500,
+      ),
+      translation ? const <LyricWord>[] : line.romanizationWords,
+    );
+  }
+}
+
+Widget _withLyricSupplements(
+  BuildContext context,
+  LyricLine line,
+  Widget primary,
+  Color color, {
+  Widget Function(String, List<LyricWord>, TextStyle)? timedText,
+}) {
+  if (line.romanization == null && line.translation == null) return primary;
+  return Column(
+    crossAxisAlignment: context.isMornye
+        ? CrossAxisAlignment.start
+        : CrossAxisAlignment.center,
+    children: [
+      primary,
+      for (final (text, style, words) in _lyricSupplements(context, line)) ...[
+        const SizedBox(height: 6),
+        if (words.isNotEmpty && timedText != null)
+          timedText(text, words, style)
+        else
+          Text(
+            text,
+            textAlign: context.isMornye ? TextAlign.start : TextAlign.center,
+            style: style.copyWith(
+              color: color.withValues(alpha: color.a * 0.8),
+            ),
+          ),
+      ],
+    ],
+  );
 }
 
 class _WordHighlightedLyricLine extends ConsumerStatefulWidget {
@@ -2657,10 +2722,12 @@ class _WordHighlightedLyricLineState
     if (!mounted) return;
     final predicted = _currentPosition();
     _anchorAt(
-      reconcileSyncedLyricsPosition(
-        predictedPosition: predicted,
-        reportedPosition: position,
-      ),
+      _shouldAnimate
+          ? reconcileSyncedLyricsPosition(
+              predictedPosition: predicted,
+              reportedPosition: position,
+            )
+          : position,
     );
     setState(() {});
   }
@@ -2670,7 +2737,7 @@ class _WordHighlightedLyricLineState
     final position = _currentPosition();
     if (playing != null) _playing = playing;
     if (loading != null) _loading = loading;
-    _anchorAt(position);
+    _anchorAt(_shouldAnimate ? position : ref.read(playbackPositionProvider));
     _syncAnimationClock();
     setState(() {});
   }
@@ -2685,10 +2752,12 @@ class _WordHighlightedLyricLineState
     }
   }
 
-  Duration _segmentEnd(int index) {
-    final start = widget.line.words[index].time;
-    if (index + 1 < widget.line.words.length) {
-      final next = widget.line.words[index + 1].time;
+  Duration _segmentEnd(List<LyricWord> words, int index) {
+    final word = words[index];
+    final start = word.time;
+    if (word.end != null && word.end! >= start) return word.end!;
+    if (index + 1 < words.length) {
+      final next = words[index + 1].time;
       if (next > start) return next;
     }
     final lineEnd = widget.line.end;
@@ -2712,6 +2781,32 @@ class _WordHighlightedLyricLineState
   }
 
   Widget _buildHighlightedLine(BuildContext context) {
+    final style =
+        (Theme.of(context).textTheme.headlineSmall ?? const TextStyle())
+            .copyWith(
+              fontSize: context.isMornye ? 28 : null,
+              height: context.isMornye ? 1.3 : 1.4,
+              fontWeight: FontWeight.bold,
+            );
+    final primary = widget.line.hasWordTiming
+        ? _buildTimedText(widget.line.text, widget.line.words, style)
+        : Text(
+            widget.line.text,
+            textAlign: context.isMornye ? TextAlign.start : TextAlign.center,
+            style: style.copyWith(color: widget.colorScheme.onSurface),
+          );
+    // Both scripts share this state's position interpolation and animation
+    // clock, including pause, seek and track changes.
+    return _withLyricSupplements(
+      context,
+      widget.line,
+      primary,
+      widget.colorScheme.onSurface,
+      timedText: _buildTimedText,
+    );
+  }
+
+  Widget _buildTimedText(String text, List<LyricWord> words, TextStyle style) {
     final highlightedColor = widget.colorScheme.onSurface;
     final mornye = context.isMornye;
     final pendingColor = mornye
@@ -2720,11 +2815,11 @@ class _WordHighlightedLyricLineState
     final segments = <String>[];
     final starts = <Duration>[];
     final ends = <Duration>[];
-    for (var index = 0; index < widget.line.words.length; index++) {
-      final word = widget.line.words[index];
+    for (var index = 0; index < words.length; index++) {
+      final word = words[index];
       segments.add(word.text);
       starts.add(word.time);
-      ends.add(_segmentEnd(index));
+      ends.add(_segmentEnd(words, index));
     }
 
     return _SweepingTimedLyricText(
@@ -2733,16 +2828,11 @@ class _WordHighlightedLyricLineState
       ends: ends,
       currentPosition: _currentPosition,
       repaint: _animationClock,
-      style: (Theme.of(context).textTheme.headlineSmall ?? const TextStyle())
-          .copyWith(
-            fontSize: mornye ? 28 : null,
-            height: mornye ? 1.3 : 1.4,
-            fontWeight: FontWeight.bold,
-          ),
+      style: style,
       textAlign: mornye ? TextAlign.start : TextAlign.center,
       pendingColor: pendingColor,
       highlightedColor: highlightedColor,
-      semanticsLabel: widget.line.text,
+      semanticsLabel: text,
     );
   }
 }

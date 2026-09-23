@@ -166,7 +166,9 @@ impl BuiltinLyricsClient {
             Err(error) if raw.starts_with(['{', '[']) => return Err(LyricsError::Other(error)),
             Err(_) => raw.into(),
         };
-        from_text(&text, "Apple Music", "Apple Music")
+        let mut lyrics = from_text(&text, "Apple Music", "Apple Music")?;
+        payloads::apple_supplements(raw, &mut lyrics);
+        Ok(lyrics)
     }
 }
 

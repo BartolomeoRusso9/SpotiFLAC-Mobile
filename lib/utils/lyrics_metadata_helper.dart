@@ -8,7 +8,7 @@ final RegExp _lrcDisplayTimestampPattern = RegExp(
   r'^\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\]',
 );
 final RegExp _lrcDisplayMetadataPattern = RegExp(
-  r'^\[[a-zA-Z][a-zA-Z0-9_]*:.*\]$',
+  r'^\[[a-zA-Z][a-zA-Z0-9_-]*:.*\]$',
 );
 final RegExp _lrcDisplayInlineTimestampPattern = RegExp(
   r'<\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?>',

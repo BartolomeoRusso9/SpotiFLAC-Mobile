@@ -1,12 +1,13 @@
 use super::{LyricsLine, LyricsResponse};
 use crate::matching::lowercase;
+use base64::{Engine, engine::general_purpose::STANDARD};
 use regex::Regex;
 use std::sync::LazyLock;
 
 static TIMED_LINE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\[([0-9]{2}):([0-9]{2})\.([0-9]{2,3})\](.*)").unwrap());
 static METADATA: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)^\[[a-z][a-z0-9_]*:.*\]$").unwrap());
+    LazyLock::new(|| Regex::new(r"(?i)^\[[a-z][a-z0-9_-]*:.*\]$").unwrap());
 static BACKGROUND: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^\[bg:(.*)\]$").unwrap());
 static LEADING_TIME: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\[[0-9]{1,3}:[0-9]{1,2}(?:[.:][0-9]{1,3})?\]").unwrap());
@@ -78,6 +79,7 @@ pub fn parse_synced(raw: &str) -> Option<Vec<LyricsLine>> {
                 start_time_ms: minutes * 60_000 + seconds * 1000 + fraction,
                 words: words.into(),
                 end_time_ms: 0,
+                ..LyricsLine::default()
             });
         }
     }
@@ -113,13 +115,14 @@ pub fn plain_from_timed_lines(lines: &[LyricsLine]) -> String {
 }
 
 pub fn timestamp_inline(ms: i64) -> String {
+    let ms = ms.max(0);
     let seconds = ms / 1000;
-    format!(
-        "{:02}:{:02}.{:02}",
-        seconds / 60,
-        seconds % 60,
-        ms % 1000 / 10
-    )
+    let fraction = if ms % 10 == 0 {
+        format!("{:02}", ms % 1000 / 10)
+    } else {
+        format!("{:03}", ms % 1000)
+    };
+    format!("{:02}:{:02}.{fraction}", seconds / 60, seconds % 60)
 }
 
 pub fn timestamp(ms: i64) -> String {
@@ -175,6 +178,32 @@ pub fn with_metadata(lyrics: &LyricsResponse, track: &str, artist: &str) -> Stri
         output.push_str(&format!(" (source: {source})"));
     }
     output.push_str("]\n\n");
+    if lyrics.sync_type == "LINE_SYNCED" {
+        for line in lyrics.lines() {
+            if let Some(words) = &line.romanization_words
+                && !words.is_empty()
+                && let Ok(json) = serde_json::to_vec(words)
+            {
+                output.push_str(&format!(
+                    "[x-romaji-words:{}:{}]\n",
+                    line.start_time_ms,
+                    STANDARD.encode(json)
+                ));
+            }
+            for (tag, text) in [
+                ("x-romaji", &line.romanization),
+                ("x-translation", &line.translation),
+            ] {
+                if let Some(text) = text.as_deref().filter(|text| !text.trim().is_empty()) {
+                    output.push_str(&format!(
+                        "[{tag}:{}:{}]\n",
+                        line.start_time_ms,
+                        STANDARD.encode(text.trim())
+                    ));
+                }
+            }
+        }
+    }
     for line in lyrics.lines() {
         if line.words.is_empty() {
             continue;
@@ -186,4 +215,33 @@ pub fn with_metadata(lyrics: &LyricsResponse, track: &str, artist: &str) -> Stri
         output.push('\n');
     }
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn writing_timestamps_never_discards_milliseconds() {
+        for time in [0, 1000, 1009, 12345, 59999, 60000, 3599999] {
+            let raw = format!("{}Original", timestamp(time));
+            assert_eq!(parse_synced(&raw).unwrap()[0].start_time_ms, time);
+        }
+        assert_eq!(timestamp_inline(1000), "00:01.00");
+        assert_eq!(timestamp_inline(1009), "00:01.009");
+    }
+
+    #[test]
+    fn optional_text_is_safe_metadata_not_lyric_content() {
+        let raw = "[x-romaji:1000:YQ==]\n[x-translation:1000:Yg==]";
+        assert!(!has_usable_content(raw));
+        let mut lyrics =
+            LyricsResponse::from_text("[00:01.009]Original", "Apple Music", "Apple Music");
+        lyrics.lines.as_mut().unwrap()[0].translation = Some("Text ]\nnext line 日本語".into());
+        let lrc = with_metadata(&lyrics, "Track", "Artist");
+        let encoded = STANDARD.encode("Text ]\nnext line 日本語");
+        assert!(lrc.contains(&format!("[x-translation:1009:{encoded}]")));
+        assert!(lrc.contains("[00:01.009]Original"));
+        assert!(has_usable_content(&lrc));
+    }
 }

@@ -1,10 +1,13 @@
+import 'dart:convert';
+
 import 'package:xml/xml.dart';
 
 class LyricWord {
   final Duration time;
+  final Duration? end;
   final String text;
 
-  const LyricWord({required this.time, required this.text});
+  const LyricWord({required this.time, this.end, required this.text});
 }
 
 class LyricLine {
@@ -12,12 +15,18 @@ class LyricLine {
   final Duration? end;
   final String text;
   final List<LyricWord> words;
+  final String? romanization;
+  final List<LyricWord> romanizationWords;
+  final String? translation;
 
   const LyricLine({
     required this.time,
     this.end,
     required this.text,
     this.words = const [],
+    this.romanization,
+    this.romanizationWords = const [],
+    this.translation,
   });
 
   bool get hasWordTiming => words.isNotEmpty;
@@ -61,7 +70,11 @@ class LyricsParser {
 
   // ID tags such as [ti:..], [ar:..], [offset:..].
   static final RegExp _idTag = RegExp(
-    r'^\[(ti|ar|al|by|offset|length|re|ve|tool|au|la|encoder):.*\]$',
+    r'^\[(ti|ar|al|by|offset|length|re|ve|tool|au|la|encoder|instrumental|x-[a-z0-9_-]+):.*\]$',
+    caseSensitive: false,
+  );
+  static final RegExp _supplementTag = RegExp(
+    r'^\[x-(romaji-words|romaji|translation):(\d+):([^\]]*)\]$',
     caseSensitive: false,
   );
 
@@ -102,6 +115,9 @@ class LyricsParser {
     final rawLines = text.split(RegExp(r'\r\n|\r|\n'));
     final parsed = <LyricLine>[];
     final plainBuffer = <String>[];
+    final romanization = <int, String>{};
+    final romanizationWords = <int, List<LyricWord>>{};
+    final translation = <int, String>{};
     var sawTimestamp = false;
     var sawWordTiming = false;
     var offsetMs = 0;
@@ -109,6 +125,29 @@ class LyricsParser {
     for (final rawLine in rawLines) {
       final line = rawLine.trimRight();
       if (line.trim().isEmpty) continue;
+
+      final supplement = _supplementTag.firstMatch(line.trim());
+      if (supplement != null) {
+        final time = int.tryParse(supplement.group(2)!);
+        try {
+          final value = utf8.decode(base64.decode(supplement.group(3)!)).trim();
+          if (time != null && value.isNotEmpty) {
+            final kind = supplement.group(1)!.toLowerCase();
+            if (kind == 'romaji-words') {
+              final words = _parseRomanizationWords(value);
+              if (words.isNotEmpty) {
+                romanizationWords.putIfAbsent(time, () => words);
+              }
+            } else {
+              final target = kind == 'romaji' ? romanization : translation;
+              target.putIfAbsent(time, () => value);
+            }
+          }
+        } on FormatException {
+          // Optional corrupt metadata must not hide the original lyrics.
+        }
+        continue;
+      }
 
       // Capture [offset:] for timing correction, drop other ID tags.
       final idMatch = _idTag.firstMatch(line.trim());
@@ -147,7 +186,14 @@ class LyricsParser {
       for (final tm in timeMatches) {
         final d = _toDuration(tm.group(1), tm.group(2), tm.group(3));
         if (d == null) continue;
-        parsed.add(LyricLine(time: d, text: cleanContent, words: words));
+        parsed.add(
+          LyricLine(
+            time: d,
+            end: words.lastOrNull?.end,
+            text: cleanContent,
+            words: words,
+          ),
+        );
       }
     }
 
@@ -157,34 +203,44 @@ class LyricsParser {
         synced: false,
         wordSynced: false,
         lines: const [],
-        plainText: rawLines
-            .map((l) => l.trim())
-            .where((l) => l.isNotEmpty && _idTag.firstMatch(l) == null)
-            .join('\n'),
+        plainText: plainBuffer.where((l) => l.isNotEmpty).join('\n'),
       );
     }
 
     parsed.sort((a, b) => a.time.compareTo(b.time));
+    final alignedRomanization = _alignSupplements(parsed, romanization);
+    final alignedRomanizationWords = _alignSupplements(
+      parsed,
+      romanizationWords,
+    );
+    final alignedTranslation = _alignSupplements(parsed, translation);
 
-    final adjusted = offsetMs == 0
+    final adjusted =
+        offsetMs == 0 &&
+            alignedRomanization.isEmpty &&
+            alignedTranslation.isEmpty
         ? parsed
-        : parsed
-              .map(
-                (l) => LyricLine(
-                  time: _shift(l.time, offsetMs),
-                  end: l.end,
-                  text: l.text,
-                  words: l.words
-                      .map(
-                        (w) => LyricWord(
-                          time: _shift(w.time, offsetMs),
-                          text: w.text,
-                        ),
-                      )
-                      .toList(),
-                ),
-              )
-              .toList();
+        : parsed.map((l) {
+            final romanization = alignedRomanization[l.time.inMilliseconds];
+            final words =
+                alignedRomanizationWords[l.time.inMilliseconds] ??
+                const <LyricWord>[];
+            // Keep readable text when optional timings are incomplete or
+            // belong to a different revision of the transliteration.
+            final validWords =
+                words.map((word) => word.text).join() == romanization
+                ? words
+                : const <LyricWord>[];
+            return LyricLine(
+              time: _shift(l.time, offsetMs),
+              end: l.end == null ? null : _shift(l.end!, offsetMs),
+              text: l.text,
+              romanization: romanization,
+              romanizationWords: _shiftWords(validWords, offsetMs),
+              translation: alignedTranslation[l.time.inMilliseconds],
+              words: _shiftWords(l.words, offsetMs),
+            );
+          }).toList();
 
     return ParsedLyrics(
       synced: true,
@@ -192,6 +248,88 @@ class LyricsParser {
       lines: adjusted,
       plainText: plainBuffer.where((l) => l.isNotEmpty).join('\n'),
     );
+  }
+
+  /// Older files may have centisecond line times alongside millisecond
+  /// supplement times. Resolve each supplement to one nearest line, keeping
+  /// exact matches when multiple metadata entries compete for that line.
+  static Map<int, T> _alignSupplements<T>(
+    List<LyricLine> lines,
+    Map<int, T> supplements,
+  ) {
+    final matched = <int, (int, T)>{};
+    for (final entry in supplements.entries) {
+      var lo = 0;
+      var hi = lines.length;
+      while (lo < hi) {
+        final mid = (lo + hi) >> 1;
+        if (lines[mid].time.inMilliseconds < entry.key) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
+      }
+      int? nearest;
+      var distance = 11;
+      for (final index in [lo - 1, lo]) {
+        if (index < 0 || index >= lines.length) continue;
+        final time = lines[index].time.inMilliseconds;
+        final delta = (time - entry.key).abs();
+        if (delta < distance) {
+          nearest = time;
+          distance = delta;
+        }
+      }
+      if (nearest == null) continue;
+      final previous = matched[nearest];
+      if (previous == null || distance < previous.$1) {
+        matched[nearest] = (distance, entry.value);
+      }
+    }
+    return matched.map((time, match) => MapEntry(time, match.$2));
+  }
+
+  static List<LyricWord> _parseRomanizationWords(String raw) {
+    final value = jsonDecode(raw);
+    if (value is! List) return const [];
+    final words = <LyricWord>[];
+    for (final item in value) {
+      if (item case {
+        'text': final String text,
+        'startTimeMs': final int start,
+        'endTimeMs': final int end,
+      }) {
+        if (text.trim().isEmpty ||
+            start < 0 ||
+            end < start ||
+            (words.isNotEmpty && words.last.time.inMilliseconds > start)) {
+          return const [];
+        }
+        words.add(
+          LyricWord(
+            time: Duration(milliseconds: start),
+            end: Duration(milliseconds: end),
+            text: text,
+          ),
+        );
+      } else {
+        return const [];
+      }
+    }
+    return words;
+  }
+
+  static List<LyricWord> _shiftWords(List<LyricWord> words, int offsetMs) {
+    if (offsetMs == 0 || words.isEmpty) return words;
+    return words
+        .map(
+          (word) => LyricWord(
+            time: _shift(word.time, offsetMs),
+            end: word.end == null ? null : _shift(word.end!, offsetMs),
+            text: word.text,
+          ),
+        )
+        .toList(growable: false);
   }
 
   static Duration _shift(Duration d, int offsetMs) {
@@ -214,7 +352,17 @@ class LyricsParser {
           ? matches[i + 1].start
           : content.length;
       final word = content.substring(start, end);
-      if (word.trim().isEmpty) continue;
+      if (word.trim().isEmpty) {
+        final previous = words.lastOrNull;
+        if (previous != null && previous.end == null && d >= previous.time) {
+          words[words.length - 1] = LyricWord(
+            time: previous.time,
+            end: d,
+            text: previous.text,
+          );
+        }
+        continue;
+      }
       words.add(LyricWord(time: d, text: word));
     }
     return words;
@@ -242,7 +390,14 @@ class LyricsParser {
             final sBegin = _parseClock(span.getAttribute('begin'));
             final spanText = span.innerText;
             if (sBegin != null && spanText.trim().isNotEmpty) {
-              words.add(LyricWord(time: sBegin, text: '$spanText '));
+              final sEnd = _parseClock(span.getAttribute('end'));
+              words.add(
+                LyricWord(
+                  time: sBegin,
+                  end: sEnd != null && sEnd >= sBegin ? sEnd : null,
+                  text: '$spanText ',
+                ),
+              );
             }
           }
         }

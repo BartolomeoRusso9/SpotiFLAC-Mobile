@@ -13,6 +13,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 pub const MAX_ENTRIES: usize = 500;
 pub const TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_PERSISTED_BYTES: u64 = 64 << 20;
+const SNAPSHOT_VERSION: u32 = 3;
 
 #[derive(Clone)]
 struct Entry {
@@ -143,7 +144,7 @@ impl LyricsCache {
         let loaded = read_snapshot(path).unwrap_or_default();
         let mut state = self.inner.state.lock().expect("lyrics cache lock");
         state.path = Some(path.to_owned());
-        if loaded.version == 1 {
+        if (1..=SNAPSHOT_VERSION).contains(&loaded.version) {
             for (key, entry) in loaded.entries {
                 if state.entries.len() >= MAX_ENTRIES {
                     break;
@@ -151,6 +152,11 @@ impl LyricsCache {
                 let Some(response) = entry.response else {
                     continue;
                 };
+                // Older versions discarded Apple text or romanization timing.
+                // Refetch once, preserving other providers' caches.
+                if loaded.version < SNAPSHOT_VERSION && response.provider == "Apple Music" {
+                    continue;
+                }
                 let Some(expires_at) = u64::try_from(entry.expires_at)
                     .ok()
                     .and_then(|seconds| UNIX_EPOCH.checked_add(Duration::from_secs(seconds)))
@@ -267,7 +273,7 @@ fn write_snapshot(path: &Path, entries: &BTreeMap<String, Entry>) -> std::io::Re
         entries: BTreeMap<&'a str, BorrowedEntry<'a>>,
     }
     let snapshot = BorrowedSnapshot {
-        version: 1,
+        version: SNAPSHOT_VERSION,
         entries: entries
             .iter()
             .map(|(key, entry)| {
@@ -304,4 +310,55 @@ fn write_snapshot(path: &Path, entries: &BTreeMap<String, Entry>) -> std::io::Re
     temporary.as_file().sync_all()?;
     temporary.persist(path).map_err(|error| error.error)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_snapshot_refetches_apple_but_preserves_other_providers() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let now = UNIX_EPOCH + Duration::from_secs(100);
+        let apple = LyricsResponse::from_text("[00:01.00]Original", "Apple Music", "Apple Music");
+        let other = LyricsResponse::from_text("[00:01.00]Original", "LRCLIB", "LRCLIB");
+        for version in 1..SNAPSHOT_VERSION {
+            let snapshot = serde_json::json!({"version": version, "entries": {
+                "apple": {"response": apple, "expires_at": 200},
+                "other": {"response": other, "expires_at": 200}
+            }});
+            fs::write(file.path(), serde_json::to_vec(&snapshot).unwrap()).unwrap();
+            let cache = LyricsCache::default();
+            cache.set_persistence_path(file.path(), now);
+            assert!(cache.get("apple", now).is_none());
+            assert_eq!(cache.get("other", now).unwrap().provider, "LRCLIB");
+        }
+    }
+
+    #[test]
+    fn current_snapshot_restores_supplementary_text() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let now = UNIX_EPOCH + Duration::from_secs(100);
+        let mut lyrics =
+            LyricsResponse::from_text("[00:01.009]Original", "Apple Music", "Apple Music");
+        let line = &mut lyrics.lines.as_mut().unwrap()[0];
+        line.romanization = Some("Romanized".into());
+        line.romanization_words = Some(vec![spotiflac_core::lyrics::LyricsWord {
+            text: "Romanized".into(),
+            start_time_ms: 1009,
+            end_time_ms: 1307,
+        }]);
+        line.translation = Some("English".into());
+        let entries = BTreeMap::from([(
+            "apple".into(),
+            Entry {
+                response: Arc::new(lyrics.clone()),
+                expires_at: now + Duration::from_secs(100),
+            },
+        )]);
+        write_snapshot(file.path(), &entries).unwrap();
+        let cache = LyricsCache::default();
+        cache.set_persistence_path(file.path(), now);
+        assert_eq!(cache.get("apple", now), Some(lyrics));
+    }
 }
