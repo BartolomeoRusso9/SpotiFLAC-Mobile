@@ -51,6 +51,7 @@ jobs:
               - 'ios/**'
               - 'scripts/build_ios.sh'
               - 'scripts/check_backend_ios.py'
+              - 'scripts/test_check_backend_ios.py'
               - 'lib/**'
               - 'assets/**'
               - 'pubspec.yaml'
@@ -178,6 +179,7 @@ jobs:
 
       - name: Build and audit Rust iOS release application
         run: |
+          python3 -m unittest discover -s scripts -p 'test_check_backend_ios.py'
           flutter build ios --release --no-codesign --target lib/main.dart
           python3 scripts/check_backend_ios.py build/ios/iphoneos/Runner.app \
             --backend rust --archs arm64 --platform ios --release
@@ -225,12 +227,14 @@ jobs:
       - name: Configure Flutter SDK for Gradle
         run: echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
 
-      - name: Install Rust application build prerequisites
+      - name: Install Rust application build and media test prerequisites
         run: |
           cd rust_backend
           rustup show
           sudo apt-get update
-          sudo apt-get install -y libclang-dev
+          sudo apt-get install -y libclang-dev ffmpeg
+          ffmpeg -version
+          echo "SPOTIFLAC_TEST_FFMPEG=$(command -v ffmpeg)" >> "$GITHUB_ENV"
 
       - name: Package Rust application and run native unit tests
         run: gradle -p android :app:assembleDebug :app:testDebugUnitTest

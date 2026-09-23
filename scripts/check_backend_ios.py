@@ -8,7 +8,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Sequence, Set, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 
 MACHO_MAGICS = {
@@ -140,7 +140,26 @@ def defined_symbol(nm_output: str, marker: str) -> bool:
     return False
 
 
-def audit(app: Path, backend: str, archs: Sequence[str], platform: str, release: bool) -> str:
+def macho_uuids(path: Path) -> Dict[str, str]:
+    output = run_xcrun("dwarfdump", "--uuid", str(path))
+    matches = re.findall(r"UUID: ([0-9A-Fa-f-]{36}) \(([^)]+)\)", output)
+    uuids = {arch: uuid.upper() for uuid, arch in matches}
+    if not uuids or len(uuids) != len(matches):
+        raise AuditError("missing or duplicate Mach-O UUIDs: " + str(path))
+    return uuids
+
+
+def read_dsym_symbols(executable: Path, dsym: Path) -> str:
+    dwarf = dsym / "Contents" / "Resources" / "DWARF" / executable.name
+    if dwarf.is_symlink() or not dwarf.is_file() or not is_macho(dwarf):
+        raise AuditError("missing Mach-O dSYM for main executable: " + str(dwarf))
+    if macho_uuids(executable) != macho_uuids(dwarf):
+        raise AuditError("dSYM UUIDs/architectures do not match the main executable")
+    return run_xcrun("nm", "-gU", str(dwarf))
+
+
+def audit(app: Path, backend: str, archs: Sequence[str], platform: str, release: bool,
+          dsym: Optional[Path] = None) -> str:
     if not app.is_dir():
         raise AuditError(".app is not a directory: " + str(app))
     executable = read_main_executable(app)
@@ -173,6 +192,12 @@ def audit(app: Path, backend: str, archs: Sequence[str], platform: str, release:
         nm = run_xcrun("nm", "-gU", str(path))
         macho.append((relative.as_posix(), otool, nm))
 
+    # Archive strips static Rust symbols from Runner after generating its dSYM.
+    # Only accept symbol evidence from the exact same executable (all UUIDs and
+    # architectures must match); continue scanning the shipped bundle for Go.
+    if dsym is not None:
+        macho.append(("main executable dSYM", "", read_dsym_symbols(executable, dsym)))
+
     go_section = any(section in otool for _, otool, _ in macho for section in GO_SECTIONS)
     go_symbol = any(
         defined_symbol(nm, symbol) for _, _, nm in macho for symbol in GO_SYMBOLS
@@ -199,6 +224,8 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--archs", required=True, metavar="ARCH[,ARCH...]")
     parser.add_argument("--platform", choices=tuple(PLATFORM_NAMES), required=True)
     parser.add_argument("--release", action="store_true", help="apply release artifact checks")
+    parser.add_argument("--dsym", type=Path,
+                        help="matching main executable .dSYM for a stripped archive")
     return parser
 
 
@@ -206,7 +233,7 @@ def main(argv: Sequence[str] = None) -> int:
     args = make_parser().parse_args(argv)
     try:
         archs = parse_archs(args.archs)
-        digest = audit(args.app, args.backend, archs, args.platform, args.release)
+        digest = audit(args.app, args.backend, archs, args.platform, args.release, args.dsym)
     except (AuditError, OSError) as exc:
         print("error: " + str(exc), file=sys.stderr)
         return 1

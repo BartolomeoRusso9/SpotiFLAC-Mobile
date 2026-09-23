@@ -291,8 +291,10 @@ jobs:
 
       - name: Audit Rust iOS archive before packaging
         run: |
+          python3 -m unittest discover -s scripts -p 'test_check_backend_ios.py'
           python3 scripts/check_backend_ios.py \
             ios/build/Runner.xcarchive/Products/Applications/Runner.app \
+            --dsym ios/build/Runner.xcarchive/dSYMs/Runner.app.dSYM \
             --backend rust --archs arm64 --platform ios --release
 
       - name: Create IPA

@@ -105,7 +105,10 @@ class NativeFlacConversionTest {
     @Test
     fun hostFlacInMp4RemuxAndFallbackPreserveDecodedPcmAndArtwork() {
         val ffmpeg = System.getenv("SPOTIFLAC_TEST_FFMPEG").orEmpty()
-        assumeTrue("Set SPOTIFLAC_TEST_FFMPEG for host media fixtures", File(ffmpeg).canExecute())
+        assumeTrue(
+            "Set SPOTIFLAC_TEST_FFMPEG for host media fixtures",
+            File(ffmpeg).isFile && File(ffmpeg).canExecute(),
+        )
         fun execute(arguments: Array<String>): Pair<Boolean, String> {
             val process = ProcessBuilder(listOf(ffmpeg) + arguments).redirectErrorStream(true).start()
             val output = process.inputStream.bufferedReader().use { it.readText() }
