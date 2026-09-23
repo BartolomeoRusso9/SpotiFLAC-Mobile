@@ -82,6 +82,48 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('failed verification search can retry the same query', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final search = _Search(failFirst: true);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          settingsProvider.overrideWith(_Settings.new),
+          extensionProvider.overrideWith(_Extensions.new),
+          exploreProvider.overrideWith(_Explore.new),
+          downloadHistoryProvider.overrideWith(_History.new),
+          recentAccessProvider.overrideWith(_Recent.new),
+          trackProvider.overrideWith(() => search),
+        ],
+        child: MaterialApp(
+          theme: MornyeTheme.build(Brightness.dark),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const _Tabs(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open Search'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Example');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    expect(search._requests, 1);
+    expect(find.text('Found artist'), findsNothing);
+
+    await tester.tap(find.byType(TextField));
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    expect(search._requests, 2);
+    expect(find.text('Found artist'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 class _Tabs extends StatefulWidget {
@@ -185,6 +227,9 @@ class _Recent extends RecentAccessNotifier {
 }
 
 class _Search extends TrackNotifier {
+  _Search({bool failFirst = false}) : _failFirst = failFirst;
+
+  final bool _failFirst;
   int _requests = 0;
 
   @override
@@ -196,6 +241,13 @@ class _Search extends TrackNotifier {
     bool allowVerificationRetry = true,
   }) async {
     _requests++;
+    if (_failFirst && _requests == 1) {
+      state = const TrackState(
+        hasSearchText: true,
+        error: 'verification_required',
+      );
+      return;
+    }
     state = const TrackState(
       hasSearchText: true,
       searchExtensionId: 'example',

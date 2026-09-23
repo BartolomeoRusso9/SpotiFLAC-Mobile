@@ -480,9 +480,16 @@ Future<bool> _launchVerificationUrl(Uri uri, String browserMode) async {
       ? LaunchMode.externalApplication
       : LaunchMode.inAppBrowserView;
 
-  var launched = await launchUrl(uri, mode: firstMode);
-  if (!launched) {
-    launched = await launchUrl(uri, mode: fallbackMode);
+  for (final mode in [firstMode, fallbackMode]) {
+    try {
+      if (await launchUrl(uri, mode: mode)) return true;
+    } on PlatformException catch (error) {
+      // Android reports some launch failures as exceptions rather than false.
+      // Keep the other mode and manual verification help available in both cases.
+      _log.w(
+        'Verification browser launch failed (${mode.name}): ${error.code}',
+      );
+    }
   }
-  return launched;
+  return false;
 }

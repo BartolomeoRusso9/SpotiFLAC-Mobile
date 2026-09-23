@@ -372,6 +372,10 @@ class _HomeTabState extends ConsumerState<HomeTab>
   }
 
   void _onTrackStateChanged(TrackState? previous, TrackState next) {
+    if (next.error != null) {
+      // Failed requests must remain retryable without changing the search text.
+      _lastSearchQuery = null;
+    }
     if (!identical(previous?.tracks, next.tracks)) {
       // Home stays alive across tabs. Empty/loading/error branches can skip
       // result building, so release the previous search's derived lists here.
