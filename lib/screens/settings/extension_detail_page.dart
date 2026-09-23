@@ -594,7 +594,6 @@ class _ExtensionDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Divider(
     height: 1,
-    thickness: context.isMornye ? 0.5 : 1,
     indent: indent,
     endIndent: 16,
     color: context.isMornye
@@ -706,7 +705,7 @@ class _CapabilityItem extends StatelessWidget {
           child: Row(
             children: [
               Icon(
-                context.isMornye ? mornyeIconFor(icon) : icon,
+                context.adaptiveIcon(icon),
                 color: context.isMornye || enabled
                     ? colorScheme.primary
                     : colorScheme.outline,
@@ -980,7 +979,7 @@ class _PermissionItem extends StatelessWidget {
           child: Row(
             children: [
               Icon(
-                context.isMornye ? mornyeIconFor(icon) : icon,
+                context.adaptiveIcon(icon),
                 color: context.isMornye
                     ? colorScheme.primary
                     : colorScheme.onSurfaceVariant,

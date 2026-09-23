@@ -282,9 +282,7 @@ class _UpdateChannelSelector extends StatelessWidget {
           Row(
             children: [
               Icon(
-                context.isMornye
-                    ? mornyeIconFor(Icons.new_releases)
-                    : Icons.new_releases,
+                context.adaptiveIcon(Icons.new_releases),
                 color: context.isMornye
                     ? colorScheme.primary
                     : colorScheme.onSurfaceVariant,
@@ -389,9 +387,7 @@ class _VerificationBrowserModeSelector extends StatelessWidget {
               Row(
                 children: [
                   Icon(
-                    context.isMornye
-                        ? mornyeIconFor(Icons.open_in_browser)
-                        : Icons.open_in_browser,
+                    context.adaptiveIcon(Icons.open_in_browser),
                     color: context.isMornye
                         ? colorScheme.primary
                         : colorScheme.onSurfaceVariant,

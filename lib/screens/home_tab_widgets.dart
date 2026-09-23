@@ -274,9 +274,9 @@ class _TrackItemWithStatus extends ConsumerWidget {
           child: Padding(
             padding: EdgeInsets.fromLTRB(
               12,
-              context.isMornye ? 12 : 10,
+              context.tokens.trackRowPaddingV,
               6,
-              context.isMornye ? 12 : 10,
+              context.tokens.trackRowPaddingV,
             ),
             child: Row(
               children: [
@@ -494,7 +494,7 @@ class _CollectionItemWidget extends StatelessWidget {
           child: Padding(
             padding: EdgeInsets.symmetric(
               horizontal: 12,
-              vertical: context.isMornye ? 12 : 10,
+              vertical: context.tokens.trackRowPaddingV,
             ),
             child: Row(
               children: [

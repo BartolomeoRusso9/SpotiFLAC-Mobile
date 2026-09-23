@@ -33,6 +33,19 @@ class AppTokens extends ThemeExtension<AppTokens> {
     required this.motionFast,
     required this.motionMedium,
     required this.motionSlow,
+    this.rowPaddingH = 20,
+    this.rowPaddingV = 16,
+    this.rowPaddingVCompact = 12,
+    this.rowIconGap = 16,
+    this.rowIconDividerIndent = 56,
+    this.rowChevronSize = 24,
+    this.rowMinHeight = 0,
+    this.trackRowPaddingV = 10,
+    this.headerSubtitleSize = 16,
+    this.lyricsLineHeight = 1.4,
+    this.lyricsLinePaddingV = 10,
+    this.playerControlGap = 20,
+    this.dialogInsetH = 40,
   });
 
   /// The values every theme in the app uses today. Kept as the single
@@ -121,6 +134,48 @@ class AppTokens extends ThemeExtension<AppTokens> {
   final Duration motionMedium;
   final Duration motionSlow;
 
+  /// Horizontal inset of settings-style rows; also their divider end indent.
+  final double rowPaddingH;
+
+  /// Vertical inset of tappable settings rows.
+  final double rowPaddingV;
+
+  /// Vertical inset of rows that already carry a tall trailing control
+  /// (switches).
+  final double rowPaddingVCompact;
+
+  /// Space between a row's leading icon and its text.
+  final double rowIconGap;
+
+  /// Divider start indent for rows with a leading icon, so the line starts
+  /// under the text instead of under the icon.
+  final double rowIconDividerIndent;
+
+  /// Disclosure chevron shown on navigable rows.
+  final double rowChevronSize;
+
+  /// Minimum content height of a settings row.
+  final double rowMinHeight;
+
+  /// Vertical inset of track rows in feeds, search results and their
+  /// loading skeletons.
+  final double trackRowPaddingV;
+
+  /// Artist line under the title in album/collection headers.
+  final double headerSubtitleSize;
+
+  /// Line height multiplier for synced lyrics.
+  final double lyricsLineHeight;
+
+  /// Vertical space around each synced lyric line.
+  final double lyricsLinePaddingV;
+
+  /// Gap between the previous / play / next transport controls.
+  final double playerControlGap;
+
+  /// Horizontal screen inset of app dialogs.
+  final double dialogInsetH;
+
   BorderRadius get borderRadiusBadge => BorderRadius.circular(radiusBadge);
   BorderRadius get borderRadiusThumb => BorderRadius.circular(radiusThumb);
   BorderRadius get borderRadiusCover => BorderRadius.circular(radiusCover);
@@ -156,6 +211,19 @@ class AppTokens extends ThemeExtension<AppTokens> {
     Duration? motionFast,
     Duration? motionMedium,
     Duration? motionSlow,
+    double? rowPaddingH,
+    double? rowPaddingV,
+    double? rowPaddingVCompact,
+    double? rowIconGap,
+    double? rowIconDividerIndent,
+    double? rowChevronSize,
+    double? rowMinHeight,
+    double? trackRowPaddingV,
+    double? headerSubtitleSize,
+    double? lyricsLineHeight,
+    double? lyricsLinePaddingV,
+    double? playerControlGap,
+    double? dialogInsetH,
   }) {
     return AppTokens(
       radiusBadge: radiusBadge ?? this.radiusBadge,
@@ -183,6 +251,19 @@ class AppTokens extends ThemeExtension<AppTokens> {
       motionFast: motionFast ?? this.motionFast,
       motionMedium: motionMedium ?? this.motionMedium,
       motionSlow: motionSlow ?? this.motionSlow,
+      rowPaddingH: rowPaddingH ?? this.rowPaddingH,
+      rowPaddingV: rowPaddingV ?? this.rowPaddingV,
+      rowPaddingVCompact: rowPaddingVCompact ?? this.rowPaddingVCompact,
+      rowIconGap: rowIconGap ?? this.rowIconGap,
+      rowIconDividerIndent: rowIconDividerIndent ?? this.rowIconDividerIndent,
+      rowChevronSize: rowChevronSize ?? this.rowChevronSize,
+      rowMinHeight: rowMinHeight ?? this.rowMinHeight,
+      trackRowPaddingV: trackRowPaddingV ?? this.trackRowPaddingV,
+      headerSubtitleSize: headerSubtitleSize ?? this.headerSubtitleSize,
+      lyricsLineHeight: lyricsLineHeight ?? this.lyricsLineHeight,
+      lyricsLinePaddingV: lyricsLinePaddingV ?? this.lyricsLinePaddingV,
+      playerControlGap: playerControlGap ?? this.playerControlGap,
+      dialogInsetH: dialogInsetH ?? this.dialogInsetH,
     );
   }
 
@@ -226,6 +307,35 @@ class AppTokens extends ThemeExtension<AppTokens> {
       motionFast: t < 0.5 ? motionFast : other.motionFast,
       motionMedium: t < 0.5 ? motionMedium : other.motionMedium,
       motionSlow: t < 0.5 ? motionSlow : other.motionSlow,
+      rowPaddingH: lerpDouble(rowPaddingH, other.rowPaddingH, t),
+      rowPaddingV: lerpDouble(rowPaddingV, other.rowPaddingV, t),
+      rowPaddingVCompact: lerpDouble(
+        rowPaddingVCompact,
+        other.rowPaddingVCompact,
+        t,
+      ),
+      rowIconGap: lerpDouble(rowIconGap, other.rowIconGap, t),
+      rowIconDividerIndent: lerpDouble(
+        rowIconDividerIndent,
+        other.rowIconDividerIndent,
+        t,
+      ),
+      rowChevronSize: lerpDouble(rowChevronSize, other.rowChevronSize, t),
+      rowMinHeight: lerpDouble(rowMinHeight, other.rowMinHeight, t),
+      trackRowPaddingV: lerpDouble(trackRowPaddingV, other.trackRowPaddingV, t),
+      headerSubtitleSize: lerpDouble(
+        headerSubtitleSize,
+        other.headerSubtitleSize,
+        t,
+      ),
+      lyricsLineHeight: lerpDouble(lyricsLineHeight, other.lyricsLineHeight, t),
+      lyricsLinePaddingV: lerpDouble(
+        lyricsLinePaddingV,
+        other.lyricsLinePaddingV,
+        t,
+      ),
+      playerControlGap: lerpDouble(playerControlGap, other.playerControlGap, t),
+      dialogInsetH: lerpDouble(dialogInsetH, other.dialogInsetH, t),
     );
   }
 

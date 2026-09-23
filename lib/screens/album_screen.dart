@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
+import 'package:spotiflac_android/theme/app_tokens.dart';
 import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/screens/track_history_snapshot.dart';
 import 'package:spotiflac_android/widgets/collection_scaffold.dart';
@@ -514,7 +515,7 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen>
               extensionId: widget.extensionId,
               style: TextStyle(
                 color: colorScheme.primary,
-                fontSize: context.isMornye ? 20 : 16,
+                fontSize: context.tokens.headerSubtitleSize,
                 fontWeight: context.isMornye
                     ? FontWeight.w400
                     : FontWeight.w600,

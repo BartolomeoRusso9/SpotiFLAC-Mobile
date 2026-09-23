@@ -486,7 +486,7 @@ class _TourFeature extends StatelessWidget {
           SizedBox(
             width: 36,
             child: Icon(
-              context.isMornye ? mornyeIconFor(icon) : icon,
+              context.adaptiveIcon(icon),
               size: 28,
               color: theme.colorScheme.primary,
             ),

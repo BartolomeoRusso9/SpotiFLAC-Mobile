@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/theme/app_tokens.dart';
 import 'package:spotiflac_android/theme/mornye_theme.dart';
 
 /// Wraps a child in a staggered fade-in + slide-up animation.
@@ -841,7 +842,7 @@ class HomeSearchSkeleton extends StatelessWidget {
       return Padding(
         padding: EdgeInsets.symmetric(
           horizontal: mornye ? 12 : 16,
-          vertical: mornye ? 12 : 10,
+          vertical: context.tokens.trackRowPaddingV,
         ),
         child: Row(
           children: [

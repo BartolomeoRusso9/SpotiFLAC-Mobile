@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/theme/app_tokens.dart';
 import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/theme/cover_palette.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -395,7 +396,7 @@ class _DownloadedAlbumScreenState extends ConsumerState<DownloadedAlbumScreen>
           color: context.isMornye
               ? colorScheme.primary
               : HeaderPalette.of(context).onSurfaceVariant,
-          fontSize: context.isMornye ? 20 : 16,
+          fontSize: context.tokens.headerSubtitleSize,
           fontWeight: context.isMornye ? FontWeight.w400 : FontWeight.w600,
         ),
         textAlign: TextAlign.center,

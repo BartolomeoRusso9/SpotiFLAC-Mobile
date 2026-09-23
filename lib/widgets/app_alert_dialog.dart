@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/theme/app_tokens.dart';
 import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/widgets/mornye_chrome.dart';
 
@@ -53,7 +54,7 @@ class AppDialogSurface extends StatelessWidget {
       elevation: mornye ? 0 : null,
       shape: shape,
       insetPadding: EdgeInsets.symmetric(
-        horizontal: mornye ? 24 : 40,
+        horizontal: context.tokens.dialogInsetH,
         vertical: 24,
       ),
       child: ConstrainedBox(

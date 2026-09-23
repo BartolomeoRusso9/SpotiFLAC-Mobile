@@ -697,7 +697,7 @@ class _AboutSettingsItem extends StatelessWidget {
                   width: 40,
                   height: 40,
                   child: Icon(
-                    context.isMornye ? mornyeIconFor(icon) : icon,
+                    context.adaptiveIcon(icon),
                     color: context.isMornye
                         ? colorScheme.primary
                         : colorScheme.onSurfaceVariant,

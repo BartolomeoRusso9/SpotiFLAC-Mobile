@@ -15,6 +15,7 @@ import 'package:spotiflac_android/screens/downloaded_album_screen.dart';
 import 'package:spotiflac_android/screens/local_album_screen.dart';
 import 'package:spotiflac_android/services/library_database.dart';
 import 'package:spotiflac_android/services/music_player_service.dart';
+import 'package:spotiflac_android/theme/app_tokens.dart';
 import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/utils/clickable_metadata.dart';
 import 'package:spotiflac_android/utils/file_access.dart';
@@ -2034,7 +2035,7 @@ class _PlaybackControls extends ConsumerWidget {
                 icon: const Icon(Icons.skip_previous),
                 onPressed: controller.previous,
               ),
-            SizedBox(width: mornye ? 12 : 20),
+            SizedBox(width: context.tokens.playerControlGap),
             if (mornye)
               MornyePlaybackButton(
                 icon: isPlaying
@@ -2073,7 +2074,7 @@ class _PlaybackControls extends ConsumerWidget {
                       : () => controller.togglePlayPause(isPlaying),
                 ),
               ),
-            SizedBox(width: mornye ? 12 : 20),
+            SizedBox(width: context.tokens.playerControlGap),
             if (mornye)
               MornyePlaybackButton(
                 icon: CupertinoIcons.forward_fill,
@@ -2496,7 +2497,7 @@ class _SyncedLyricsViewState extends ConsumerState<_SyncedLyricsView> {
                               ? Theme.of(context).textTheme.headlineSmall
                               : Theme.of(context).textTheme.titleLarge)
                           ?.copyWith(
-                            height: mornye ? 1.3 : 1.4,
+                            height: context.tokens.lyricsLineHeight,
                             fontSize: mornye ? 28 : null,
                             fontWeight: mornye || isActive
                                 ? FontWeight.bold
@@ -2543,7 +2544,9 @@ class _SyncedLyricsViewState extends ConsumerState<_SyncedLyricsView> {
 
               return Padding(
                 key: _lineKeys[index],
-                padding: EdgeInsets.symmetric(vertical: mornye ? 16 : 10),
+                padding: EdgeInsets.symmetric(
+                  vertical: context.tokens.lyricsLinePaddingV,
+                ),
                 child: GestureDetector(
                   onTap: () =>
                       ref.read(musicPlayerControllerProvider).seek(line.time),
@@ -2785,7 +2788,7 @@ class _WordHighlightedLyricLineState
         (Theme.of(context).textTheme.headlineSmall ?? const TextStyle())
             .copyWith(
               fontSize: context.isMornye ? 28 : null,
-              height: context.isMornye ? 1.3 : 1.4,
+              height: context.tokens.lyricsLineHeight,
               fontWeight: FontWeight.bold,
             );
     final primary = widget.line.hasWordTiming

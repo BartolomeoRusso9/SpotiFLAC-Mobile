@@ -332,7 +332,7 @@ class _ExtensionDetailsScreenState
         child: Row(
           children: [
             Icon(
-              context.isMornye ? mornyeIconFor(icon) : icon,
+              context.adaptiveIcon(icon),
               size: 20,
               color: colorScheme.primary,
             ),
@@ -768,7 +768,7 @@ class _CapabilityRow extends StatelessWidget {
           child: Row(
             children: [
               Icon(
-                context.isMornye ? mornyeIconFor(icon) : icon,
+                context.adaptiveIcon(icon),
                 size: 20,
                 color: enabled ? colorScheme.primary : colorScheme.outline,
               ),

@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/material.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
 
 /// Cupertino counterparts for the shared Settings and extension UI symbols.
 IconData mornyeIconFor(IconData icon) {
@@ -195,4 +196,9 @@ IconData mornyeIconFor(IconData icon) {
     // numbered download limits. An unrelated gear hides the action's purpose.
     _ => icon,
   };
+}
+
+extension MornyeIconContext on BuildContext {
+  /// [icon] as-is, or its Cupertino counterpart when the Mornye theme is on.
+  IconData adaptiveIcon(IconData icon) => isMornye ? mornyeIconFor(icon) : icon;
 }

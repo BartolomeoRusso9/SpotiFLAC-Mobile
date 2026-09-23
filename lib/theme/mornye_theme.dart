@@ -53,6 +53,19 @@ class MornyeTheme extends ThemeExtension<MornyeTheme> {
     motionFast: const Duration(milliseconds: 180),
     motionMedium: const Duration(milliseconds: 220),
     motionSlow: const Duration(milliseconds: 380),
+    rowPaddingH: 16,
+    rowPaddingV: 10,
+    rowPaddingVCompact: 8,
+    rowIconGap: 12,
+    rowIconDividerIndent: 52,
+    rowChevronSize: 18,
+    rowMinHeight: 28,
+    trackRowPaddingV: 12,
+    headerSubtitleSize: 20,
+    lyricsLineHeight: 1.3,
+    lyricsLinePaddingV: 16,
+    playerControlGap: 12,
+    dialogInsetH: 24,
   );
 
   // Theme construction includes seeded color generation and typography. Reuse

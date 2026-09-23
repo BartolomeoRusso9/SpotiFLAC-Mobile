@@ -709,7 +709,7 @@ class _LanguageSelector extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final content = ListTile(
       leading: Icon(
-        context.isMornye ? mornyeIconFor(Icons.language) : Icons.language,
+        context.adaptiveIcon(Icons.language),
         color: context.isMornye
             ? colorScheme.primary
             : colorScheme.onSurfaceVariant,

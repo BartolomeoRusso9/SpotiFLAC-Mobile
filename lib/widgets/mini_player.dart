@@ -6,6 +6,7 @@ import 'package:spotiflac_android/providers/music_player_provider.dart';
 import 'package:spotiflac_android/providers/player_motion_artwork_provider.dart';
 import 'package:spotiflac_android/providers/player_artwork_video_provider.dart';
 import 'package:spotiflac_android/providers/runtime_profile_provider.dart';
+import 'package:spotiflac_android/theme/app_tokens.dart';
 import 'package:spotiflac_android/theme/mornye_theme.dart';
 import 'package:spotiflac_android/screens/now_playing_screen.dart';
 import 'package:spotiflac_android/utils/string_utils.dart';
@@ -108,8 +109,8 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(6),
                           child: SizedBox(
-                            width: mornye ? 38 : 44,
-                            height: mornye ? 38 : 44,
+                            width: context.tokens.coverMini,
+                            height: context.tokens.coverMini,
                             child: PlayerArtwork(
                               artUri: mediaItem.artUri?.toString(),
                               colorScheme: colorScheme,

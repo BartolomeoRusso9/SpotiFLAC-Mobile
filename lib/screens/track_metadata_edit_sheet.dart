@@ -438,7 +438,7 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
             vertical: 4,
           ),
           leading: Icon(
-            context.isMornye ? mornyeIconFor(icon) : icon,
+            context.adaptiveIcon(icon),
             color: selected ? cs.primary : cs.onSurfaceVariant,
           ),
           title: Text(name, maxLines: 2, overflow: TextOverflow.ellipsis),
@@ -3165,11 +3165,7 @@ class _EditMetadataSheetState extends State<_EditMetadataSheet> {
 
     final headerRow = Row(
       children: [
-        Icon(
-          context.isMornye ? mornyeIconFor(icon) : icon,
-          size: 20,
-          color: cs.primary,
-        ),
+        Icon(context.adaptiveIcon(icon), size: 20, color: cs.primary),
         const SizedBox(width: 10),
         Expanded(
           child: Text(

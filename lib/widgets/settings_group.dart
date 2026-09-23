@@ -296,22 +296,24 @@ class SettingsItem extends StatelessWidget {
           highlightColor: Colors.transparent,
           child: Padding(
             padding: EdgeInsets.symmetric(
-              horizontal: context.isMornye ? 16 : 20,
-              vertical: context.isMornye ? 10 : 16,
+              horizontal: context.tokens.rowPaddingH,
+              vertical: context.tokens.rowPaddingV,
             ),
             child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: context.isMornye ? 28 : 0),
+              constraints: BoxConstraints(
+                minHeight: context.tokens.rowMinHeight,
+              ),
               child: Row(
                 children: [
                   if (icon != null) ...[
                     Icon(
-                      context.isMornye ? mornyeIconFor(icon!) : icon,
+                      context.adaptiveIcon(icon!),
                       color: context.isMornye
                           ? colorScheme.primary
                           : colorScheme.onSurfaceVariant,
                       size: 24,
                     ),
-                    SizedBox(width: context.isMornye ? 12 : 16),
+                    SizedBox(width: context.tokens.rowIconGap),
                   ],
                   Expanded(
                     child: Column(
@@ -359,7 +361,7 @@ class SettingsItem extends StatelessWidget {
                       context.isMornye
                           ? CupertinoIcons.chevron_forward
                           : Icons.chevron_right,
-                      size: context.isMornye ? 18 : 24,
+                      size: context.tokens.rowChevronSize,
                       color: colorScheme.onSurfaceVariant,
                     ),
                   ],
@@ -371,11 +373,10 @@ class SettingsItem extends StatelessWidget {
         if (showDivider)
           Divider(
             height: 1,
-            thickness: context.isMornye ? 0.5 : 1,
-            indent: context.isMornye
-                ? (icon != null ? 52 : 16)
-                : (icon != null ? 56 : 20),
-            endIndent: context.isMornye ? 16 : 20,
+            indent: icon != null
+                ? context.tokens.rowIconDividerIndent
+                : context.tokens.rowPaddingH,
+            endIndent: context.tokens.rowPaddingH,
             color: context.isMornye
                 ? colorScheme.outlineVariant
                 : colorScheme.outlineVariant.withValues(alpha: 0.3),
@@ -424,14 +425,14 @@ class SettingsSwitchItem extends StatelessWidget {
             highlightColor: Colors.transparent,
             child: Padding(
               padding: EdgeInsets.symmetric(
-                horizontal: context.isMornye ? 16 : 20,
-                vertical: context.isMornye ? 8 : 12,
+                horizontal: context.tokens.rowPaddingH,
+                vertical: context.tokens.rowPaddingVCompact,
               ),
               child: Row(
                 children: [
                   if (icon != null) ...[
                     Icon(
-                      context.isMornye ? mornyeIconFor(icon!) : icon,
+                      context.adaptiveIcon(icon!),
                       color: isDisabled
                           ? colorScheme.outline
                           : context.isMornye
@@ -439,7 +440,7 @@ class SettingsSwitchItem extends StatelessWidget {
                           : colorScheme.onSurfaceVariant,
                       size: 24,
                     ),
-                    SizedBox(width: context.isMornye ? 12 : 16),
+                    SizedBox(width: context.tokens.rowIconGap),
                   ],
                   Expanded(
                     child: Column(
@@ -494,11 +495,10 @@ class SettingsSwitchItem extends StatelessWidget {
         if (showDivider)
           Divider(
             height: 1,
-            thickness: context.isMornye ? 0.5 : 1,
-            indent: context.isMornye
-                ? (icon != null ? 52 : 16)
-                : (icon != null ? 56 : 20),
-            endIndent: context.isMornye ? 16 : 20,
+            indent: icon != null
+                ? context.tokens.rowIconDividerIndent
+                : context.tokens.rowPaddingH,
+            endIndent: context.tokens.rowPaddingH,
             color: context.isMornye
                 ? colorScheme.outlineVariant
                 : colorScheme.outlineVariant.withValues(alpha: 0.3),
@@ -608,10 +608,7 @@ class SettingsChoiceChip extends StatelessWidget {
       content = Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            context.isMornye ? mornyeIconFor(icon!) : icon,
-            color: foreground,
-          ),
+          Icon(context.adaptiveIcon(icon!), color: foreground),
           SizedBox(height: tokens.gapXs + 2),
           labelText,
         ],
@@ -620,11 +617,7 @@ class SettingsChoiceChip extends StatelessWidget {
       content = Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            context.isMornye ? mornyeIconFor(icon!) : icon,
-            size: 18,
-            color: foreground,
-          ),
+          Icon(context.adaptiveIcon(icon!), size: 18, color: foreground),
           SizedBox(width: tokens.gapSm),
           Flexible(child: labelText),
         ],

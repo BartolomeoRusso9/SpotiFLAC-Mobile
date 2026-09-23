@@ -92,11 +92,15 @@ class HomeProfileButton extends ConsumerWidget {
     final profile = ref.watch(userProfileProvider).value;
     return IconButton(
       tooltip: context.l10n.settingsTitle,
+      iconSize: 44,
+      padding: const EdgeInsets.all(6),
+      constraints: const BoxConstraints(minWidth: 56, minHeight: 56),
+      visualDensity: VisualDensity.standard,
       onPressed: () => ShellNavigationService.requestTab(ShellTab.settings),
       icon: ProfileAvatar(
         name: profile?.name ?? '',
         photoPath: profile?.photoPath,
-        size: 34,
+        size: 44,
       ),
     );
   }
